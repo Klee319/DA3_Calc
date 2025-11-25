@@ -1268,45 +1268,99 @@ export default function BuildPage() {
 
               {showAdvancedSettings && (
                 <div className="space-y-6 animate-fadeIn">
-                  {/* 武器固有能力 */}
+                  {/* 再帰収束計算ON/OFF */}
                   <div>
                     <label className="flex items-center cursor-pointer">
                       <input
                         type="checkbox"
-                        checked={weaponSkillEnabled}
-                        onChange={(e) => toggleWeaponSkill(e.target.checked)}
+                        checked={userOption.recursiveEnabled || false}
+                        onChange={(e) => setUserOption({
+                          ...userOption,
+                          recursiveEnabled: e.target.checked,
+                        })}
                         className="checkbox-primary mr-3"
                       />
-                      <span className="text-gray-700 dark:text-gray-300 font-medium">武器固有能力</span>
+                      <span className="text-gray-700 dark:text-gray-300 font-medium">再帰収束計算</span>
+                      <span className="text-xs text-gray-500 ml-2">（%ボーナスを変化が1未満になるまで繰り返し適用）</span>
                     </label>
                   </div>
 
-                  {/* 手動ステータス調整 */}
+                  {/* 手動追加ステータス（固定値） */}
                   <div>
                     <h3 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-3">
-                      手動ステータス調整
+                      手動追加ステータス（固定値）
                     </h3>
-                    <div className="grid grid-cols-2 gap-3">
-                      {(['ATK', 'MATK', 'DEF', 'MDEF', 'HP', 'MP'] as const).map(stat => (
-                        <div key={stat} className="flex items-center">
-                          <label className="text-sm text-gray-600 dark:text-gray-400 w-16">
-                            {stat}:
+                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                      {([
+                        { key: 'HP', label: '体力' },
+                        { key: 'ATK', label: '力' },
+                        { key: 'MATK', label: '魔力' },
+                        { key: 'DEF', label: '守備力' },
+                        { key: 'MDEF', label: '精神' },
+                        { key: 'AGI', label: '素早さ' },
+                        { key: 'DEX', label: '器用さ' },
+                        { key: 'HIT', label: '撃力' },
+                      ] as const).map(stat => (
+                        <div key={stat.key} className="flex items-center">
+                          <label className="text-sm text-gray-600 dark:text-gray-400 w-16 truncate">
+                            {stat.label}:
                           </label>
                           <input
                             type="number"
-                            className="input-secondary w-24"
-                            value={userOption.manualStats[stat] || 0}
+                            className="input-secondary w-20"
+                            value={userOption.manualStats[stat.key] || 0}
                             onChange={(e) => {
                               const value = parseInt(e.target.value) || 0;
                               setUserOption({
                                 ...userOption,
                                 manualStats: {
                                   ...userOption.manualStats,
-                                  [stat]: value,
+                                  [stat.key]: value,
                                 },
                               });
                             }}
                           />
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* ユーザー指定%ボーナス */}
+                  <div>
+                    <h3 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-3">
+                      %ボーナス（職業・紋章補正とは別）
+                    </h3>
+                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                      {([
+                        { key: 'HP', label: '体力' },
+                        { key: 'ATK', label: '力' },
+                        { key: 'MATK', label: '魔力' },
+                        { key: 'DEF', label: '守備力' },
+                        { key: 'MDEF', label: '精神' },
+                        { key: 'AGI', label: '素早さ' },
+                        { key: 'DEX', label: '器用さ' },
+                        { key: 'HIT', label: '撃力' },
+                      ] as const).map(stat => (
+                        <div key={stat.key} className="flex items-center">
+                          <label className="text-sm text-gray-600 dark:text-gray-400 w-16 truncate">
+                            {stat.label}:
+                          </label>
+                          <input
+                            type="number"
+                            className="input-secondary w-16"
+                            value={userOption.percentBonus?.[stat.key] || 0}
+                            onChange={(e) => {
+                              const value = parseInt(e.target.value) || 0;
+                              setUserOption({
+                                ...userOption,
+                                percentBonus: {
+                                  ...userOption.percentBonus,
+                                  [stat.key]: value,
+                                },
+                              });
+                            }}
+                          />
+                          <span className="text-sm text-gray-500 ml-1">%</span>
                         </div>
                       ))}
                     </div>

@@ -228,8 +228,14 @@ export interface StatusCalcInput {
   // 食べ物
   food?: StatBlock;
 
-  // 高度設定
+  // 高度設定（固定値加算）
   userOption?: StatBlock;
+
+  // ユーザー指定%ボーナス（職業・紋章補正とは別）
+  userPercentBonus?: StatBlock;
+
+  // 再帰収束計算ON/OFF
+  recursiveEnabled?: boolean;
 
   // リング設定
   ring?: {

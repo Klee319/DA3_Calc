@@ -138,13 +138,30 @@ export function calculateStatus(
       baseAfterPercent = result;
     }
 
-    // 3. リング収束計算（有効な場合）
-    let finalStats = baseAfterPercent;
+    // 3. ユーザー指定%ボーナス計算（職業・紋章補正とは別）
+    let afterUserPercent = baseAfterPercent;
+    let userPercentResult = undefined;
+
+    if (input.userPercentBonus) {
+      const convergence = applyUserPercentBonus(
+        baseAfterPercent,
+        input.userPercentBonus,
+        input.recursiveEnabled || false
+      );
+      afterUserPercent = convergence.final;
+      userPercentResult = {
+        iterations: convergence.iterations,
+        delta: convergence.delta
+      };
+    }
+
+    // 4. リング収束計算（有効な場合）
+    let finalStats = afterUserPercent;
     let ringResult = undefined;
 
     if (input.ring?.enabled && input.ring?.bonusPercent) {
       const convergence = applyRingConvergence(
-        baseAfterPercent,
+        afterUserPercent,
         input.ring.bonusPercent
       );
       finalStats = convergence.final;
@@ -154,7 +171,7 @@ export function calculateStatus(
       };
     }
 
-    // 4. 会心率計算（仕様書に従って器用=UserCritRateを使用）
+    // 5. 会心率計算（仕様書に従って器用=UserCritRateを使用）
     const weaponCritRate = input.weaponCritRate || 0;
     const userCritRate = (finalStats as any).UserCritRate || (finalStats as any).CritRate ||
                         (finalStats as any).DEX || (finalStats as any).Dex ||
@@ -363,6 +380,106 @@ export function applyRingConvergence(
     }
 
     current = next;
+  }
+
+  // 変化量を計算
+  const delta: StatBlock = {};
+  for (const key in current) {
+    const baseValue = (base as any)[key] || 0;
+    const finalValue = (current as any)[key] || 0;
+    (delta as any)[key] = finalValue - baseValue;
+  }
+
+  return {
+    final: current,
+    iterations,
+    delta
+  };
+}
+
+/**
+ * ユーザー指定%ボーナスの再帰収束計算
+ * 変化が1未満になるまで繰り返す
+ *
+ * @param base 基礎ステータス（%補正適用前）
+ * @param percentBonus ユーザー指定%ボーナス
+ * @param recursive 再帰計算を行うかどうか
+ * @param maxIterations 最大反復回数
+ * @returns 収束後のステータス、反復回数、変化量
+ */
+export function applyUserPercentBonus(
+  base: StatBlock,
+  percentBonus: StatBlock,
+  recursive: boolean = false,
+  maxIterations: number = 100
+): { final: StatBlock; iterations: number; delta: StatBlock } {
+  // %ボーナスがない場合はそのまま返す
+  const hasBonus = Object.values(percentBonus).some(v => v && v !== 0);
+  if (!hasBonus) {
+    return {
+      final: cloneStats(base),
+      iterations: 0,
+      delta: {}
+    };
+  }
+
+  let current = cloneStats(base);
+  let iterations = 0;
+
+  if (!recursive) {
+    // 非再帰: 1回だけ%を適用
+    const next: StatBlock = {};
+    const allKeys = new Set([
+      ...Object.keys(current),
+      ...Object.keys(percentBonus)
+    ]);
+
+    for (const key of Array.from(allKeys)) {
+      const currentValue = (current as any)[key] || 0;
+      const bonusValue = (percentBonus as any)[key] || 0;
+      (next as any)[key] = round(currentValue * (1 + bonusValue / 100));
+    }
+
+    const delta: StatBlock = {};
+    for (const key in next) {
+      const baseValue = (base as any)[key] || 0;
+      const finalValue = (next as any)[key] || 0;
+      (delta as any)[key] = finalValue - baseValue;
+    }
+
+    return { final: next, iterations: 1, delta };
+  }
+
+  // 再帰計算: 変化が1未満になるまで繰り返す
+  for (let i = 0; i < maxIterations; i++) {
+    iterations++;
+
+    const next: StatBlock = {};
+    const allKeys = new Set([
+      ...Object.keys(current),
+      ...Object.keys(percentBonus)
+    ]);
+
+    let maxChange = 0;
+
+    for (const key of Array.from(allKeys)) {
+      const currentValue = (current as any)[key] || 0;
+      const bonusValue = (percentBonus as any)[key] || 0;
+      const newValue = round(currentValue * (1 + bonusValue / 100));
+      (next as any)[key] = newValue;
+
+      const change = Math.abs(newValue - currentValue);
+      if (change > maxChange) {
+        maxChange = change;
+      }
+    }
+
+    current = next;
+
+    // 最大変化が1未満なら収束
+    if (maxChange < 1) {
+      break;
+    }
   }
 
   // 変化量を計算

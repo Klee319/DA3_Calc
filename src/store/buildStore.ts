@@ -155,8 +155,12 @@ const initialBuild = (): CharacterBuild => ({
 
 // UserOptionの型定義
 export interface UserOption {
-  // 手動ステータス調整値
+  // 手動ステータス調整値（固定値）
   manualStats: Partial<Record<StatType, number>>;
+  // ユーザー指定%ボーナス（職業・紋章補正とは別）
+  percentBonus: Partial<Record<StatType, number>>;
+  // 再帰収束計算ON/OFF（ONの場合、変化が1未満になるまで%を再帰適用）
+  recursiveEnabled: boolean;
 }
 
 // RingOption の型定義
@@ -307,6 +311,8 @@ export const useBuildStore = create<BuildState>((set, get) => ({
   gameData: {},
   userOption: {
     manualStats: {},
+    percentBonus: {},
+    recursiveEnabled: false,
   },
   ringOption: {
     enabled: false,
@@ -864,6 +870,7 @@ export const useBuildStore = create<BuildState>((set, get) => ({
             case 'MDEF': statKey = 'Mind'; break;
             case 'DEX': statKey = 'Dex'; break;
             case 'AGI': statKey = 'Agility'; break;
+            case 'HIT': statKey = 'CritDamage'; break;  // 撃力
             default: statKey = key;
           }
           if (value) {
@@ -876,6 +883,26 @@ export const useBuildStore = create<BuildState>((set, get) => ({
           bonusPercent: {} // リングデータから計算（実装が必要）
         } : undefined,
         weaponCritRate: weaponCritRateValue,
+        // ユーザー指定%ボーナス（職業・紋章補正とは別）
+        userPercentBonus: Object.entries(userOption.percentBonus || {}).reduce((acc, [key, value]) => {
+          let statKey = '';
+          switch(key) {
+            case 'HP': statKey = 'HP'; break;
+            case 'ATK': statKey = 'Power'; break;
+            case 'MATK': statKey = 'Magic'; break;
+            case 'DEF': statKey = 'Defense'; break;
+            case 'MDEF': statKey = 'Mind'; break;
+            case 'DEX': statKey = 'Dex'; break;
+            case 'AGI': statKey = 'Agility'; break;
+            case 'HIT': statKey = 'CritDamage'; break;
+            default: statKey = key;
+          }
+          if (value) {
+            acc[statKey as keyof StatBlock] = value;
+          }
+          return acc;
+        }, {} as StatBlock),
+        recursiveEnabled: userOption.recursiveEnabled || false,
         // 紋章ボーナスを計算（%補正として適用）
         // 内部キー形式（Power, Magic, HP, Mind, Agility, Dex, CritDamage, Defense）を使用
         emblemBonusPercent: selectedEmblem ? {
