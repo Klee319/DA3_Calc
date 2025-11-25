@@ -125,6 +125,11 @@ export const EquipmentSlot: React.FC<EquipmentSlotProps> = ({
 
   // ステータス名を日本語に変換
   const getStatDisplayName = (stat: string): string => {
+    // 武器の場合、DEXは会心ダメージを表す
+    if (slot === 'weapon' && stat === 'DEX') {
+      return '会心ダメージ';
+    }
+
     const names: Record<string, string> = {
       ATK: '攻撃力',
       DEF: '守備力',
@@ -133,6 +138,7 @@ export const EquipmentSlot: React.FC<EquipmentSlotProps> = ({
       AGI: '素早さ',
       DEX: '器用',
       CRI: '会心率',
+      CRITD: '会心ダメージ',
       HP: '体力',
       MP: 'MP',
       HIT: '命中',
