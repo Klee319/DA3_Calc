@@ -466,8 +466,14 @@ export const useBuildStore = create<BuildState>((set, get) => ({
         const weaponData = weaponEquipment.sourceData.data;
         const rank = (weaponEquipment.rank || 'SSS') as import('@/lib/calc/equipmentCalculator').WeaponRank;
         const reinforcement = weaponEquipment.enhancementLevel || 0;
-        // 武器の叩き回数は攻撃力用として取得（武器は通常攻撃力叩きのみ）
-        const hammerCount = weaponEquipment.smithingCount || 0;
+        // 武器の叩き回数（パラメータ別）
+        const weaponSmithingCounts = weaponEquipment.smithingCounts || {};
+        // 日本語キーから英語キーに変換
+        const hammerCounts: import('@/lib/calc/equipmentCalculator').WeaponSmithingCounts = {
+          attackPower: (weaponSmithingCounts as Record<string, number>)['攻撃力'] || 0,
+          critRate: (weaponSmithingCounts as Record<string, number>)['会心率'] || 0,
+          critDamage: (weaponSmithingCounts as Record<string, number>)['会心ダメージ'] || 0,
+        };
         const alchemyEnabled = weaponEquipment.alchemyEnabled || false;
 
         // 武器ステータスを計算
@@ -475,7 +481,7 @@ export const useBuildStore = create<BuildState>((set, get) => ({
           weaponData,
           rank,
           reinforcement,
-          hammerCount,
+          hammerCounts,
           alchemyEnabled,
           gameData.eqConst as import('@/types/data').EqConstData,
           gameData.userStatusCalc

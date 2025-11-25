@@ -30,6 +30,15 @@ export type EquipmentRank = 'SSS' | 'SS' | 'S' | 'A' | 'B' | 'C' | 'D' | 'E' | '
 export type WeaponRank = EquipmentRank;
 
 /**
+ * 武器叩き回数（パラメータ別）
+ */
+export interface WeaponSmithingCounts {
+  attackPower?: number;  // 攻撃力
+  critRate?: number;     // 会心率
+  critDamage?: number;   // 会心ダメージ
+}
+
+/**
  * ステータスブロック
  */
 export interface StatBlock {
@@ -173,11 +182,20 @@ export function calculateWeaponStats(
   weapon: WeaponData,
   rank: WeaponRank,
   forgeCount: number,
-  hammerCount: number,
+  hammerCount: number | WeaponSmithingCounts,
   alchemyEnabled: boolean,
   eqConst: EqConstData,
   userStatusCalc?: UserStatusCalcData
 ): EquipmentStats {
+  // 叩き回数を正規化（後方互換性のため単一数値もサポート）
+  const smithingCounts: WeaponSmithingCounts = typeof hammerCount === 'number'
+    ? { attackPower: hammerCount, critRate: hammerCount, critDamage: hammerCount }
+    : hammerCount;
+
+  const attackPowerSmithing = smithingCounts.attackPower || 0;
+  const critRateSmithing = smithingCounts.critRate || 0;
+  const critDamageSmithing = smithingCounts.critDamage || 0;
+
   // バリデーション
   if (!validateRank(rank, weapon.最低ランク, weapon.最高ランク)) {
     throw new Error(`Invalid rank ${rank} for weapon ${weapon.アイテム名}`);
@@ -187,8 +205,9 @@ export function calculateWeaponStats(
     throw new Error('Reinforcement must be between 0 and 80');
   }
 
-  if (hammerCount < 0 || hammerCount > 999) {
-    throw new Error('Hammer count must be between 0 and 999');
+  const totalSmithing = attackPowerSmithing + critRateSmithing + critDamageSmithing;
+  if (totalSmithing < 0 || totalSmithing > 999) {
+    throw new Error('Total smithing count must be between 0 and 999');
   }
 
   // F基準値の計算（最低ランク指定時）
@@ -247,9 +266,9 @@ export function calculateWeaponStats(
       'Forge.AttackP': eqConst.Weapon.Forge?.Other || 1,
       'Forge.CritR': eqConst.Weapon.Forge?.Other || 1,
       'Forge.CritD': eqConst.Weapon.Forge?.Other || 1,
-      'ForgeAttackPAmount': hammerCount,
-      'ForgeCritRAmount': hammerCount,
-      'ForgeCritDAmount': hammerCount,
+      'ForgeAttackPAmount': attackPowerSmithing,
+      'ForgeCritRAmount': critRateSmithing,
+      'ForgeCritDAmount': critDamageSmithing,
       // その他
       'AvailableLv': weapon.使用可能Lv,
       'Denominator': (eqConst.Weapon.Reinforcement as any)?.Denominator || 320,
@@ -266,7 +285,7 @@ export function calculateWeaponStats(
           (rankBonus.AttackP || 0) +
           (alchemyBonus.AttackP || 0) +
           variables['Reinforcement.AttackP'] * forgeCount +
-          variables['Forge.AttackP'] * hammerCount;
+          variables['Forge.AttackP'] * attackPowerSmithing;
       }
 
       // 会心率計算
@@ -277,7 +296,7 @@ export function calculateWeaponStats(
           (rankBonus.CritR || 0) +
           (alchemyBonus.CritR || 0) +
           variables['Reinforcement.CritR'] * forgeCount +
-          variables['Forge.CritR'] * hammerCount;
+          variables['Forge.CritR'] * critRateSmithing;
       }
 
       // 会心ダメージ計算
@@ -288,7 +307,7 @@ export function calculateWeaponStats(
           (rankBonus.CritD || 0) +
           (alchemyBonus.CritD || 0) +
           variables['Reinforcement.CritD'] * forgeCount +
-          variables['Forge.CritD'] * hammerCount;
+          variables['Forge.CritD'] * critDamageSmithing;
       }
 
       // クールタイム計算
@@ -305,17 +324,19 @@ export function calculateWeaponStats(
         (rankBonus.AttackP || 0) +
         (alchemyBonus.AttackP || 0) +
         ((eqConst.Weapon.Reinforcement as any)?.AttackP || 2) * forgeCount +
-        (eqConst.Weapon.Forge?.Other || 1) * hammerCount;
+        (eqConst.Weapon.Forge?.Other || 1) * attackPowerSmithing;
 
       critRate = baseCritR +
         (rankBonus.CritR || 0) +
         (alchemyBonus.CritR || 0) +
-        ((eqConst.Weapon.Reinforcement as any)?.CritR || 0) * forgeCount;
+        ((eqConst.Weapon.Reinforcement as any)?.CritR || 0) * forgeCount +
+        (eqConst.Weapon.Forge?.Other || 1) * critRateSmithing;
 
       critDamage = baseCritD +
         (rankBonus.CritD || 0) +
         (alchemyBonus.CritD || 0) +
-        ((eqConst.Weapon.Reinforcement as any)?.CritD || 1) * forgeCount;
+        ((eqConst.Weapon.Reinforcement as any)?.CritD || 1) * forgeCount +
+        (eqConst.Weapon.Forge?.Other || 1) * critDamageSmithing;
 
       coolTime = baseCoolT + (rankBonus.CoolT || 0);
     }
@@ -326,17 +347,19 @@ export function calculateWeaponStats(
       (rankBonus.AttackP || 0) +
       (alchemyBonus.AttackP || 0) +
       ((eqConst.Weapon.Reinforcement as any)?.AttackP || 2) * forgeCount +
-      (eqConst.Weapon.Forge?.Other || 1) * hammerCount;
+      (eqConst.Weapon.Forge?.Other || 1) * attackPowerSmithing;
 
     critRate = baseCritR +
       (rankBonus.CritR || 0) +
       (alchemyBonus.CritR || 0) +
-      ((eqConst.Weapon.Reinforcement as any)?.CritR || 0) * forgeCount;
+      ((eqConst.Weapon.Reinforcement as any)?.CritR || 0) * forgeCount +
+      (eqConst.Weapon.Forge?.Other || 1) * critRateSmithing;
 
     critDamage = baseCritD +
       (rankBonus.CritD || 0) +
       (alchemyBonus.CritD || 0) +
-      ((eqConst.Weapon.Reinforcement as any)?.CritD || 1) * forgeCount;
+      ((eqConst.Weapon.Reinforcement as any)?.CritD || 1) * forgeCount +
+      (eqConst.Weapon.Forge?.Other || 1) * critDamageSmithing;
 
     coolTime = baseCoolT + (rankBonus.CoolT || 0);
   }
@@ -365,7 +388,9 @@ export function calculateWeaponStats(
       critDamage: ((eqConst.Weapon.Reinforcement as any)?.CritD || 1) * forgeCount,
     },
     forge: {
-      attackPower: (eqConst.Weapon.Forge?.Other || 1) * hammerCount,
+      attackPower: (eqConst.Weapon.Forge?.Other || 1) * attackPowerSmithing,
+      critRate: (eqConst.Weapon.Forge?.Other || 1) * critRateSmithing,
+      critDamage: (eqConst.Weapon.Forge?.Other || 1) * critDamageSmithing,
     },
     alchemy: alchemyEnabled ? {
       attackPower: alchemyBonus.AttackP || 0,
