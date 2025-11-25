@@ -138,6 +138,7 @@ function validateRank(rank: EquipmentRank, minRank?: string, maxRank?: string): 
 /**
  * 武器のF基準値を逆算
  * 仕様書 §2.2.3: 最低ランク指定時のF基準逆算
+ * 攻撃力は整数値に丸める
  */
 function calculateWeaponFValue(
   csvValue: number,
@@ -149,9 +150,16 @@ function calculateWeaponFValue(
   if (!rankData || !rankData.Bonus) {
     return csvValue;
   }
-  
+
   const bonus = rankData.Bonus[statType] || 0;
-  return csvValue - bonus;
+  const fValue = csvValue - bonus;
+
+  // 攻撃力は整数値に丸める
+  if (statType === 'AttackP') {
+    return Math.floor(fValue);
+  }
+
+  return fValue;
 }
 
 // ===== 1. 武器計算 =====

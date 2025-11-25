@@ -32,8 +32,8 @@ const STAT_TO_SMITHING_PARAM: Partial<Record<StatType, SmithingParamType>> = {
   DEF: '守備力',
 };
 
-// 最大叩き回数
-const MAX_SMITHING_COUNT = 12;
+// 最大叩き回数（合計上限）
+const MAX_TOTAL_SMITHING_COUNT = 12;
 
 // デフォルト値（YAMLがロードされていない場合のフォールバック）
 const DEFAULT_SMITHING_BONUS = {
@@ -127,6 +127,12 @@ interface EquipmentSlotProps {
 
 const RANKS = ['SSS', 'SS', 'S', 'A', 'B', 'C', 'D', 'E', 'F'];
 
+// ランクインデックスを取得する関数
+const getRankIndex = (rank: string): number => {
+  const index = RANKS.indexOf(rank);
+  return index === -1 ? RANKS.length - 1 : index;  // 見つからない場合は最下位(F)
+};
+
 export const EquipmentSlot: React.FC<EquipmentSlotProps> = ({
   slot,
   equipment,
@@ -175,6 +181,76 @@ export const EquipmentSlot: React.FC<EquipmentSlotProps> = ({
 
   // 防具スロットかどうか
   const isArmorSlot = ['head', 'body', 'leg'].includes(slot);
+
+  // 武器の制約判定
+  const weaponRestrictions = useMemo(() => {
+    if (slot !== 'weapon' || !equipment || !equipment.sourceData || equipment.sourceData.type !== 'weapon') {
+      return { canSmith: true, isVerification: false, minRank: null, maxRank: null };
+    }
+
+    const weaponData = equipment.sourceData.data;
+
+    // 制作フラグを判定（TRUE/FALSE文字列）
+    const canSmith = weaponData.制作?.toString().toUpperCase() === 'TRUE';
+
+    // 検証武器かどうか（名前に「検証」を含む）
+    const isVerification = weaponData.アイテム名.includes('検証');
+
+    // ランク範囲
+    const minRank = weaponData.最低ランク || null;
+    const maxRank = weaponData.最高ランク || null;
+
+    return { canSmith, isVerification, minRank, maxRank };
+  }, [slot, equipment]);
+
+  // 防具・アクセサリーのランク制約判定
+  const equipmentRankRestrictions = useMemo(() => {
+    if (!equipment || !equipment.sourceData) {
+      return { minRank: null, maxRank: null };
+    }
+
+    const sourceData = equipment.sourceData;
+    if (sourceData.type === 'armor') {
+      return {
+        minRank: sourceData.data.最低ランク || null,
+        maxRank: sourceData.data.最高ランク || null,
+      };
+    }
+    if (sourceData.type === 'accessory') {
+      return {
+        minRank: sourceData.data.最低ランク || null,
+        maxRank: sourceData.data.最高ランク || null,
+      };
+    }
+    return { minRank: null, maxRank: null };
+  }, [equipment]);
+
+  // 利用可能なランク一覧を計算
+  const availableRanks = useMemo(() => {
+    let minRank: string | null = null;
+    let maxRank: string | null = null;
+
+    if (slot === 'weapon') {
+      minRank = weaponRestrictions.minRank;
+      maxRank = weaponRestrictions.maxRank;
+    } else {
+      minRank = equipmentRankRestrictions.minRank;
+      maxRank = equipmentRankRestrictions.maxRank;
+    }
+
+    // 範囲指定がない場合はすべてのランクを返す
+    if (!minRank && !maxRank) {
+      return RANKS;
+    }
+
+    // 最低ランクのインデックス（指定がなければSSS=0）
+    const minIndex = minRank ? getRankIndex(minRank) : 0;
+    // 最高ランクのインデックス（指定がなければF=8）
+    const maxIndex = maxRank ? getRankIndex(maxRank) : RANKS.length - 1;
+
+    // 範囲内のランクをフィルタ
+    return RANKS.filter((_, index) => index >= minIndex && index <= maxIndex);
+  }, [slot, weaponRestrictions, equipmentRankRestrictions]);
 
   // 装備からタイプを取得する関数
   const getArmorTypeFromEquipment = (eq: Equipment): ArmorMaterialType | null => {
@@ -264,11 +340,25 @@ export const EquipmentSlot: React.FC<EquipmentSlotProps> = ({
     return Object.values(smithingCounts).reduce((sum, count) => sum + (count || 0), 0);
   }, [smithingCounts]);
 
-  // 叩き回数変更ハンドラ
+  // 叩き回数変更ハンドラ（合計上限を考慮）
   const handleSmithingCountChange = (param: SmithingParamType, value: number) => {
-    const newCounts = { ...smithingCounts, [param]: value };
+    // 現在のパラメータ以外の合計を計算
+    const otherTotal = Object.entries(smithingCounts)
+      .filter(([key]) => key !== param)
+      .reduce((sum, [, count]) => sum + (count || 0), 0);
+
+    // 新しい値が上限を超えないように制限
+    const maxAllowedForParam = MAX_TOTAL_SMITHING_COUNT - otherTotal;
+    const adjustedValue = Math.min(value, maxAllowedForParam);
+
+    const newCounts = { ...smithingCounts, [param]: adjustedValue };
     onSmithingCountsChange?.(newCounts);
   };
+
+  // 残り叩き回数を計算
+  const remainingSmithingCount = useMemo(() => {
+    return MAX_TOTAL_SMITHING_COUNT - totalSmithingCount;
+  }, [totalSmithingCount]);
 
   const getSlotDisplayName = (): string => {
     const slotNames: Record<EquipSlot, string> = {
@@ -391,8 +481,13 @@ export const EquipmentSlot: React.FC<EquipmentSlotProps> = ({
     const weaponRankBonus = getWeaponRankBonus(rank);
     const alchemyBonus = getAlchemyBonus(rank);
 
+    // 武器の最低ランクボーナスを取得（F値逆算用）
+    const minRankBonus = weaponRestrictions.minRank && weaponRestrictions.minRank !== 'F'
+      ? getWeaponRankBonus(weaponRestrictions.minRank)
+      : { attackP: 0, critR: 0, critD: 0 };
+
     return equipment.baseStats.map(stat => {
-      const baseValue = stat.value;
+      let baseValue = stat.value;
       let finalValue = baseValue;
       let rankBonus = 0;
       let enhanceBonus = 0;
@@ -400,33 +495,59 @@ export const EquipmentSlot: React.FC<EquipmentSlotProps> = ({
       let alchemyBonusValue = 0;
 
       if (slot === 'weapon') {
+        // 検証武器の場合、錬金以外の強化は適用しない
+        const isVerificationWeapon = weaponRestrictions.isVerification;
+
+        // F値逆算：最低ランクがF以外の場合、CSVの値からそのランクのボーナスを引いてF値を算出
+        let fBaseValue = baseValue;
+        if (weaponRestrictions.minRank && weaponRestrictions.minRank !== 'F') {
+          if (stat.stat === 'ATK') {
+            fBaseValue = Math.floor(baseValue - minRankBonus.attackP);  // 攻撃力は整数
+          } else if (stat.stat === 'CRI') {
+            fBaseValue = baseValue - minRankBonus.critR;
+          } else if (stat.stat === 'DEX') {
+            fBaseValue = baseValue - minRankBonus.critD;
+          }
+        }
+
         // 武器計算（smithingCountsからパラメータ別に取得）
         const weaponSmithingCounts = smithingCounts as Record<string, number>;
         if (stat.stat === 'ATK') {
+          // 選択されたランクのボーナスを適用
           rankBonus = weaponRankBonus.attackP;
-          enhanceBonus = enhancementLevel * 2;
-          smithingBonus = (weaponSmithingCounts['攻撃力'] || 0) * WEAPON_SMITHING_BONUS;
-          // 錬金ボーナス（有効な場合のみ）
+          // 検証武器でなければ強化と叩きを適用
+          if (!isVerificationWeapon) {
+            enhanceBonus = enhancementLevel * 2;
+            smithingBonus = weaponRestrictions.canSmith ? (weaponSmithingCounts['攻撃力'] || 0) * WEAPON_SMITHING_BONUS : 0;
+          }
+          // 錬金ボーナス（有効な場合のみ）- 検証武器でも適用可能
           if (hasAlchemy) {
             alchemyBonusValue = alchemyBonus.attackP;
           }
+          baseValue = fBaseValue;  // 表示用のベース値をF値に更新
         } else if (stat.stat === 'CRI') {
           rankBonus = weaponRankBonus.critR;
-          // 強化ボーナス: 2lvにつき+1
-          enhanceBonus = Math.floor(enhancementLevel / 2);
-          smithingBonus = (weaponSmithingCounts['会心率'] || 0) * WEAPON_SMITHING_BONUS;
+          if (!isVerificationWeapon) {
+            // 強化ボーナス: 2lvにつき+1
+            enhanceBonus = Math.floor(enhancementLevel / 2);
+            smithingBonus = weaponRestrictions.canSmith ? (weaponSmithingCounts['会心率'] || 0) * WEAPON_SMITHING_BONUS : 0;
+          }
           // 錬金ボーナス（有効な場合のみ）
           if (hasAlchemy) {
             alchemyBonusValue = alchemyBonus.critR;
           }
+          baseValue = fBaseValue;
         } else if (stat.stat === 'DEX') {
           rankBonus = weaponRankBonus.critD;
-          enhanceBonus = enhancementLevel * 1;
-          smithingBonus = (weaponSmithingCounts['会心ダメージ'] || 0) * WEAPON_SMITHING_BONUS;
+          if (!isVerificationWeapon) {
+            enhanceBonus = enhancementLevel * 1;
+            smithingBonus = weaponRestrictions.canSmith ? (weaponSmithingCounts['会心ダメージ'] || 0) * WEAPON_SMITHING_BONUS : 0;
+          }
           // 錬金ボーナス（有効な場合のみ）
           if (hasAlchemy) {
             alchemyBonusValue = alchemyBonus.critD;
           }
+          baseValue = fBaseValue;
         }
       } else if (['head', 'body', 'leg'].includes(slot)) {
         // 防具計算（equipmentCalculator.tsと同じ計算式を使用）
@@ -489,18 +610,18 @@ export const EquipmentSlot: React.FC<EquipmentSlotProps> = ({
     return colors[selectedRank] || '';
   };
 
-  // ランク選択用のオプション生成
-  const rankOptions: CustomSelectOption[] = RANKS.map(r => ({
+  // ランク選択用のオプション生成（利用可能なランクのみ）
+  const rankOptions: CustomSelectOption[] = availableRanks.map(r => ({
     value: r,
     label: r,
-    description: r === 'SSS' ? '最高ランク' : r === 'F' ? '初期ランク' : undefined,
+    description: r === availableRanks[0] ? '最高ランク' : r === availableRanks[availableRanks.length - 1] ? '最低ランク' : undefined,
   }));
 
   // 叩き回数選択用のオプション生成（0〜12）
-  const smithingOptions: CustomSelectOption[] = Array.from({ length: MAX_SMITHING_COUNT + 1 }, (_, i) => ({
+  const smithingOptions: CustomSelectOption[] = Array.from({ length: MAX_TOTAL_SMITHING_COUNT + 1 }, (_, i) => ({
     value: i.toString(),
     label: `${i}回`,
-    description: i === 0 ? '未強化' : i === MAX_SMITHING_COUNT ? '最大強化' : undefined,
+    description: i === 0 ? '未強化' : i === MAX_TOTAL_SMITHING_COUNT ? '最大強化' : undefined,
   }));
 
   // 頭・胴・脚防具で叩き機能が使えるかどうか
@@ -644,9 +765,10 @@ export const EquipmentSlot: React.FC<EquipmentSlotProps> = ({
                   <label className="text-sm font-medium text-orange-300">
                     叩き回数（パラメータ別）
                   </label>
-                  <span className="text-xs text-orange-400">
-                    合計: {totalSmithingCount}回
-                  </span>
+                  <div className="text-xs text-orange-400 space-x-2">
+                    <span>合計: {totalSmithingCount}回</span>
+                    <span className="text-gray-500">/ 残り: {remainingSmithingCount}回</span>
+                  </div>
                 </div>
 
                 <div className="space-y-3">
@@ -654,6 +776,8 @@ export const EquipmentSlot: React.FC<EquipmentSlotProps> = ({
                     const count = smithingCounts[param] || 0;
                     const bonusPerCount = param === '守備力' ? SMITHING_BONUS.Defence : SMITHING_BONUS.Other;
                     const totalBonus = count * bonusPerCount;
+                    // このパラメータの最大値 = 現在の値 + 残り回数
+                    const maxForParam = count + remainingSmithingCount;
 
                     return (
                       <div key={param} className="flex items-center gap-3">
@@ -664,7 +788,7 @@ export const EquipmentSlot: React.FC<EquipmentSlotProps> = ({
                           <input
                             type="range"
                             min={0}
-                            max={MAX_SMITHING_COUNT}
+                            max={maxForParam}
                             value={count}
                             onChange={(e) => handleSmithingCountChange(param, parseInt(e.target.value, 10))}
                             disabled={disabled}
@@ -677,12 +801,12 @@ export const EquipmentSlot: React.FC<EquipmentSlotProps> = ({
                             value={count}
                             onChange={(e) => {
                               const val = parseInt(e.target.value, 10);
-                              if (!isNaN(val) && val >= 0 && val <= MAX_SMITHING_COUNT) {
+                              if (!isNaN(val) && val >= 0 && val <= maxForParam) {
                                 handleSmithingCountChange(param, val);
                               }
                             }}
                             min={0}
-                            max={MAX_SMITHING_COUNT}
+                            max={maxForParam}
                             disabled={disabled}
                             className="w-full px-1 py-0.5 text-center bg-gray-800 border border-gray-600 rounded text-white text-xs"
                           />
@@ -699,26 +823,30 @@ export const EquipmentSlot: React.FC<EquipmentSlotProps> = ({
 
                 <div className="mt-3 pt-3 border-t border-orange-700/30 text-xs text-gray-400">
                   <p>守備力: 1回につき+{SMITHING_BONUS.Defence} / その他: 1回につき+{SMITHING_BONUS.Other}</p>
+                  <p className="mt-1 text-orange-400">※ 全パラメータ合計で最大{MAX_TOTAL_SMITHING_COUNT}回まで</p>
                 </div>
               </div>
             )}
 
-            {/* 武器の叩き回数（SS以上のランクの場合のみ） - パラメータ別 */}
-            {slot === 'weapon' && ['SSS', 'SS'].includes(rank) && (
+            {/* 武器の叩き回数（SS以上のランク、かつ制作可能で検証武器でない場合のみ） - パラメータ別 */}
+            {slot === 'weapon' && ['SSS', 'SS'].includes(rank) && weaponRestrictions.canSmith && !weaponRestrictions.isVerification && (
               <div className="p-4 bg-gradient-to-br from-red-900/30 to-orange-900/30 rounded-lg border border-red-700/50">
                 <div className="flex items-center justify-between mb-3">
                   <label className="text-sm font-medium text-red-300">
                     叩き回数（パラメータ別）
                   </label>
-                  <span className="text-xs text-red-400">
-                    合計: {WEAPON_SMITHING_PARAMS.reduce((sum, param) => sum + ((smithingCounts as Record<string, number>)[param] || 0), 0)}回
-                  </span>
+                  <div className="text-xs text-red-400 space-x-2">
+                    <span>合計: {WEAPON_SMITHING_PARAMS.reduce((sum, param) => sum + ((smithingCounts as Record<string, number>)[param] || 0), 0)}回</span>
+                    <span className="text-gray-500">/ 残り: {remainingSmithingCount}回</span>
+                  </div>
                 </div>
 
                 <div className="space-y-3">
                   {WEAPON_SMITHING_PARAMS.map((param) => {
                     const count = (smithingCounts as Record<string, number>)[param] || 0;
                     const totalBonus = count * WEAPON_SMITHING_BONUS;
+                    // このパラメータの最大値 = 現在の値 + 残り回数
+                    const maxForParam = count + remainingSmithingCount;
 
                     return (
                       <div key={param} className="flex items-center gap-3">
@@ -729,10 +857,17 @@ export const EquipmentSlot: React.FC<EquipmentSlotProps> = ({
                           <input
                             type="range"
                             min={0}
-                            max={MAX_SMITHING_COUNT}
+                            max={maxForParam}
                             value={count}
                             onChange={(e) => {
-                              const newCounts = { ...smithingCounts, [param]: parseInt(e.target.value, 10) };
+                              const newVal = parseInt(e.target.value, 10);
+                              // 合計上限を適用
+                              const otherTotal = WEAPON_SMITHING_PARAMS
+                                .filter(p => p !== param)
+                                .reduce((sum, p) => sum + ((smithingCounts as Record<string, number>)[p] || 0), 0);
+                              const maxAllowed = MAX_TOTAL_SMITHING_COUNT - otherTotal;
+                              const adjustedVal = Math.min(newVal, maxAllowed);
+                              const newCounts = { ...smithingCounts, [param]: adjustedVal };
                               onSmithingCountsChange?.(newCounts as SmithingCounts);
                             }}
                             disabled={disabled}
@@ -745,13 +880,19 @@ export const EquipmentSlot: React.FC<EquipmentSlotProps> = ({
                             value={count}
                             onChange={(e) => {
                               const val = parseInt(e.target.value, 10);
-                              if (!isNaN(val) && val >= 0 && val <= MAX_SMITHING_COUNT) {
-                                const newCounts = { ...smithingCounts, [param]: val };
+                              if (!isNaN(val) && val >= 0) {
+                                // 合計上限を適用
+                                const otherTotal = WEAPON_SMITHING_PARAMS
+                                  .filter(p => p !== param)
+                                  .reduce((sum, p) => sum + ((smithingCounts as Record<string, number>)[p] || 0), 0);
+                                const maxAllowed = MAX_TOTAL_SMITHING_COUNT - otherTotal;
+                                const adjustedVal = Math.min(val, maxAllowed);
+                                const newCounts = { ...smithingCounts, [param]: adjustedVal };
                                 onSmithingCountsChange?.(newCounts as SmithingCounts);
                               }
                             }}
                             min={0}
-                            max={MAX_SMITHING_COUNT}
+                            max={maxForParam}
                             disabled={disabled}
                             className="w-full px-1 py-0.5 text-center bg-gray-800 border border-gray-600 rounded text-white text-xs"
                           />
@@ -768,12 +909,24 @@ export const EquipmentSlot: React.FC<EquipmentSlotProps> = ({
 
                 <div className="mt-3 pt-3 border-t border-red-700/30 text-xs text-gray-400">
                   <p>全パラメータ: 1回につき+{WEAPON_SMITHING_BONUS}</p>
+                  <p className="mt-1 text-red-400">※ 全パラメータ合計で最大{MAX_TOTAL_SMITHING_COUNT}回まで</p>
                 </div>
               </div>
             )}
 
-            {/* 強化レベル（アクセサリーには強化機能がないため非表示） */}
-            {!isAccessory && (
+            {/* 制作不可または検証武器の注意表示 */}
+            {slot === 'weapon' && (!weaponRestrictions.canSmith || weaponRestrictions.isVerification) && (
+              <div className="p-3 bg-gray-800/50 rounded-lg border border-gray-600/50">
+                <p className="text-xs text-gray-400">
+                  {weaponRestrictions.isVerification
+                    ? '※ 検証武器のため、錬金以外の強化は適用されません'
+                    : '※ この武器は叩き（鍛造）ができません'}
+                </p>
+              </div>
+            )}
+
+            {/* 強化レベル（アクセサリーには強化機能がないため非表示、検証武器は無効） */}
+            {!isAccessory && !(slot === 'weapon' && weaponRestrictions.isVerification) && (
               <div>
                 <label className="block text-sm font-medium text-gray-300 mb-2">
                   強化レベル（+値）
