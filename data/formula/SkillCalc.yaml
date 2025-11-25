@@ -47,7 +47,7 @@ SkillDefinition:
     Dagger:
       Renge_Ha:
         MP: null
-        Damage: "BaseDamage.Dagger * (<Level> + 13) * 0.05 + UserSpeed * <AgilityFactor>"
+        Damage: "BaseDamage.Dagger * (<Level> + 13) * 0.05 + UserAgility * <AgilityFactor>"
 
       Kyoumou_zan:
         MP: null
@@ -107,7 +107,7 @@ SkillDefinition:
         Duration: 15
         Buff:
           Power: "UserPower * 0.15"
-          Dexterity: "UserCritRate * 0.15"
+          Dexterity: "UserDex * 0.15"
           Defense: "UserDefense * 0.15"
 
       Teppeki_no_Kokoro:
@@ -131,14 +131,14 @@ SkillDefinition:
         Duration: 17
         Buff:
           Power: "UserPower * 0.18"
-          Dexterity: "UserCritRate * 0.18"
+          Dexterity: "UserDex * 0.18"
           Defense: "UserDefense * 0.18"
 
       Haou_Gokuenzan:
         Duration: 30
         Buff:
           Power: "UserPower * 0.157"
-          Dexterity: "UserCritRate * 0.157"
+          Dexterity: "UserDex * 0.157"
         Damage: null
 
     Wizard:
@@ -190,14 +190,14 @@ SkillDefinition:
 
       Marina_Lane_2:
         Damage: "BaseDamage.Bow * 0.6"
-        Hits: "floor(UserSpeed/50) + 8"
+        Hits: "floor(UserAgility/50) + 8"
 
     Hunter:
       Shippuu_Rengeki:
-        Damage: "BaseDamage.Dagger * 0.6 + UserSpeed * 0.3"
+        Damage: "BaseDamage.Dagger * 0.6 + UserAgility * 0.3"
 
       Shippuu_no_Mai_3:
         Buff:
           Power: "UserPower * 0.499 + 1"
-          Agility: "UserSpeed * 0.499 + 1"
+          Agility: "UserAgility * 0.499 + 1"
           CritPower: "UserCritDamage * 0.499 + 1"

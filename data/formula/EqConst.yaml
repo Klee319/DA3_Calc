@@ -73,17 +73,6 @@ Equipment_EX:
 #武器
 Weapon:
   # 武器ランク係数 (k_Rank)
-  Rank:
-    Coeff:
-      F: 0
-      E: 0
-      D: 0.0667   # 1/15
-      C: 0.0667   # 1/15
-      B: 0.08     # 2/25
-      A: 0.08     # 2/25
-      S: 0.0857   # 3/35
-      SS: 0.0909  # 1/11
-      SSS: 0.1    # 1/10
   Forge:
     Other: 1
   Reinforcement:
@@ -91,7 +80,7 @@ Weapon:
     MAX: 80
     AttackP: 2
     CritD: 1
-    CritR: 0
+    CritR: 0.5
   Rank:
       SSS:
         Bonus:        

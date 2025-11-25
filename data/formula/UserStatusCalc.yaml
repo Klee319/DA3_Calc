@@ -34,7 +34,7 @@ EquipmentStatusFormula:
     Weapon:
       CritR: "Initial.CritR + Rank.Bonus.CritR + Rank.Alchemy.CritR + Reinforcement.CritR * <ReinforcementLevel> + Forge.CritR * <ForgeCritRAmount>"
       CritD: "Initial.CritD + Rank.Bonus.CritD + Rank.Alchemy.CritD + Reinforcement.CritD * <ReinforcementLevel> + Forge.CritD * <ForgeCritDAmount>"
-      AttackP: "ROUNDUP( Initial.AttackP + AvailableLv * (Rank.Bonus.AttackP / Denominator) ) + Rank.Bonus.AttackP + Rank.Alchemy.AttackP + Reinforcement.AttackP * <ReinforcementLevel> + Forge.AttackP * <ForgeAttackPAmount>"
+      AttackP: "ROUNDUP( Initial.AttackP + AvailableLv * (Rank.Bonus.AttackP / Denominator) ) + Rank.Alchemy.AttackP + Reinforcement.AttackP * <ReinforcementLevel> + Forge.AttackP * <ForgeAttackPAmount>"
       DamageC: "Initial.DamageC + Rank.Bonus.DamageC"
       CoolT: "Initial.CoolT + Rank.Bonus.CoolT"
 

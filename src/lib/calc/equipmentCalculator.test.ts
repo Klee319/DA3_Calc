@@ -173,12 +173,13 @@ describe('equipmentCalculator', () => {
     it('ランクボーナスが正しく適用される', () => {
       const result = calculateWeaponStats(testWeapon, 'A', 0, 0, false, testEqConst);
 
-      // Atk(Rank) = ROUNDUP(WeaponAttackP + AvailableLv * k_Rank) + Rank.Bonus.AttackP
-      // k_Rank for A = 0.08
-      const expectedBase = Math.ceil(50 + 10 * 0.08); // 51
-      const expectedTotal = expectedBase + 25; // 76
-      
-      expect(result.attackPower).toBe(expectedTotal);
+      // YAML式: ROUNDUP( Initial.AttackP + AvailableLv * (Rank.Bonus.AttackP / Denominator) ) + Rank.Alchemy.AttackP + ...
+      // = ROUNDUP(50 + 10 * (25 / 320)) = ROUNDUP(50.78125) = 51
+      // Note: Rank.Bonus.AttackPはフラット加算ではなく、Denominator項でのみ使用される
+      const expectedAttackP = Math.ceil(50 + 10 * (25 / 320)); // 51
+
+      expect(result.attackPower).toBe(expectedAttackP);
+      // critRate/critDamageはフラット加算式: Initial + Rank.Bonus
       expect(result.critRate).toBe(8); // 5 + 3
       expect(result.critDamage).toBe(23); // 20 + 3
     });
@@ -194,21 +195,24 @@ describe('equipmentCalculator', () => {
     it('錬金ON時、錬金値が加算される', () => {
       const result = calculateWeaponStats(testWeapon, 'A', 0, 0, true, testEqConst);
 
-      // k_Rank for A = 0.08
-      const expectedBase = Math.ceil(50 + 10 * 0.08); // 51
-      const expectedTotal = expectedBase + 25 + 116; // 192
-      
-      expect(result.attackPower).toBe(expectedTotal);
+      // YAML式: ROUNDUP( Initial.AttackP + AvailableLv * (Rank.Bonus.AttackP / Denominator) ) + Rank.Alchemy.AttackP
+      // = ROUNDUP(50 + 10 * (25 / 320)) + 116 = 51 + 116 = 167
+      const expectedAttackP = Math.ceil(50 + 10 * (25 / 320)) + 116; // 167
+
+      expect(result.attackPower).toBe(expectedAttackP);
+      // critRate/critDamageはフラット加算式: Initial + Rank.Bonus + Alchemy
       expect(result.critRate).toBe(17); // 5 + 3 + 9
       expect(result.critDamage).toBe(70); // 20 + 3 + 47
     });
 
     it('叩きが正しく加算される', () => {
-      const result = calculateWeaponStats(testWeapon, 'F', 0, 20, false, testEqConst);
+      // 攻撃力のみ叩きを適用するため、オブジェクト形式で指定
+      const hammerCounts = { attackPower: 20, critRate: 0, critDamage: 0 };
+      const result = calculateWeaponStats(testWeapon, 'F', 0, hammerCounts, false, testEqConst);
 
       expect(result.attackPower).toBe(70); // 50 + 1*20
-      expect(result.critRate).toBe(5);
-      expect(result.critDamage).toBe(20);
+      expect(result.critRate).toBe(5);  // 叩き0なので変わらない
+      expect(result.critDamage).toBe(20);  // 叩き0なので変わらない
     });
 
     it('最低ランク指定時、F値が正しく逆算される', () => {
@@ -223,12 +227,11 @@ describe('equipmentCalculator', () => {
 
       // CSVの100はAランクの値
       // F値 = 100 - 25 = 75
-      // A値 = ROUNDUP(75 + 10 * k_Rank) + 25
-      // k_Rank for A = 0.08
-      const expectedBase = Math.ceil(75 + 10 * 0.08); // 76
-      const expectedTotal = expectedBase + 25; // 101
-      
-      expect(result.attackPower).toBe(expectedTotal);
+      // YAML式: ROUNDUP( Initial.AttackP + AvailableLv * (Rank.Bonus.AttackP / Denominator) )
+      // = ROUNDUP(75 + 10 * (25 / 320)) = ROUNDUP(75.78125) = 76
+      const expectedAttackP = Math.ceil(75 + 10 * (25 / 320)); // 76
+
+      expect(result.attackPower).toBe(expectedAttackP);
       expect(result.critRate).toBe(10); // 10 - 3 + 3 = 10
     });
 

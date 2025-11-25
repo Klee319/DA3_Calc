@@ -4,8 +4,8 @@ BasedDamage:
   Bow: "(WeaponAttackPower + UserPower*1.75) * DamageCorrection * (1 + WeaponCritDamage/100 + UserCritDamage*0.0016)"
   Axe: "(WeaponAttackPower + UserPower*1.5 + UserMind*2.5) * DamageCorrection * (1 + WeaponCritDamage/100 + UserCritDamage*0.001)"
   GreatSword: "(WeaponAttackPower + UserPower*1.6 + UserHP*3.1) * DamageCorrection * (1 + WeaponCritDamage/100 + UserCritDamage*0.001)"
-  Dagger: "(WeaponAttackPower + UserPower*1.25 + UserSpeed*3.5) * DamageCorrection * (1 + WeaponCritDamage/100 + UserCritDamage*0.0015)"
-  Spear: "((((UserCritRate + WeaponCritRate + 100) * UserDefense * 8 / 300) + (UserPower / 200) + WeaponAttackPower) * DamageCorrection * (1 + (WeaponCritDamage/100 + UserCritDamage*0.001) / 3))"
+  Dagger: "(WeaponAttackPower + UserPower*1.25 + UserAgility*3.5) * DamageCorrection * (1 + WeaponCritDamage/100 + UserCritDamage*0.0015)"
+  Spear: "((((UserDex + WeaponCritRate + 100) * UserDefense * 8 / 300) + (UserPower / 200) + WeaponAttackPower) * DamageCorrection * (1 + (WeaponCritDamage/100 + UserCritDamage*0.001) / 3))"
   Frypan: "round((WeaponAttackPower + UserPower*1.6) * DamageCorrection * ComboCorrection * (1 + WeaponCritDamage/100 + UserCritDamage*0.005)) / 2"
 
 JobCorrection:

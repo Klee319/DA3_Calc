@@ -1,5 +1,9 @@
 #防具
 Armor:
+  # 叩き値係数
+  TatakiMultiplier:
+    Defense: 1  # 守備力の叩き値係数
+    Others: 2   # その他ステータスの叩き値係数
   Forge:
     Defence: 1
     Other: 2
@@ -68,6 +72,7 @@ Equipment_EX:
 
 #武器
 Weapon:
+  # 武器ランク係数 (k_Rank)
   Forge:
     Other: 1
   Reinforcement:
@@ -75,7 +80,7 @@ Weapon:
     MAX: 80
     AttackP: 2
     CritD: 1
-    CritR: 0.5  # 2lvにつき+1
+    CritR: 0.5
   Rank:
       SSS:
         Bonus:        

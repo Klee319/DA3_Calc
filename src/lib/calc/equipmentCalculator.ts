@@ -305,13 +305,14 @@ export function calculateWeaponStats(
 
     try {
       // 攻撃力計算
+      // 式: ROUNDUP( Initial.AttackP + AvailableLv * (Rank.Bonus.AttackP / Denominator) ) + Rank.Alchemy.AttackP + Reinforcement.AttackP * <ReinforcementLevel> + Forge.AttackP * <ForgeAttackPAmount>
+      // Note: Rank.Bonus.AttackP は Denominator で割った項でのみ使用し、フラット加算はしない
       if (weaponFormulas.AttackP) {
         attackPower = round(evaluateFormula(weaponFormulas.AttackP, variables));
       } else {
         // デフォルト計算
         const attackPowerBase = roundUp(baseAttackP + weapon.使用可能Lv * ((rankBonus.AttackP || 0) / variables.Denominator));
         attackPower = attackPowerBase +
-          (rankBonus.AttackP || 0) +
           (alchemyBonus.AttackP || 0) +
           variables['Reinforcement.AttackP'] * forgeCount +
           variables['Forge.AttackP'] * attackPowerSmithing;
@@ -348,9 +349,10 @@ export function calculateWeaponStats(
     } catch (error) {
       console.warn('Failed to evaluate weapon formulas, using default calculation', error);
       // フォールバック: デフォルト計算
-      const attackPowerBase = roundUp(baseAttackP);
+      // 式: ROUNDUP( Initial.AttackP + AvailableLv * (Rank.Bonus.AttackP / Denominator) ) + Rank.Alchemy.AttackP + Reinforcement + Forge
+      const denominator = (eqConst.Weapon.Reinforcement as any)?.Denominator || 320;
+      const attackPowerBase = roundUp(baseAttackP + weapon.使用可能Lv * ((rankBonus.AttackP || 0) / denominator));
       attackPower = attackPowerBase +
-        (rankBonus.AttackP || 0) +
         (alchemyBonus.AttackP || 0) +
         ((eqConst.Weapon.Reinforcement as any)?.AttackP || 2) * forgeCount +
         (eqConst.Weapon.Forge?.Other || 1) * attackPowerSmithing;
@@ -371,9 +373,10 @@ export function calculateWeaponStats(
     }
   } else {
     // YAML式がない場合のデフォルト計算
-    const attackPowerBase = roundUp(baseAttackP);
+    // 式: ROUNDUP( Initial.AttackP + AvailableLv * (Rank.Bonus.AttackP / Denominator) ) + Rank.Alchemy.AttackP + Reinforcement + Forge
+    const denominator = (eqConst.Weapon.Reinforcement as any)?.Denominator || 320;
+    const attackPowerBase = roundUp(baseAttackP + weapon.使用可能Lv * ((rankBonus.AttackP || 0) / denominator));
     attackPower = attackPowerBase +
-      (rankBonus.AttackP || 0) +
       (alchemyBonus.AttackP || 0) +
       ((eqConst.Weapon.Reinforcement as any)?.AttackP || 2) * forgeCount +
       (eqConst.Weapon.Forge?.Other || 1) * attackPowerSmithing;
