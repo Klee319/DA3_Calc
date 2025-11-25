@@ -1,0 +1,48 @@
+UserStatusFormula:
+
+  BaseStatus: "(SumEquipment.<Stat> + Job.Initial.<Stat> * <JobLevel> + Job.SP.<Stat> + Food.<Stat> + UserOption.<Stat>) * (1 + Job.Bonus.<Stat>/100 + Emblem.Bonus.<Stat>/100)"
+
+
+  RingOption:
+    Enabled: "IfUserSetsThisTrue"
+    IterativeApply: "repeat( round( CurrentStatus * (1 + Ring.<Stat>/100) ), until_converged )"
+
+  Components:
+
+    Equipment:          
+      Sum: "SumEquipment.<Stat>"   
+
+    Job:
+      Initial: "Job.Initial.<Stat>"   
+      SP:      "Job.SP.<Stat>"        
+      Bonus:   "Job.Bonus.<Stat>"     
+
+    Food:
+      Stat: "Food.<Stat>"            
+
+    UserOption:
+      Stat: "UserOption.<Stat>"     
+
+    Emblem:
+      Bonus: "Emblem.Bonus.<Stat>"
+
+    Ring:
+      Stat: "Ring.<Stat>" 
+
+EquipmentStatusFormula:
+
+    Weapon:
+      CritR: "Initial.CritR + Rank.Bonus.CritR + Rank.Alchemy.CritR + Reinforcement.CritR * <ReinforcementLevel> + Forge.CritR * <ForgeCritRAmount>"
+      CritD: "Initial.CritD + Rank.Bonus.CritD + Rank.Alchemy.CritD + Reinforcement.CritD * <ReinforcementLevel> + Forge.CritD * <ForgeCritDAmount>"
+      AttackP: "ROUNDUP( Initial.AttackP + AvailableLv * (Rank.Bonus.AttackP / Denominator) ) + Rank.Bonus.AttackP + Rank.Alchemy.AttackP + Reinforcement.AttackP * <ReinforcementLevel> + Forge.AttackP * <ForgeAttackPAmount>"
+      DamageC: "Initial.DamageC + Rank.Bonus.DamageC"
+      CoolT: "Initial.CoolT + Rank.Bonus.CoolT"
+
+    Armor:
+      MainStatus: "ROUND( (Initial.<Stat> + Forge.<Stat> * <ForgeCount>) * (1 + (Initial.<Stat> + Forge.<Stat> * <ForgeCount>)^0.2 * (Bonus.Rank / AvailableLv)) )"
+
+    Jewel:
+      MainStatus: "ROUNDUP( Initial.<Stat> + AvailableLv * Forge.<Stat> / 550 )"
+
+    EX:
+      RealValue: "ROUND( AvailableLv * Rank.<Stat> + 1 )"

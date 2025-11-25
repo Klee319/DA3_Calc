@@ -1,0 +1,434 @@
+'use client';
+
+import { useEffect, useState } from 'react';
+import { useBuildStore, UserOption, RingOption, Food } from '@/store/buildStore';
+import { initializeGameData } from '@/lib/data';
+import { JobSelector } from '@/components/JobSelector';
+import { LevelInput } from '@/components/LevelInput';
+import { SPSlider } from '@/components/SPSlider';
+import { EquipmentSlot } from '@/components/EquipmentSlot';
+import { StatViewer } from '@/components/StatViewer';
+import { EquipSlot, Job, Equipment } from '@/types';
+import { FoodData } from '@/types/data';
+
+export default function BuildPage() {
+  const [isLoading, setIsLoading] = useState(true);
+  const [showAdvancedSettings, setShowAdvancedSettings] = useState(false);
+  
+  const {
+    currentBuild,
+    calculatedStats,
+    availableJobs,
+    availableEquipment,
+    availableFoods,
+    userOption,
+    ringOption,
+    selectedFood,
+    foodEnabled,
+    weaponSkillEnabled,
+    setJob,
+    setLevel,
+    setEquipment,
+    setSPAllocation,
+    setUserOption,
+    setRingOption,
+    setFood,
+    toggleFood,
+    toggleWeaponSkill,
+    setAvailableJobs,
+    setAvailableEquipment,
+    setAvailableFoods,
+  } = useBuildStore();
+
+  // データ初期化
+  useEffect(() => {
+    const loadGameData = async () => {
+      try {
+        const gameData = await initializeGameData();
+        
+        // 職業データの変換
+        const jobs: Job[] = Array.from(gameData.csv.jobs.entries()).map(([name, spData]) => ({
+          id: name,
+          name: name,
+          baseStats: {
+            HP: 100,
+            MP: 50,
+            ATK: 10,
+            DEF: 10,
+            MATK: 10,
+            MDEF: 10,
+            AGI: 10,
+            DEX: 10,
+            LUK: 10,
+            CRI: 5,
+            HIT: 95,
+            FLEE: 10,
+          },
+          statGrowth: {
+            HP: 10,
+            MP: 5,
+            ATK: 2,
+            DEF: 2,
+            MATK: 2,
+            MDEF: 2,
+            AGI: 1,
+            DEX: 1,
+            LUK: 1,
+            CRI: 0,
+            HIT: 0,
+            FLEE: 0,
+          },
+          availableWeapons: ['sword', 'staff', 'bow', 'dagger', 'axe'] as any[],
+          skills: [],
+          maxLevel: 100,
+        }));
+
+        // 装備データの変換
+        const equipments: Equipment[] = [
+          ...gameData.csv.weapons.map(w => ({
+            id: w.アイテム名,
+            name: w.アイテム名,
+            slot: 'weapon' as EquipSlot,
+            baseStats: [
+              { stat: 'ATK' as const, value: w['攻撃力（初期値）'] || 0, isPercent: false },
+              { stat: 'CRI' as const, value: w['会心率（初期値）'] || 0, isPercent: false },
+            ],
+            requiredLevel: w.使用可能Lv || 1,
+            requiredJob: [],
+            rarity: w.最低ランク || 'common',
+          })),
+          ...gameData.csv.armors.map(a => {
+            const slotMap: { [key: string]: EquipSlot } = {
+              '頭': 'head',
+              '胴': 'body',
+              '腕': 'arm',
+              '脚': 'leg',
+            };
+            return {
+              id: a.アイテム名,
+              name: a.アイテム名,
+              slot: 'body' as EquipSlot, // 防具部位は別途判定が必要
+              baseStats: [
+                { stat: 'DEF' as const, value: a['守備力（初期値）'] || 0, isPercent: false },
+                { stat: 'HP' as const, value: a['HP（初期値）'] || 0, isPercent: false },
+              ],
+              requiredLevel: a.使用可能Lv || 1,
+              requiredJob: [],
+              rarity: a.最低ランク || 'common',
+            };
+          }),
+          ...gameData.csv.accessories.map(a => ({
+            id: a.アイテム名,
+            name: a.アイテム名,
+            slot: 'accessory1' as EquipSlot, // アクセサリ種別は別途判定が必要
+            baseStats: [
+              { 
+                stat: (a.ステータス種類 === 'HP' ? 'HP' :
+                       a.ステータス種類 === 'MP' ? 'MP' :
+                       a.ステータス種類 === '攻撃力' ? 'ATK' :
+                       a.ステータス種類 === '守備力' ? 'DEF' : 'ATK') as any,
+                value: a['ステータス値（初期値）'] || 0, 
+                isPercent: false 
+              },
+            ],
+            requiredLevel: a.使用可能Lv || 1,
+            requiredJob: [],
+            rarity: a.最低ランク || 'common',
+          })),
+        ];
+
+        // 食べ物データの変換
+        const foods: Food[] = gameData.csv.foods.map(f => ({
+          id: f.アイテム名,
+          name: f.アイテム名,
+          effects: [
+            ...(f.効果1 && f.数値1 ? [{
+              stat: (f.効果1 === 'HP' ? 'HP' : 
+                     f.効果1 === 'MP' ? 'MP' :
+                     f.効果1 === '攻撃力' ? 'ATK' :
+                     f.効果1 === '防御力' ? 'DEF' :
+                     f.効果1 === '魔法攻撃力' ? 'MATK' :
+                     f.効果1 === '魔法防御力' ? 'MDEF' : 'ATK') as any,
+              value: f.数値1,
+              isPercent: f.効果1.includes('%'),
+            }] : []),
+            ...(f.効果2 && f.数値2 ? [{
+              stat: (f.効果2 === 'HP' ? 'HP' : 
+                     f.効果2 === 'MP' ? 'MP' :
+                     f.効果2 === '攻撃力' ? 'ATK' :
+                     f.効果2 === '防御力' ? 'DEF' :
+                     f.効果2 === '魔法攻撃力' ? 'MATK' :
+                     f.効果2 === '魔法防御力' ? 'MDEF' : 'ATK') as any,
+              value: f.数値2,
+              isPercent: f.効果2.includes('%'),
+            }] : []),
+          ],
+          duration: f.持続時間 || 30,
+        }));
+
+        setAvailableJobs(jobs);
+        setAvailableEquipment(equipments);
+        setAvailableFoods(foods);
+        setIsLoading(false);
+      } catch (error) {
+        console.error('Failed to load game data:', error);
+        setIsLoading(false);
+      }
+    };
+
+    loadGameData();
+  }, [setAvailableJobs, setAvailableEquipment, setAvailableFoods]);
+
+  if (isLoading) {
+    return (
+      <main className="p-8">
+        <div className="flex items-center justify-center h-64">
+          <p className="text-gray-600 dark:text-gray-400">データを読み込み中...</p>
+        </div>
+      </main>
+    );
+  }
+
+  // 装備スロットの定義
+  const equipmentSlots: Array<{ slot: EquipSlot; name: string }> = [
+    { slot: 'weapon', name: '武器' },
+    { slot: 'head', name: '頭' },
+    { slot: 'body', name: '胴' },
+    { slot: 'arm', name: '腕' },
+    { slot: 'leg', name: '脚' },
+    { slot: 'accessory1', name: 'ネックレス' },
+    { slot: 'accessory2', name: 'ブレスレット' },
+  ];
+
+  // 職業に応じた装備可能フィルタ
+  const getFilteredEquipment = (slot: EquipSlot): Equipment[] => {
+    return availableEquipment.filter(eq => {
+      if (eq.slot !== slot) return false;
+      if (eq.requiredLevel && currentBuild.level < eq.requiredLevel) return false;
+      if (currentBuild.job && eq.requiredJob && eq.requiredJob.length > 0) {
+        return eq.requiredJob.includes(currentBuild.job.id);
+      }
+      return true;
+    });
+  };
+
+  return (
+    <main className="container mx-auto px-4 max-w-7xl">
+      {/* Page Header */}
+      <div className="mb-12">
+        <h1 className="text-5xl md:text-6xl font-thin mb-4 text-gradient from-white to-gray-300">
+          キャラクタービルド
+        </h1>
+        <p className="text-lg text-gray-400 line-clamp-2">
+          職業・装備・SPを設定して、最強のキャラクターを構築しよう
+        </p>
+      </div>
+
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        {/* 左カラム */}
+        <div className="lg:col-span-2 space-y-6">
+          {/* 職業・レベルセクション */}
+          <div className="glass-card p-8 min-h-[200px]">
+              <h2 className="text-2xl font-semibold mb-6 flex items-center gap-2">
+                <span className="text-3xl">👤</span>
+                <span className="truncate">職業・レベル</span>
+              </h2>
+              <div className="space-y-4">
+                <JobSelector
+                  jobs={availableJobs}
+                  selectedJob={currentBuild.job}
+                  onChange={setJob}
+                />
+                {currentBuild.job && (
+                  <LevelInput
+                    level={currentBuild.level}
+                    onChange={setLevel}
+                    maxLevel={currentBuild.job.maxLevel}
+                  />
+                )}
+              </div>
+            </div>
+
+            {/* SP割り振りセクション */}
+            {currentBuild.job && (
+              <div className="glass-card p-8 min-h-[300px]">
+                <h2 className="text-2xl font-semibold mb-6 flex items-center gap-2">
+                  <span className="text-3xl">📊</span>
+                  <span className="truncate">SP割り振り</span>
+                </h2>
+                <SPSlider
+                  spValues={{
+                    A: currentBuild.spAllocation?.A || 0,
+                    B: currentBuild.spAllocation?.B || 0,
+                    C: currentBuild.spAllocation?.C || 0,
+                  }}
+                  maxSP={100}
+                  onChange={(values) => setSPAllocation(values)}
+                />
+              </div>
+            )}
+
+            {/* 装備セクション */}
+            <div className="glass-card p-8 min-h-[600px]">
+              <h2 className="text-2xl font-semibold mb-6 flex items-center gap-2">
+                <span className="text-3xl">⚔️</span>
+                <span className="truncate">装備</span>
+              </h2>
+              <div className="space-y-3">
+                {equipmentSlots.map(({ slot, name }) => (
+                  <EquipmentSlot
+                    key={slot}
+                    slot={slot}
+                    equipment={currentBuild.equipment[slot] || null}
+                    availableEquipment={getFilteredEquipment(slot)}
+                    onEquipmentChange={(equipment) => setEquipment(slot, equipment)}
+                    disabled={!currentBuild.job}
+                  />
+                ))}
+              </div>
+            </div>
+          </div>
+
+        {/* 右カラム */}
+        <div className="space-y-6">
+          {/* バフセクション */}
+          <div className="glass-card p-8 min-h-[400px]">
+              <h2 className="text-2xl font-semibold mb-6 flex items-center gap-2">
+                <span className="text-3xl">✨</span>
+                <span className="truncate">バフ効果</span>
+              </h2>
+              
+              {/* リングバフ */}
+              <div className="mb-4">
+                <label className="flex items-center">
+                  <input
+                    type="checkbox"
+                    checked={ringOption.enabled}
+                    onChange={(e) => setRingOption({ ...ringOption, enabled: e.target.checked })}
+                    className="mr-2"
+                  />
+                  <span className="text-gray-700 dark:text-gray-300">リングバフ</span>
+                </label>
+                {ringOption.enabled && (
+                  <div className="mt-2 ml-6 p-3 bg-gray-50 dark:bg-gray-700 rounded">
+                    <p className="text-sm text-gray-600 dark:text-gray-400 mb-2">リング設定</p>
+                    {/* リング詳細設定をここに実装 */}
+                    <select className="w-full px-3 py-2 border rounded bg-white dark:bg-gray-600">
+                      <option>攻撃リング Lv1</option>
+                      <option>魔法リング Lv1</option>
+                      <option>防御リング Lv1</option>
+                    </select>
+                  </div>
+                )}
+              </div>
+
+              {/* Foodバフ */}
+              <div>
+                <label className="flex items-center">
+                  <input
+                    type="checkbox"
+                    checked={foodEnabled}
+                    onChange={(e) => toggleFood(e.target.checked)}
+                    className="mr-2"
+                  />
+                  <span className="text-gray-700 dark:text-gray-300">食べ物バフ</span>
+                </label>
+                {foodEnabled && (
+                  <div className="mt-2 ml-6">
+                    <select
+                      className="w-full px-3 py-2 border rounded bg-white dark:bg-gray-600"
+                      value={selectedFood?.id || ''}
+                      onChange={(e) => {
+                        const food = availableFoods.find(f => f.id === e.target.value);
+                        setFood(food || null);
+                      }}
+                    >
+                      <option value="">選択してください</option>
+                      {availableFoods.map(food => (
+                        <option key={food.id} value={food.id}>{food.name}</option>
+                      ))}
+                    </select>
+                  </div>
+                )}
+              </div>
+            </div>
+
+          {/* 高度な設定 */}
+          <div className="glass-card p-8 min-h-[200px]">
+              <button
+                onClick={() => setShowAdvancedSettings(!showAdvancedSettings)}
+                className="flex items-center justify-between w-full text-left"
+              >
+                <h2 className="text-2xl font-semibold mb-6 flex items-center gap-2 truncate">
+                  <span className="text-3xl">⚙️</span>
+                  <span>高度な設定</span>
+                </h2>
+                <span className="text-gray-400 text-2xl">
+                  {showAdvancedSettings ? '▼' : '▶'}
+                </span>
+              </button>
+              
+              {showAdvancedSettings && (
+                <div className="mt-4 space-y-4">
+                  {/* 武器固有能力 */}
+                  <div>
+                    <label className="flex items-center">
+                      <input
+                        type="checkbox"
+                        checked={weaponSkillEnabled}
+                        onChange={(e) => toggleWeaponSkill(e.target.checked)}
+                        className="mr-2"
+                      />
+                      <span className="text-gray-700 dark:text-gray-300">武器固有能力</span>
+                    </label>
+                  </div>
+
+                  {/* 手動ステータス調整 */}
+                  <div>
+                    <h3 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                      手動ステータス調整
+                    </h3>
+                    <div className="grid grid-cols-2 gap-2">
+                      {(['ATK', 'MATK', 'DEF', 'MDEF', 'HP', 'MP'] as const).map(stat => (
+                        <div key={stat} className="flex items-center">
+                          <label className="text-sm text-gray-600 dark:text-gray-400 w-16">
+                            {stat}:
+                          </label>
+                          <input
+                            type="number"
+                            className="w-20 px-2 py-1 text-sm border rounded dark:bg-gray-600"
+                            value={userOption.manualStats[stat] || 0}
+                            onChange={(e) => {
+                              const value = parseInt(e.target.value) || 0;
+                              setUserOption({
+                                ...userOption,
+                                manualStats: {
+                                  ...userOption.manualStats,
+                                  [stat]: value,
+                                },
+                              });
+                            }}
+                          />
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+
+          {/* 最終ステータス表示 */}
+          <div className="glass-card p-8 sticky top-24 min-h-[500px] max-h-[800px] overflow-y-auto">
+              <h2 className="text-2xl font-semibold mb-6 flex items-center gap-2">
+                <span className="text-3xl">📈</span>
+                <span className="truncate">最終ステータス</span>
+              </h2>
+              <StatViewer
+                stats={calculatedStats}
+                showBreakdown={true}
+              />
+          </div>
+      </div>
+    </main>
+  );
+}

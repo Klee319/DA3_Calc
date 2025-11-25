@@ -1,0 +1,117 @@
+JobDefinition:
+
+  Novice:
+    MaxLevel: 220
+    AvailableWeapons:
+      - All
+    AvailableArmors:
+      - Cloth
+      - Leather
+      - Metal
+
+  Fighter:
+    MaxLevel: 100
+    AvailableWeapons:
+      - Sword
+    AvailableArmors:
+      - Leather
+
+  Acolyte:
+    MaxLevel: 100
+    AvailableWeapons:
+      - Wand
+    AvailableArmors:
+      - Cloth
+
+  Archer:
+    MaxLevel: 100
+    AvailableWeapons:
+      - Bow
+    AvailableArmors:
+      - Leather
+
+  Mage:
+    MaxLevel: 100
+    AvailableWeapons:
+      - Wand
+    AvailableArmors:
+      - Cloth
+
+  Cleric:
+    MaxLevel: 150
+    AvailableWeapons:
+      - Wand
+    AvailableArmors:
+      - Cloth
+
+  Hunter:
+    MaxLevel: 150
+    AvailableWeapons:
+      - Dagger
+      - Sword
+    AvailableArmors:
+      - Leather
+
+  Ranger:
+    MaxLevel: 150
+    AvailableWeapons:
+      - Bow
+    AvailableArmors:
+      - Leather
+
+  Wizard:
+    MaxLevel: 150
+    AvailableWeapons:
+      - Wand
+    AvailableArmors:
+      - Cloth
+
+  Knight:
+    MaxLevel: 150
+    AvailableWeapons:
+      - Sword
+    AvailableArmors:
+      - Leather
+      - Metal
+
+  Warrior:
+    MaxLevel: 150
+    AvailableWeapons:
+      - Axe
+      - GreatSword
+    AvailableArmors:
+      - Leather
+      - Metal
+
+  SpellRefactor:
+    MaxLevel: 180
+    AvailableWeapons:
+      - Sword
+      - Wand
+      - Grimoire
+      - Shield
+    AvailableArmors:
+      - Leather
+      - Metal
+
+  Guardian:
+    MaxLevel: 180
+    AvailableWeapons:
+      - Sword
+      - Spear
+    AvailableArmors:
+      - Metal
+
+  Priest:
+    MaxLevel: 180
+    AvailableWeapons:
+      - Wand
+    AvailableArmors:
+      - Cloth
+
+  StellaShaft:
+    MaxLevel: 180
+    AvailableWeapons:
+      - Bow
+    AvailableArmors:
+      - Leather

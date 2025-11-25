@@ -1,0 +1,169 @@
+#防具
+Armor:
+  Forge:
+    Defence: 1
+    Other: 2
+  Reinforcement:
+    MAX: 40
+    Defence: 1
+    Other: 2
+  Rank:
+    SSS: 8
+    SS: 7
+    S: 6
+    A: 5
+    B: 4
+    C: 3
+    D: 2
+    E: 1
+    F: 0
+
+
+#アクセ
+Accessory:
+  Rank:
+    SSS: 55
+    SS: 50
+    S: 45
+    A: 44
+    B: 44
+    C: 35
+    D: 35
+    E: 0
+    F: 0
+
+#EX
+Equipment_EX:
+  Rank:
+    CritR:
+      SSS: 0.15
+      SS: 0.13
+      S: 0.11
+      A: 0.09
+      B: 0.09
+      C: 0.07
+      D: 0.07
+      E: 0.05
+      F: 0.05
+    Speed_CritD:
+      SSS: 0.6
+      SS: 0.5
+      S: 0.4
+      A: 0.3
+      B: 0.3
+      C: 0.2
+      D: 0.2
+      E: 0.1
+      F: 0.1
+    Other:
+      SSS: 0.7
+      SS: 0.6
+      S: 0.5
+      A: 0.4
+      B: 0.4
+      C: 0.3
+      D: 0.3
+      E: 0.2
+      F: 0.2
+
+#武器
+Weapon:
+  Forge:
+    Other: 1
+  Reinforcement:
+    Denominator: 320
+    MAX: 80
+    AttackP: 2
+    CritD: 1
+    CritR: 0
+  Rank:
+      SSS:
+        Bonus:        
+          AttackP: 31
+          CritD: 5
+          CritR: 5
+          CoolT: -0.1
+        Alchemy:
+          AttackP: 118
+          CritD: 48
+          CritR: 11
+      SS:
+        Bonus:        
+          AttackP: 29
+          CritD: 4
+          CritR: 4
+          CoolT: 0
+        Alchemy:
+          AttackP: 117
+          CritD: 47
+          CritR: 10
+      S:
+        Bonus:        
+          AttackP: 27
+          CritD: 3
+          CritR: 3
+          CoolT: 0
+        Alchemy:
+          AttackP: 117
+          CritD: 47
+          CritR: 10   
+      A:
+        Bonus:        
+          AttackP: 25
+          CritD: 3
+          CritR: 3
+          CoolT: 0
+        Alchemy:
+          AttackP: 116
+          CritD: 47
+          CritR: 9     
+      B:
+        Bonus:        
+          AttackP: 25
+          CritD: 2
+          CritR: 2
+          CoolT: 0
+        Alchemy:
+          AttackP: 116
+          CritD: 47
+          CritR: 9     
+      C:
+        Bonus:        
+          AttackP: 21
+          CritD: 2
+          CritR: 2
+          CoolT: 0
+        Alchemy:
+          AttackP: 114
+          CritD: 47
+          CritR: 8    
+      D:
+        Bonus:        
+          AttackP: 21
+          CritD: 1
+          CritR: 1
+          CoolT: 0
+        Alchemy:
+          AttackP: 114
+          CritD: 47
+          CritR: 8     
+      E:
+        Alchemy:
+          AttackP: 113
+          CritD: 46
+          CritR: 7
+        Bonus:        
+          AttackP: 0
+          CritD: 0
+          CritR: 0
+          CoolT: 0
+      F:
+        Alchemy:
+          AttackP: 113
+          CritD: 46
+          CritR: 7
+        Bonus:        
+          AttackP: 0
+          CritD: 0
+          CritR: 0
+          CoolT: 0

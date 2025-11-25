@@ -1,0 +1,1479 @@
+ファイル構成はこう想定しています：
+
+/docs/spec-equipment-calc.md
+
+/docs/spec-skill-damage.md
+
+/docs/spec-ui-flow.md
+
+/docs/spec-data-structure.md
+
+すべて Aレベル（AIが自律実装できる前提の詳細仕様） でまとめてます。
+
+1. /docs/spec-equipment-calc.md
+# Minecraft RPG 計算機  
+## 装備計算仕様書（Equipment Calculation Spec）v1.0
+
+本ドキュメントは、「Minecraft RPG ダメージ計算機」における  
+**装備関連の全計算ロジック** を定義する。
+
+- 対象：武器、防具、アクセサリ、紋章、ルーンストーン、EX ステータス、食事（料理）、強化・叩き・クオリティ
+- 入力：CSV（DA_EqCalc_Data 系）、各種 YAML（EqConst.yaml / UserStatusCalc.yaml / WeaponCalc.yaml / JobConst.yaml など）
+- 出力：ユーザ最終ステータス（UserXXX）および、武器最終ステータス（WeaponXXX）
+
+プレースホルダー名やステータス名の詳細は  
+`spec-placeholder-mapping.md` を参照すること。
+
+---
+
+## 1. データフロー概要
+
+1. CSV を読み込み、装備単体の「基礎値（F ランク）」を取得
+2. ランク・叩き・強化・EX などの式を適用して「装備最終値」を算出
+3. 全装備（武器、防具、アクセ、紋章、ルーン、食事）を合算
+4. 職業初期値・レベル固定成長・SP 割当による職業補正を加算
+5. 指輪・料理などの収束型バフを適用
+6. ゲーム内ルールに基づく％補正を適用
+7. 最終的なユーザステータス `{UserHP}`, `{UserPower}`, `{UserCritDamage}` などが決まる
+8. 武器に関しては、ランクによる攻撃力補正などを行い、`{WeaponAttackPower}` などが決まる
+
+---
+
+## 2. 武器計算
+
+### 2.1 入力（武器 CSV）
+
+DA_EqCalc_Data - 武器.csv
+
+| カラム名 | 説明 |
+|----------|------|
+| アイテム名 | 武器名（一意キー） |
+| ドロップかどうか | TRUE/FALSE。ドロップなら叩き不可 |
+| 武器種 | 剣 / 弓 / 杖 / 斧 / 大剣 / 短剣 / 槍 |
+| 使用可能Lv | AvailableLv。ランク計算で使用 |
+| 攻撃力（F） | WeaponAttackP（基礎攻撃力・Fランク） |
+| 会心率（F） | WeaponCritR |
+| 会心ダメージ（F） | WeaponCritD |
+| ダメージ補正（初期値） | DamageCorrection の基礎値 |
+| ct(クオリティF) | WeaponCoolT（クールタイム） |
+
+※ 変数名マッピングは `spec-placeholder-mapping.md` を参照。
+
+### 2.2 武器ランク計算式
+
+武器の攻撃力は、F ランクの基礎値とレベルからランクごとに計算する。
+
+#### 2.2.1 ランク係数
+
+係数 k_Rank は以下のとおり：
+
+| Rank | k_Rank (分数) | 小数 |
+|------|---------------|------|
+| F    | 0             | 0          |
+| E    | 0             | 0          |
+| D    | 1/15          | ≒ 0.0667  |
+| C    | 1/15          | ≒ 0.0667  |
+| B    | 2/25          | 0.08      |
+| A    | 2/25          | 0.08      |
+| S    | 3/35          | ≒ 0.0857  |
+| SS   | 1/11          | ≒ 0.0909  |
+| SSS  | 1/10          | 0.1       |
+
+#### 2.2.2 計算式（攻撃力）
+
+```text
+Atk(Rank) = ROUNDUP( WeaponAttackP + AvailableLv * k_Rank )
+
+
+ROUNDUP は小数点以下切り上げ
+
+WeaponAttackP は CSV の「攻撃力（F）」
+
+AvailableLv は CSV の「使用可能Lv」
+
+計算結果を {WeaponAttackPower} として扱う。
+
+2.2.3 その他の武器ステータス
+
+{WeaponCritRate}
+= WeaponCritR（※ランクによる補正を掛ける場合は EqConst.yaml / UserStatusCalc.yaml のルールに従う）
+
+{WeaponCritDamage}
+= WeaponCritD
+
+{WeaponCoolTime}
+= WeaponCoolT（ランクや強化による変化がある場合は設定ファイルで別途式を定義）
+
+{DamageCorrection}
+= ダメージ補正（基礎値 + ランク・強化等の補正）
+
+これらの補正ロジック（ランク補正・強化による Correction 上昇など）は
+EqConst.yaml および UserStatusCalc.yaml の定義に従って実装する。
+
+3. 防具計算（頭・胴・足）
+3.1 入力（防具 CSV）
+
+DA_EqCalc_Data - 防具.csv
+
+カラム名	説明
+アイテム名	防具名
+使用可能Lv	Lv
+部位を選択	Head / Body / Leg
+タイプ	布 / 革 / 金属
+力（初期値）	Power
+魔力（初期値）	Magic
+体力（初期値）	HP
+精神（初期値）	Mind
+素早さ（初期値）	Speed
+器用（初期値）	CritRate
+撃力（初期値）	CritDamage
+守備力（初期値）	Defense
+3.2 叩き回数とランクの考慮
+
+ゲーム仕様：
+
+ランク：F〜SSS
+
+叩き回数：0〜12（SS を超えると叩きを増やせる）
+
+叩き値 はランクと部位により変わる：
+
+通常ステータス：叩き回数 × 2
+
+守備力：叩き回数 × 1
+
+3.3 ARMOR ステータス計算式
+
+式（確定）：
+
+実数値 = ROUND( (基礎値 + 叩き) × ( 1 + (基礎値 + 叩き)^0.2 × (ランク値 / Lv) ) )
+
+
+ROUND は四捨五入
+
+基礎値：CSV の F ランク値
+
+叩き：叩き回数 × 2（守備は ×1）
+
+ランク値：
+SSS=8, SS=7, S=6, A=5, B=4, C=3, D=2, E=1, F=0
+
+Lv：使用可能レベル
+
+この計算を、防具が持つ全ステータス（Power / Magic / HP / Mind / Speed / CritRate / CritDamage / Defense）に対して適用する。
+
+4. 防具 EX ステータス
+
+防具には EX ステータスが 2 種類付与される（例：器用 + 撃力 など）。
+
+EX 計算式（確定）：
+
+EX実数値 = ROUND( Lv × ランクEX係数 + 1 )
+
+4.1 ランクEX係数
+
+器用：
+
+ランク	係数
+SSS	0.15
+SS	0.13
+S	0.11
+AB	0.09
+CD	0.07
+EF	0.05
+
+撃力・素早さ：
+
+ランク	係数
+SSS	0.6
+SS	0.5
+S	0.4
+AB	0.3
+CD	0.2
+EF	0.1
+
+その他（HP, Power など）：
+
+ランク	係数
+SSS	0.7
+SS	0.6
+S	0.5
+AB	0.4
+CD	0.3
+EF	0.2
+
+EX の種類とそのランクは CSV または別設定で管理し、
+UserStatusCalc.yaml に従って {UserHP}, {UserPower} などに加算する。
+
+5. アクセサリ（ネックレス・ブレスレット）
+5.1 入力（アクセサリ CSV）
+
+DA_EqCalc_Data - アクセサリー.csv
+
+カラム名	説明
+アイテム名	アクセ名
+使用可能Lv	Lv
+タイプ	Necklace / Bracelet
+体力（初期値）	HP
+力（初期値）	Power
+魔力（初期値）	Magic
+精神（初期値）	Mind
+撃力（初期値）	CritDamage
+素早さ（初期値）	Speed
+5.2 メインステータス式
+実数値 = ROUND( 基礎値 + (Lv / ランク補正) )
+
+
+ランク補正テーブル：
+
+ランク	補正値
+SSS	10
+SS	11
+S	12
+A/B	13
+C/D	15
+E/F	基礎値そのまま（補正なし）
+5.3 アクセ EX 計算式
+EX実数値 = ROUND( ランク係数 × Lv ) + 1
+
+
+EX のランク係数は防具 EX の「EX 実数値 = ROUND(Lv × ランクEX係数 + 1)」と同様のルール（器用 / 撃力 / その他）に従う。
+
+6. 紋章
+6.1 入力（紋章 CSV）
+
+DA_EqCalc_Data - 紋章.csv
+
+カラム名	説明
+アイテム名	紋章名
+使用可能Lv	Lv
+各ステータス	HP / Power / Magic / Mind / Speed / CritRate / CritDamage / Defense
+6.2 計算
+
+紋章のステータスは % ではなく実数値 であり、
+装備と同様に {UserXXX} に単純加算する。
+
+7. ルーンストーン
+7.1 入力（ルーンストーン CSV）
+
+DA_EqCalc_Data - ルーンストーン.csv
+
+カラム名	説明
+グレード	Normal / Buster / Great / Replica
+力〜守備力	各種ステータス加算
+耐性1〜3	属性耐性 + 値
+7.2 装着制限
+
+紋章にはルーンストーンを最大 4 つまで嵌められる。
+
+グレードカテゴリごとに 1 個まで：
+Normal / Buster / Great / Replica それぞれ 1つまで。
+
+7.3 計算ルール
+
+ステータス：
+ルーンの Power / Magic / HP などは単純加算して {UserXXX} に加算。
+
+耐性：
+耐性システムは別モジュール。
+ここでは「耐性配列」として持ち、ダメージ軽減計算側で参照する。
+
+8. 食事（料理）
+8.1 入力（食べ物 CSV）
+
+DA_EqCalc_Data - 食べ物.csv
+
+カラム名	説明
+アイテム名	食事名
+力〜守備力	各種ステータス加算
+耐性1〜n	各種耐性加算
+8.2 適用
+
+ユーザが食事を選択している場合のみ適用。
+
+切り替え：ON/OFF トグル。
+
+計算上は全ステータスを {UserXXX} に加算する。
+
+9. 職業と SP によるステータス
+
+職業関連の詳細は JobConst.yaml と職業 CSV にて管理される。
+
+9.1 基本ルール
+
+Lv1 あたり SP を 2 獲得。
+
+レベルアップにより HP/Power/Magic/Mind などの基礎値も増加。
+
+SP は A/B/C ラインに自由に割り振り可能。
+
+行単位で「必要 SP」と「増加ステータス」が職業 CSV で定義される。
+
+9.2 職業 CSV 例
+解放段階,必要SP,解放スキル名,体力,力,精神,...
+初期値,,10,,6
+補正値(%),,3,-3
+A-1,10,スキルA1,10,0,...
+A-2,20,スキルA2,20,5,...
+...
+B-1,10,スキルB1,...
+
+9.3 計算
+
+各ライン（A/B/C）に割り当てた SP 合計を元に解放された段階までの
+ステータスを合算し、最終的に {UserHP}, {UserPower} などに加算する。
+
+スキル解放条件（必要SP）は spec-skill-damage.md 側で参照される。
+
+10. 最終ステータス合成順序
+
+最終的な {UserXXX} は以下の順に合成される：
+
+職業初期値
+
+職業レベルによる固定成長
+
+職業 SP 割当による補正
+
+武器（武器自体のステータス）
+
+防具（ARMOR + EX）
+
+アクセサリ（メイン + EX）
+
+紋章
+
+ルーンストーン
+
+食事
+
+指輪（収束型バフ。例：特定ステータスの%上昇）
+
+職業固有の％ボーナス（例：全ステータス+X% など）
+
+この順序を守って {UserXXX} を計算することで、
+ダメージ計算側（通常攻撃・スキル計算）で矛盾なく利用できる。
+
+
+---
+
+## 2. `/docs/spec-skill-damage.md`
+
+```markdown
+# Minecraft RPG 計算機  
+## 通常攻撃・スキルダメージ計算仕様書（Skill & Damage Spec）v1.0
+
+本ドキュメントは、  
+武器種ごとの **通常攻撃ダメージ式** と  
+各種スキルの **ダメージ計算ロジック** を定義する。
+
+ステータス・装備計算（UserXXX / WeaponXXX）の詳細は  
+`spec-equipment-calc.md` および `spec-placeholder-mapping.md` を参照。
+
+---
+
+# 1. 共通ルール
+
+## 1.1 プレースホルダー
+
+本仕様書中の変数はすべて以下のプレースホルダー形式で表記される：
+
+```text
+{UserPower}, {UserMagic}, {WeaponAttackPower}, {DamageCorrection}, ...
+
+
+有効なプレースホルダー一覧は spec-placeholder-mapping.md を参照。
+
+1.2 基本概念
+
+基礎ダメージ（BasedDamage）
+各武器種ごとの「通常攻撃 1 発分の基礎値」。この値をスキルが参照する。
+
+Hit数
+Multi-hit のスキルは、基礎ダメージに倍率を掛け、その結果を Hit 数分繰り返す。
+
+追撃
+武器・スキル固有の「元の攻撃のX% × n 回」等で定義。
+
+丸め
+損失を避けるため、
+
+シングルヒット：最終結果に対して丸め
+
+マルチヒット：Hit毎に丸めるかどうかを設定で切り替え可能（デフォルト：Hit毎）
+
+2. 通常攻撃（武器種別）
+2.1 剣（Sword）
+BasedDamage.Sword =
+  ( {WeaponAttackPower} + {UserPower} * 1.6 )
+  * {DamageCorrection}
+  * ( 1 + {WeaponCritDamage}/100 + {UserCritDamage} * 0.005 )
+
+2.2 杖（Staff）
+BasedDamage.Staff =
+  ( {WeaponAttackPower} + {UserMagic} * 1.75 )
+  * {DamageCorrection}
+  * ( 1 + {WeaponCritDamage}/100 + {UserCritDamage} * 0.0016 )
+
+2.3 弓（Bow）
+BasedDamage.Bow =
+  ( {WeaponAttackPower} + {UserPower} * 1.75 )
+  * {DamageCorrection}
+  * ( 1 + {WeaponCritDamage}/100 + {UserCritDamage} * 0.0016 )
+
+2.4 斧（Axe）
+BasedDamage.Axe =
+  ( {WeaponAttackPower} + {UserPower} * 1.5 + {UserMind} * 2.5 )
+  * {DamageCorrection}
+  * ( 1 + {WeaponCritDamage}/100 + {UserCritDamage} * 0.001 )
+
+2.5 大剣（GreatSword）
+BasedDamage.GreatSword =
+  ( {WeaponAttackPower} + {UserPower} * 1.6 + {UserHP} * 3.1 )
+  * {DamageCorrection}
+  * ( 1 + {WeaponCritDamage}/100 + {UserCritDamage} * 0.001 )
+
+2.6 短剣（Dagger）
+BasedDamage.Dagger =
+  ( {WeaponAttackPower} + {UserPower} * 1.25 + {UserSpeed} * 3.5 )
+  * {DamageCorrection}
+  * ( 1 + {WeaponCritDamage}/100 + {UserCritDamage} * 0.0015 )
+
+2.7 槍（Spear）
+BasedDamage.Spear =
+  (
+    ( ({UserCritRate} + {WeaponCritRate} + 100) * {UserDefense} * 8 / 300 )
+    + ({UserPower} / 200)
+    + {WeaponAttackPower}
+  )
+  * {DamageCorrection}
+  * ( 1 + ( {WeaponCritDamage}/100 + {UserCritDamage} * 0.001 ) / 3 )
+
+
+※ ゲーム内仕様に合わせ、1段目・2段目の攻撃は 式結果の30%のダメージを3回 与える場合がある。
+詳細な Hit 挙動は WeaponCalc.yaml で定義する。
+
+2.8 フライパン
+Base =
+  ( {WeaponAttackPower} + {UserPower} * 1.6 )
+  * {DamageCorrection}
+  * 段数補正
+  * ( 1 + {WeaponCritDamage}/100 + {UserCritDamage} * 0.005 )
+
+Damage = ROUND(Base) / 2
+
+2.9 ダイス
+Damage = 0
+
+3. 追撃（追加攻撃）
+
+追撃は 「元の攻撃ダメージ」 を入力として定義される。
+
+3.1 代表例
+
+剣改：
+追撃ダメージ = 元の攻撃 × 22% × 回数
+
+ジェミニ：
+追撃ダメージ = 元の攻撃 × 30%
+
+幻影大剣：
+追撃ダメージ = 元の攻撃 × 30%
+
+ゼクロ弓：
+追撃ダメージ = 元の攻撃 × 22% × ( {UserSpeed} * 0.011 + 2 )
+
+夏武器：
+追撃回数 = floor( 水耐性 / 5 )
+追撃ダメージ = 元の攻撃 × 22% × 追撃回数
+
+ベス剣：
+追撃ダメージ = 元の攻撃 × 10% × 4回 (PvP時は1回)
+
+盗賊斧：
+追撃ダメージ = 現在MP × 0.2 × 回数
+
+炎牙：
+追撃ダメージ = 元の攻撃 × 5% × 回数（防御貫通）
+
+「回数」の定義は WeaponCalc.yaml にて武器ごとに設定する。
+
+4. スキルダメージ
+4.1 共通ルール
+
+基本的に全攻撃スキルは 通常攻撃のダメージ を参照する。
+
+スキルが対応していない武器種で使用した場合はダメージ減衰 or 使用不可。
+
+本計算機では「対応していないスキルは選択不可」とする。
+
+武器種グループ：
+
+グループ1：剣 / 弓 / 斧
+
+グループ2：杖
+
+4.2 代表スキル（例）
+4.2.1 ノービス
+
+応急手当
+
+Heal = {UserHP} * 0.3
+
+
+戦闘態勢（BP）
+
+上昇量(HP,Power,Magic) = (HP,Power,Magic) * 0.05
+
+
+なぎはらい(1)
+
+Damage = BasedDamage.Sword * 1.3
+
+
+ぶんまわし(1)
+
+Damage = BasedDamage.Bow * 1.4
+
+
+ファイア(2)
+
+Damage = （剣基礎ダメージを、Powerの代わりにMagicを用いて計算） * 1.3
+
+
+アイス(2)
+
+Damage = BasedDamage.Staff * 1.3
+
+4.2.2 ファイター
+
+烈刃の炎斬撃
+
+Damage_perHit = BasedDamage.Sword * 0.4
+TotalDamage = Damage_perHit * 5
+
+
+常闇斬撃
+
+Damage_perHit = BasedDamage.Sword * 0.6
+TotalDamage = Damage_perHit * (5〜6回)   # Hit 数はランダム or 装備依存
+
+
+リミット・ブレイク（BP）
+
+上昇量(Power, Dex, Defense) = * 0.15
+
+4.2.3 ウィザード
+
+ウインド2
+
+Damage_perHit = BasedDamage.Staff * 0.65 + {UserMind} * 0.12985
+TotalDamage = Damage_perHit * 3
+
+
+ウインドバースト2
+
+Damage_perHit = BasedDamage.Staff * 0.65 + {UserMind} * 0.12985
+TotalDamage = Damage_perHit * 8
+
+
+ノンエレメント・エクスプロード1
+
+Damage = BasedDamage.Staff * MP * 0.03115
+
+
+ノンエレメント・エクスプロード2
+
+Damage = BasedDamage.Staff * MP * 0.03185
+
+4.2.4 レンジャー
+
+アローレイン2
+
+Damage = BasedDamage.Bow * 0.5
+
+
+マリーナレーン2
+
+Damage_perHit = BasedDamage.Bow * 0.6
+Hits = floor({UserSpeed} / 50) + 8
+TotalDamage = Damage_perHit * Hits
+
+4.2.5 ハンター
+
+疾風連撃
+
+Damage = BasedDamage.Dagger * 0.6 + {UserSpeed} * 0.3
+
+
+疾風の舞3
+
+上昇量(Power,Speed,CritDamage) = (各ステータス) * 0.499 + 1
+
+
+その他のスキルは SkillCalc.yaml にスキル ID / 武器種 / 式 を定義し、
+同じルールで評価する。
+
+5. ケルベロス武器等の固有能力
+
+特定の武器には複雑な自己バフ・HP 消費・スタック管理がある。
+
+例：身を焦がす焼焔
+
+HP が最大 HP の 25% より多い場合：
+
+通常攻撃時、自身の最大 HP の 5%（切り上げ）を消費し、スタックをリセット。
+
+HP が最大 HP の 25% 以下の場合：
+
+通常攻撃時、スタック +1（最大 30）。
+
+スタックが 10 に達した次の攻撃から効果発動。
+11,18,25,32,... 回目の攻撃で更新。
+
+ステータス上昇：
+
+(器用さ,素早さ)上昇量 =
+  (UserCritRate, UserSpeed) * floor(スタック / 10) * 0.15
+
+
+これらのルールは WeaponCalc.yaml に記述し、
+ダメージ計算前に該当バフを {UserXXX} に反映する。
+
+6. 丸め（Round / RoundUP / RoundDown）
+
+原則：
+
+通常攻撃：1 回分の計算結果を ROUND（四捨五入）
+
+Multi Hit スキル：
+
+デフォルト：Hit ごとに丸め
+
+オプション：最後にのみ丸め（設定フラグで制御）
+
+丸め方は EqConst.yaml の設定：
+
+RoundType: Up / Down / Nearest
+
+スキル・武器ごとに上書き可能。
+
+7. DPS 計算枠
+
+v1.0 では DPS 計算は枠のみ用意し、実装は保留 とする。
+
+将来拡張用に以下を保持：
+
+{WeaponCoolTime}（CT）
+
+スキル CT
+
+バフ持続時間
+
+追撃発動タイミング（発動率・内部CT）
+
+上記を元に「時間軸シミュレーション」ができるよう
+データ構造だけ先に設計しておく。
+
+
+---
+
+## 3. `/docs/spec-ui-flow.md`
+
+```markdown
+# Minecraft RPG 計算機  
+## UI / UX 画面仕様書（UI Flow Spec）v1.0
+
+本ドキュメントは、Minecraft RPG 計算機の  
+**画面構成・画面遷移・UI 要素・ユーザ操作フロー** を定義する。
+
+---
+
+# 1. 全体コンセプト
+
+ユーザの主な目的は 2 つ：
+
+1. 任意の装備構成で **火力を検証したい**（火力検証モード）
+2. 条件を指定して **最適装備構成を探索したい**（最適装備探索モード）
+
+このための UI を以下の画面に分割する：
+
+- トップ画面
+- 火力検証モード
+- 最適装備探索モード
+
+---
+
+# 2. 画面構成概要
+
+## 2.1 画面一覧
+
+1. **TopPage**（トップ）
+2. **ManualSimPage**（火力検証・手動モード）
+3. **OptimizePage**（最適装備探索モード）
+
+---
+
+# 3. トップ画面（TopPage）
+
+### 要素
+
+- タイトル：  
+  `Minecraft RPG ダメージ計算機`
+- ボタン：
+  - 「火力検証（手動モード）」ボタン
+  - 「最適装備探索（自動モード）」ボタン
+
+### 挙動
+
+- それぞれのボタン押下で対応するページへ遷移する。
+
+---
+
+# 4. 火力検証モード（ManualSimPage）
+
+## 4.1 タブ構造
+
+画面上部にタブを配置：
+
+1. 職業
+2. SP割り振り
+3. 装備
+4. 食事・指輪
+5. 最終ステータス
+6. スキル / 通常攻撃
+7. 結果
+
+---
+
+## 4.2 職業タブ
+
+### 入力項目
+
+- 職業選択（ドロップダウン）
+- 職業レベル（数値入力/スライダー）
+- 使用可能武器種の表示（チェックボックス or ラベル）
+
+### 機能
+
+- 職業選択に応じて：
+  - 使用可能武器種一覧を更新
+  - 使用可能防具タイプ（布/革/金属）を制約
+
+---
+
+## 4.3 SP割り振りタブ
+
+### 入力
+
+- 総SP（表示のみ ： 2 × 職業レベル）
+- A ライン SP 割当（スライダー or 数値入力）
+- B ライン SP 割当
+- C ライン SP 割当
+
+### 表示
+
+- 各ラインの到達解放段階（A-1, A-2, ...）
+- 解放済みスキル一覧
+- 未解放スキルはグレーアウト表示
+
+### 制約
+
+- A+B+C <= 総SP
+- 不足がある場合はエラー表示
+
+---
+
+## 4.4 装備タブ
+
+### スロット一覧
+
+- 武器（必須）
+- 頭防具
+- 胴防具
+- 足防具
+- ネックレス
+- ブレスレット
+- 紋章
+  - ルーンストーン枠：Normal / Buster / Great / Replica 各 1 つまで
+
+### UI 要素
+
+- 各スロットにプルダウン or 検索フィールド
+- 選択した装備はカード表示（名前 / Lv / 主なステータス）
+
+### 制約
+
+- 防具タイプ：職業ごとの許可されるタイプのみ選択可
+- ルーン：グレードごとに 1 個まで
+- 武器種：職業で使用不可のものは非表示
+
+---
+
+## 4.5 食事・指輪タブ
+
+### 食事（料理）
+
+- 食事 ON/OFF トグル
+- 食事プルダウン（選択肢：食べ物 CSV）
+
+### 指輪（特殊バフ）
+
+- 指輪バフ ON/OFF トグル
+- バフ内容（例：選択ステータスに対して Y% 上昇）を設定
+- 最適装備探索モードでは「指輪を考慮するか？」フラグのみ利用
+
+---
+
+## 4.6 最終ステータスタブ
+
+### 表示内容
+
+- 全ステータス `{UserHP}`, `{UserPower}`, `{UserMagic}`, `{UserSpeed}`, `{UserCritRate}`, `{UserCritDamage}`, `{UserDefense}` ...
+- 各ステータスの内訳（ホバー or 詳細を開くと表示）：
+  - 職業基礎
+  - レベル成長
+  - SP 補正
+  - 武器
+  - 防具
+  - アクセ
+  - 紋章
+  - ルーン
+  - 食事
+  - 指輪
+  - 職業％補正
+
+UI 的には：
+
+```text
+力: 320 (+120 職業, +80 武器, +60 防具, +40 その他)
+
+
+のような形式。
+
+4.7 スキル / 通常攻撃タブ
+UI
+
+武器種ごとに使用可能なスキル一覧（チェックボックス or ラジオボタン）
+
+「通常攻撃」も必ず 1 つの選択肢として含める
+
+使用条件を満たさないものは選択不可:
+
+SP 解放されていない
+
+武器種が対応していない
+
+表示
+
+スキル説明
+
+使用武器種
+
+CT
+
+消費 MP
+
+Hit数
+
+4.8 結果タブ
+出力内容
+
+1 発当たりのダメージ
+
+追撃を含む総ダメージ
+
+Multi-Hit の場合：1Hit当たりダメージ + 総ダメージ
+
+選択中スキル・通常攻撃の種別
+
+参照された基礎ダメージ式
+
+オプションで「詳細表示」を開くと：
+
+基礎ダメージ各要素（武器攻撃力 × 補正、ステータス寄与、会心寄与など）
+
+使用された丸め方式
+
+5. 最適装備探索モード（OptimizePage）
+5.1 構成
+
+条件入力パネル
+
+実行ボタン
+
+結果一覧
+
+5.2 条件入力パネル
+項目
+
+職業選択
+
+職業レベル
+
+使用するスキル or 通常攻撃（スキルパネルと同様）
+
+武器種の制限（複数選択可）
+
+防具タイプの制限（布 / 革 / 金属）
+
+食事を考慮するか（ON/OFF）
+
+指輪を考慮するか（ON/OFF）
+
+SP ライン条件：
+
+A ライン：min〜max
+
+B ライン：min〜max
+
+C ライン：min〜max
+
+5.3 実行・プログレス
+
+最適化ボタン押下で探索開始
+
+推定総パターン数 or 組合せ数を表示（可能なら）
+
+プログレスバーを表示
+
+「キャンセル」ボタンを配置
+
+内部では：
+
+装備候補の組合せを列挙（または枝刈り付き探索）
+
+各構成について spec-equipment-calc.md のルールで {UserXXX}, {WeaponXXX} を計算
+
+spec-skill-damage.md のルールでダメージを評価
+
+最大ダメージ構成を求める
+
+5.4 結果表示
+上部：ベスト構成
+
+最大ダメージ（数値）
+
+採用装備一覧（武器、防具、アクセ、紋章、ルーン）
+
+職業レベル・SP 配分
+
+食事・指輪 ON/OFF 状態
+
+選択スキル or 通常攻撃
+
+下部：2〜N 位候補
+
+上位いくつかの構成をリスト表示（例：Top5）
+
+各構成ごとに：
+
+ダメージ値
+
+装備構成概要
+
+「詳細を見る」リンク
+
+操作
+
+「火力検証モードで開く」ボタン
+→ 選択した構成を ManualSimPage に引き継ぎ、細かい検証ができる。
+
+6. ナビゲーションと永続化
+6.1 ナビゲーション
+
+ヘッダーに常時表示：
+
+【ロゴ/タイトル】
+
+【火力検証】リンク
+
+【最適装備探索】リンク
+
+6.2 永続化（Local Storage）
+
+以下の情報をブラウザに保存する：
+
+最後に選択した職業
+
+最後に選択した装備構成
+
+最後に選択したスキル
+
+SP 配分
+
+食事 / 指輪 ON/OFF 状態
+
+7. バリデーションとエラー表示
+
+装備が不足している（武器未選択など）状態で「計算」した場合：
+→ 赤字のバナーで警告表示
+
+SP が総量を超えている場合：
+→ エラー表示 ＋ 実行ボタン無効
+
+職業がその武器を使用不可な場合：
+→ プルダウンに出さない / 選択不可
+
+8. 拡張性
+
+装備スロットが増えた場合：
+
+装備タブにスロットを追加
+
+最終ステータス計算は同一パイプラインに流す
+
+敵ステータス（防御・属性耐性）を扱う場合：
+
+別タブ「敵設定」を追加し、DPS 計算と合わせて管理する
+
+将来の DPS 表示：
+
+スキル CT や追撃発生頻度を元に、結果タブと最適化結果に「期待 DPS」を追加する余地を残す
+
+
+---
+
+## 4. `/docs/spec-data-structure.md`
+
+```markdown
+# Minecraft RPG 計算機  
+## データ構造仕様書（Data Structure Spec）v1.0
+
+本ドキュメントは、本システムが扱う **CSV ファイル・YAML 設定・内部データ構造** の仕様を定義する。
+
+---
+
+# 1. データファイル一覧
+
+## 1.1 CSV ファイル
+
+- `DA_EqCalc_Data - 武器.csv`
+- `DA_EqCalc_Data - 防具.csv`
+- `DA_EqCalc_Data - アクセサリー.csv`
+- `DA_EqCalc_Data - 紋章.csv`
+- `DA_EqCalc_Data - ルーンストーン.csv`
+- `DA_EqCalc_Data - 食べ物.csv`
+- 各職業用スキルツリー CSV（例：`ガーディアン.csv` など）
+
+## 1.2 YAML ファイル
+
+- `EqConst.yaml`：係数・丸め・ランク定義などの定数
+- `JobConst.yaml`：職業関連の共通定義
+- `UserStatusCalc.yaml`：ユーザステータス合成ロジック
+- `WeaponCalc.yaml`：武器ランク・固有能力・攻撃関連
+- `SkillCalc.yaml`：スキルダメージ式
+
+---
+
+# 2. CSV 共通仕様
+
+- 文字コード：UTF-8
+- 区切り文字：`,`（カンマ）
+- 1 行目：ヘッダ行（**必須**）
+- 2 行目以降：データ行
+- 空欄：数値項目の場合は `0` として扱う
+
+---
+
+# 3. 各 CSV 構造
+
+## 3.1 武器（DA_EqCalc_Data - 武器.csv）
+
+| カラム名 | 型 | 説明 |
+|----------|----|------|
+| アイテム名 | string | 武器名 |
+| ドロップかどうか | bool (TRUE/FALSE) | ドロップ武器かどうか |
+| 武器種 | string | 剣 / 弓 / 杖 / 斧 / 大剣 / 短剣 / 槍 |
+| 使用可能Lv | int | AvailableLv |
+| 攻撃力（F） | int | WeaponAttackP |
+| 会心率（F） | int | WeaponCritR |
+| 会心ダメージ（F） | int | WeaponCritD |
+| ダメージ補正（初期値） | float | DamageCorrection |
+| ct(クオリティF) | float | WeaponCoolT |
+
+### 内部データ構造（例：TypeScript）
+
+```ts
+interface WeaponData {
+  itemName: string;
+  isDrop: boolean;
+  weaponType: "Sword" | "Bow" | "Staff" | "Axe" | "GreatSword" | "Dagger" | "Spear";
+  availableLv: number;
+  weaponAttackP: number;
+  weaponCritR: number;
+  weaponCritD: number;
+  weaponCorrectionV: number;
+  weaponCoolT: number;
+}
+
+3.2 防具（DA_EqCalc_Data - 防具.csv）
+カラム名	型	説明
+アイテム名	string	防具名
+使用可能Lv	int	Lv
+部位を選択	string	Head / Body / Leg
+タイプ	string	布 / 革 / 金属
+力（初期値）	int	Power
+魔力（初期値）	int	Magic
+体力（初期値）	int	HP
+精神（初期値）	int	Mind
+素早さ（初期値）	int	Speed
+器用（初期値）	int	CritRate
+撃力（初期値）	int	CritDamage
+守備力（初期値）	int	Defense
+3.3 アクセサリ（DA_EqCalc_Data - アクセサリー.csv）
+カラム名	型	説明
+アイテム名	string	アクセ名
+使用可能Lv	int	Lv
+タイプ	string	Necklace / Bracelet
+体力（初期値）	int	HP
+力（初期値）	int	Power
+魔力（初期値）	int	Magic
+精神（初期値）	int	Mind
+撃力（初期値）	int	CritDamage
+素早さ（初期値）	int	Speed
+3.4 紋章（DA_EqCalc_Data - 紋章.csv）
+カラム名	型	説明
+アイテム名	string	紋章名
+使用可能Lv	int	Lv
+力	int	Power
+魔力	int	Magic
+体力	int	HP
+精神	int	Mind
+素早さ	int	Speed
+器用	int	CritRate
+撃力	int	CritDamage
+守備力	int	Defense
+3.5 ルーンストーン（DA_EqCalc_Data - ルーンストーン.csv）
+カラム名	型	説明
+グレード	string	Normal / Buster / Great / Replica
+力	int	Power
+魔力	int	Magic
+体力	int	HP
+精神	int	Mind
+素早さ	int	Speed
+器用	int	CritRate
+撃力	int	CritDamage
+守備力	int	Defense
+耐性1	string	ResistType1
+値1	int	ResistValue1
+耐性2	string	ResistType2
+値2	int	ResistValue2
+耐性3	string	ResistType3
+値3	int	ResistValue3
+3.6 食べ物（DA_EqCalc_Data - 食べ物.csv）
+カラム名	型	説明
+アイテム名	string	食事名
+力	int	Power
+魔力	int	Magic
+体力	int	HP
+精神	int	Mind
+素早さ	int	Speed
+器用	int	CritRate
+撃力	int	CritDamage
+守備力	int	Defense
+耐性1	string	ResistType1
+値1	int	ResistValue1
+耐性2	string	ResistType2
+値2	int	ResistValue2
+...	...	必要に応じて増加
+3.7 職業 CSV（例：ガーディアン.csv）
+カラム名	型	説明
+解放段階	string	A-1, A-2, B-1, C-1 など
+必要SP	int	その段階を解放するための必要 SP
+解放スキル名	string	スキル ID / 名前
+体力	int	HP 増加量
+力	int	Power 増加量
+精神	int	Mind 増加量
+...	...	他ステータス増加量
+4. YAML 構造概要
+4.1 EqConst.yaml
+
+ランク係数
+
+防具ランク、EX ランク、アクセランク補正
+
+丸めタイプ（RoundType）
+
+その他、定数群
+
+例：
+
+WeaponRank:
+  Coeff:
+    D: "1/15"
+    C: "1/15"
+    B: "2/25"
+    A: "2/25"
+    S: "3/35"
+    SS: "1/11"
+    SSS: "1/10"
+  RoundType: ROUNDUP
+
+4.2 UserStatusCalc.yaml
+
+ユーザ最終ステータス {UserXXX} の合成ロジック
+
+Initial（初期値）、Equipment（装備）、Food（食事）、Job（職業）、Ring（指輪）などの加算順
+
+防具 ARMOR 式、EX 式、アクセ式など
+
+4.3 WeaponCalc.yaml
+
+武器ランク計算ロジック
+
+特殊武器能力（スタック制・HP消費・自己バフ）
+
+武器種ごとの BasedDamage 式
+
+4.4 SkillCalc.yaml
+
+スキルごとのダメージ式
+
+対応武器種・Hit 数・CT・消費 MP
+
+スキルカテゴリ（ノービス / ファイター / ウィザード / レンジャー / ハンター 等）
+
+4.5 JobConst.yaml
+
+職業ごとの基本定義（最大レベル、使用可能武器、防具タイプ）
+
+職業補正（最終％ボーナスなど）
+
+5. 内部オブジェクト構造（例）
+interface UserStatus {
+  hp: number;
+  mp: number;
+  bp: number;
+  power: number;
+  magic: number;
+  mind: number;
+  speed: number;
+  critRate: number;
+  critDamage: number;
+  defense: number;
+  // 耐性など
+}
+
+interface EquipmentSet {
+  weapon: WeaponData | null;
+  armorHead: ArmorData | null;
+  armorBody: ArmorData | null;
+  armorLeg: ArmorData | null;
+  necklace: AccessoryData | null;
+  bracelet: AccessoryData | null;
+  emblem: EmblemData | null;
+  runes: {
+    normal?: RuneStoneData;
+    buster?: RuneStoneData;
+    great?: RuneStoneData;
+    replica?: RuneStoneData;
+  };
+  food: FoodData | null;
+}
+
+6. 将来的拡張
+
+敵キャラ用のステータス CSV / YAML
+
+属性・状態異常・耐性システムの拡張
+
+DPS シミュレーション用に「スキル回しシナリオ」構造を追加
+
+
+
+
+/docs/spec-placeholder-mapping.md
+# Minecraft RPG 計算機  
+## CSV / YAML / 日本語名 → プレースホルダー マッピング仕様書 v1.0
+
+本仕様書は、  
+**CSV（ゲームデータ） → YAML（計算式） → プレースホルダー（{...}） → コード（内部変数）**  
+の変換ルールを完全に統一し、システム実装時のデータ整合性を保証するためのものである。
+
+ここに記載される名称は、ステータス計算、装備合算、スキルダメージ式、武器ダメージ式など、  
+すべての計算処理における公式な変数名として扱う。
+
+---
+
+# 1. マッピングルール概要
+
+- **CSV のカラム名**（日本語）  
+　＝ ゲームデータの入力形式  
+- **装備単体の内部名**  
+　＝ 合算前のその装備固有のステータス名（User は付かない）  
+- **最終ユーザステータス（UserXXX）**  
+　＝ 装備 + 食事 + 職業補正 + スキル補正を全て合算した後に参照される  
+- **プレースホルダー（{VarName}）**  
+　＝ YAML 内のダメージ式・計算式で使用される正式変数  
+- **camelCase**  
+　＝ コード内部（TS/Python）で管理される変数名
+
+---
+
+# 2. プレースホルダー基本ルール
+
+- プレースホルダーは必ず **`{VariableName}` 形式**に統一する。
+- User の付く変数は「最終ステータス」であり、装備単体の値ではない。
+- 装備単体名は CamelCase で管理し、合算後 UserXXX に反映される。
+
+---
+
+# 3. ステータス（共通：防具／アクセ／紋章／ルーン／食事）
+
+| CSV 日本語名 | 装備単体内部名 | 最終ステータス名 (User) | プレースホルダー | camelCase |
+|--------------|----------------|--------------------------|-------------------|-----------|
+| 体力 | HP | UserHP | `{UserHP}` | `userHp` |
+| 力 | Power | UserPower | `{UserPower}` | `userPower` |
+| 魔力 | Magic | UserMagic | `{UserMagic}` | `userMagic` |
+| 精神 | Mind | UserMind | `{UserMind}` | `userMind` |
+| 素早さ | Speed | UserSpeed | `{UserSpeed}` | `userSpeed` |
+| 器用 | CritRate | UserCritRate | `{UserCritRate}` | `userCritRate` |
+| 撃力 | CritDamage | UserCritDamage | `{UserCritDamage}` | `userCritDamage` |
+| 守備力 | Defense | UserDefense | `{UserDefense}` | `userDefense` |
+| MP | MP | UserMP | `{UserMP}` | `userMp` |
+| BP（職業内部値） | BP | UserBP | `{UserBP}` | `userBp` |
+
+**注意：器用（DEX）は UserCritRate に統合する（ゲームルールによる仕様変更）。**
+
+---
+
+# 4. 武器（攻撃計算に使用する単体ステータス）
+
+| CSV 日本語名 | 装備内部名 | 最終ステータス名 | プレースホルダー | camelCase |
+|--------------|------------|-------------------|-------------------|-----------|
+| 攻撃力(F) | WeaponAttackP | WeaponAttackPower | `{WeaponAttackPower}` | `weaponAttackPower` |
+| 会心率(F) | WeaponCritR | WeaponCritRate | `{WeaponCritRate}` | `weaponCritRate` |
+| 会心ダメ(F) | WeaponCritD | WeaponCritDamage | `{WeaponCritDamage}` | `weaponCritDamage` |
+| ダメージ補正 | DamageCorrection | DamageCorrection | `{DamageCorrection}` | `damageCorrection` |
+| CT(F) | WeaponCoolT | WeaponCoolTime | `{WeaponCoolTime}` | `weaponCoolTime` |
+| 使用可能Lv | AvailableLv | (直接使用) | - | `availableLv` |
+| 武器種 | WeaponType | (直接使用) | - | `weaponType` |
+
+---
+
+# 5. 防具（叩き・クオリティ補正前）
+
+| CSV 日本語名 | 装備内部名 | 合算後 User プレースホルダ |
+|--------------|------------|-----------------------------|
+| 力 | Power | `{UserPower}` |
+| 魔力 | Magic | `{UserMagic}` |
+| 精神 | Mind | `{UserMind}` |
+| 体力 | HP | `{UserHP}` |
+| 素早さ | Speed | `{UserSpeed}` |
+| 器用 | CritRate | `{UserCritRate}` |
+| 撃力 | CritDamage | `{UserCritDamage}` |
+| 守備力 | Defense | `{UserDefense}` |
+
+防具は EqConst.yaml の式によって「ランク → 叩き → 強化 → EX2種」を順に適用し、  
+最終的に UserXXX に加算される。
+
+---
+
+# 6. アクセサリ（ネックレス・ブレスレット）
+
+防具と同一のマッピングルールを適用する。
+
+| CSV 日本語名 | 装備内部名 | User合算先 |
+|--------------|------------|------------|
+| 全ステータス項目 | （防具と同じ） | 対応する `{UserXXX}` |
+
+---
+
+# 7. 紋章
+
+| CSV 日本語 | 合算先(User) |
+|-------------|----------------|
+| 力 | `{UserPower}` |
+| 魔力 | `{UserMagic}` |
+| 体力 | `{UserHP}` |
+| 精神 | `{UserMind}` |
+| 素早さ | `{UserSpeed}` |
+| 器用 | `{UserCritRate}` |
+| 撃力 | `{UserCritDamage}` |
+| 守備力 | `{UserDefense}` |
+
+---
+
+# 8. ルーンストーン
+
+| CSV 日本語名 | 合算先(User) | 備考 |
+|--------------|-----------------|------|
+| 全ステータス | 対応する `{UserXXX}` | |
+| 耐性1〜3 | ResistX | 耐性は別システム |
+
+---
+
+# 9. 食べ物（料理）
+
+料理によるバフも全て UserXXX に加算する。
+
+| CSV 日本語名 | User合算先 |
+|--------------|------------|
+| 力 | `{UserPower}` |
+| 魔力 | `{UserMagic}` |
+| 体力 | `{UserHP}` |
+| 精神 | `{UserMind}` |
+| 素早さ | `{UserSpeed}` |
+| 器用 | `{UserCritRate}` |
+| 撃力 | `{UserCritDamage}` |
+| 守備力 | `{UserDefense}` |
+
+---
+
+# 10. 職業（JobConst）
+
+職業スキルツリー CSV の増加値は全て User 側へ加算する。
+
+| CSV 項目 | User合算先 |
+|----------|------------|
+| HP | `{UserHP}` |
+| 力 | `{UserPower}` |
+| 魔力 | `{UserMagic}` |
+| 精神 | `{UserMind}` |
+| 素早さ | `{UserSpeed}` |
+| 器用（DEX） | `{UserCritRate}` |
+| 撃力 | `{UserCritDamage}` |
+| 守備力 | `{UserDefense}` |
+
+---
+
+# 11. 公式プレースホルダー一覧（最終版）
+
+
+
+{UserHP}
+{UserMP}
+{UserBP}
+
+{UserPower}
+{UserMagic}
+{UserMind}
+{UserSpeed}
+{UserCritRate}
+{UserCritDamage}
+{UserDefense}
+
+{WeaponAttackPower}
+{WeaponCritRate}
+{WeaponCritDamage}
+{WeaponCoolTime}
+{DamageCorrection}
+
+
+---
+
+# 12. 付録：命名規則
+
+### プレースホルダー  
+
+
+{CamelCaseStartingWithUppercase}
+例: {UserPower}, {WeaponAttackPower}
+
+
+### 内部コード変数  
+
+
+camelCaseStartingLowercase
+例: userPower, weaponAttackPower

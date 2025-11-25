@@ -1,0 +1,937 @@
+/**
+ * 装備システム計算モジュール
+ * 仕様書: ref/product/design/03_装備システム.md
+ * 設計書: ref/product/design/10_計算システム設計.md
+ * UserStatusCalc.yamlおよびEqConst.yamlの計算式を使用
+ */
+
+import {
+  WeaponData,
+  ArmorData,
+  AccessoryData,
+  EmblemData,
+  RunestoneData,
+  EqConstData,
+  UserStatusCalcData,
+} from '@/types/data';
+import { evaluateFormula } from './formulaEvaluator';
+import { round, roundUp, roundDown } from './utils/mathUtils';
+
+// ===== 型定義 =====
+
+/**
+ * 装備ランク
+ */
+export type EquipmentRank = 'SSS' | 'SS' | 'S' | 'A' | 'B' | 'C' | 'D' | 'E' | 'F';
+
+/**
+ * 武器ランク（装備ランクのエイリアス）
+ */
+export type WeaponRank = EquipmentRank;
+
+/**
+ * ステータスブロック
+ */
+export interface StatBlock {
+  [key: string]: number;
+}
+
+/**
+ * 装備ステータス
+ */
+export interface EquipmentStats {
+  // 基礎値
+  initial: StatBlock;
+  // 各種加算値
+  rankBonus: StatBlock;
+  reinforcement: StatBlock;
+  forge: StatBlock;
+  alchemy: StatBlock;
+  // 最終値
+  final: StatBlock;
+  // 武器固有
+  attackPower?: number;
+  critRate?: number;
+  critDamage?: number;
+  damageCorrection?: number;
+  coolTime?: number;
+}
+
+/**
+ * 選択された装備
+ */
+export interface SelectedEquipment {
+  weapon?: {
+    data: WeaponData;
+    rank: WeaponRank;
+    reinforcement: number;
+    hammerCount: number;
+    alchemyEnabled: boolean;
+  };
+  head?: {
+    data: ArmorData;
+    rank: EquipmentRank;
+    reinforcement: number;
+    tatakiCount?: number;  // 叩き回数を追加
+  };
+  body?: {
+    data: ArmorData;
+    rank: EquipmentRank;
+    reinforcement: number;
+    tatakiCount?: number;  // 叩き回数を追加
+  };
+  leg?: {
+    data: ArmorData;
+    rank: EquipmentRank;
+    reinforcement: number;
+    tatakiCount?: number;  // 叩き回数を追加
+  };
+  necklace?: {
+    data: AccessoryData;
+    rank: EquipmentRank;
+  };
+  bracelet?: {
+    data: AccessoryData;
+    rank: EquipmentRank;
+  };
+  emblem?: EmblemData;
+  runes?: RunestoneData[];
+  ring?: any; // 未実装
+}
+
+/**
+ * リングデータ（未実装）
+ */
+export interface RingData {
+  // 将来実装予定
+}
+
+// ===== ユーティリティ関数 =====
+
+// round, roundUp, roundDown は mathUtils からインポート済み
+
+/**
+ * ランクリスト
+ */
+const RANK_ORDER: EquipmentRank[] = ['SSS', 'SS', 'S', 'A', 'B', 'C', 'D', 'E', 'F'];
+
+/**
+ * ランクの妥当性チェック
+ */
+function validateRank(rank: EquipmentRank, minRank?: string, maxRank?: string): boolean {
+  const rankIndex = RANK_ORDER.indexOf(rank);
+  if (rankIndex === -1) return false;
+
+  if (minRank) {
+    const minIndex = RANK_ORDER.indexOf(minRank as EquipmentRank);
+    if (minIndex !== -1 && rankIndex > minIndex) return false; // より低いランク
+  }
+
+  if (maxRank) {
+    const maxIndex = RANK_ORDER.indexOf(maxRank as EquipmentRank);
+    if (maxIndex !== -1 && rankIndex < maxIndex) return false; // より高いランク
+  }
+
+  return true;
+}
+
+/**
+ * 武器のF基準値を逆算
+ * 仕様書 §2.2.3: 最低ランク指定時のF基準逆算
+ */
+function calculateWeaponFValue(
+  csvValue: number,
+  minRank: WeaponRank,
+  statType: 'AttackP' | 'CritR' | 'CritD' | 'CoolT',
+  eqConst: EqConstData
+): number {
+  const rankData = (eqConst.Weapon.Rank as any)[minRank];
+  if (!rankData || !rankData.Bonus) {
+    return csvValue;
+  }
+  
+  const bonus = rankData.Bonus[statType] || 0;
+  return csvValue - bonus;
+}
+
+// ===== 1. 武器計算 =====
+
+/**
+ * 武器ステータス計算
+ * 仕様書 §3.2, §2.3, §2.4, §2.5, §2.6 に基づく
+ * UserStatusCalc.yamlのEquipmentStatusFormula.Weapon式を使用
+ */
+export function calculateWeaponStats(
+  weapon: WeaponData,
+  rank: WeaponRank,
+  forgeCount: number,
+  hammerCount: number,
+  alchemyEnabled: boolean,
+  eqConst: EqConstData,
+  userStatusCalc?: UserStatusCalcData
+): EquipmentStats {
+  // バリデーション
+  if (!validateRank(rank, weapon.最低ランク, weapon.最高ランク)) {
+    throw new Error(`Invalid rank ${rank} for weapon ${weapon.アイテム名}`);
+  }
+
+  if (forgeCount < 0 || forgeCount > 80) {
+    throw new Error('Reinforcement must be between 0 and 80');
+  }
+
+  if (hammerCount < 0 || hammerCount > 999) {
+    throw new Error('Hammer count must be between 0 and 999');
+  }
+
+  // F基準値の計算（最低ランク指定時）
+  let baseAttackP = weapon['攻撃力（初期値）'];
+  let baseCritR = weapon['会心率（初期値）'];
+  let baseCritD = weapon['会心ダメージ（初期値）'];
+  let baseCoolT = weapon['ct(初期値)'];
+
+  if (weapon.最低ランク && weapon.最低ランク !== 'F') {
+    baseAttackP = calculateWeaponFValue(baseAttackP, weapon.最低ランク as WeaponRank, 'AttackP', eqConst);
+    baseCritR = calculateWeaponFValue(baseCritR, weapon.最低ランク as WeaponRank, 'CritR', eqConst);
+    baseCritD = calculateWeaponFValue(baseCritD, weapon.最低ランク as WeaponRank, 'CritD', eqConst);
+    baseCoolT = calculateWeaponFValue(baseCoolT, weapon.最低ランク as WeaponRank, 'CoolT', eqConst);
+  }
+
+  // ランクデータ取得
+  const rankData = (eqConst.Weapon.Rank as any)[rank];
+  if (!rankData) {
+    throw new Error(`Rank data not found for ${rank}`);
+  }
+
+  const rankBonus = rankData.Bonus || {};
+  const alchemyBonus = alchemyEnabled ? (rankData.Alchemy || {}) : {};
+
+  // YAML式を取得
+  const weaponFormulas = userStatusCalc?.EquipmentStatusFormula?.Weapon as Record<string, string> | undefined;
+
+  let attackPower: number;
+  let critRate: number;
+  let critDamage: number;
+  let coolTime: number;
+
+  if (weaponFormulas) {
+    // YAML式を使用した計算
+    const variables: Record<string, number> = {
+      // 初期値
+      'Initial.AttackP': baseAttackP,
+      'Initial.CritR': baseCritR,
+      'Initial.CritD': baseCritD,
+      'Initial.CoolT': baseCoolT,
+      // ランクボーナス
+      'Rank.Bonus.AttackP': rankBonus.AttackP || 0,
+      'Rank.Bonus.CritR': rankBonus.CritR || 0,
+      'Rank.Bonus.CritD': rankBonus.CritD || 0,
+      'Rank.Bonus.CoolT': rankBonus.CoolT || 0,
+      // 錬金ボーナス
+      'Rank.Alchemy.AttackP': alchemyBonus.AttackP || 0,
+      'Rank.Alchemy.CritR': alchemyBonus.CritR || 0,
+      'Rank.Alchemy.CritD': alchemyBonus.CritD || 0,
+      // 強化値
+      'Reinforcement.AttackP': (eqConst.Weapon.Reinforcement as any)?.AttackP || 2,
+      'Reinforcement.CritR': (eqConst.Weapon.Reinforcement as any)?.CritR || 0,
+      'Reinforcement.CritD': (eqConst.Weapon.Reinforcement as any)?.CritD || 1,
+      'ReinforcementLevel': forgeCount,
+      // 叩き値
+      'Forge.AttackP': eqConst.Weapon.Forge?.Other || 1,
+      'Forge.CritR': eqConst.Weapon.Forge?.Other || 1,
+      'Forge.CritD': eqConst.Weapon.Forge?.Other || 1,
+      'ForgeAttackPAmount': hammerCount,
+      'ForgeCritRAmount': hammerCount,
+      'ForgeCritDAmount': hammerCount,
+      // その他
+      'AvailableLv': weapon.使用可能Lv,
+      'Denominator': (eqConst.Weapon.Reinforcement as any)?.Denominator || 320,
+    };
+
+    try {
+      // 攻撃力計算
+      if (weaponFormulas.AttackP) {
+        attackPower = round(evaluateFormula(weaponFormulas.AttackP, variables));
+      } else {
+        // デフォルト計算
+        const attackPowerBase = roundUp(baseAttackP + weapon.使用可能Lv * ((rankBonus.AttackP || 0) / variables.Denominator));
+        attackPower = attackPowerBase +
+          (rankBonus.AttackP || 0) +
+          (alchemyBonus.AttackP || 0) +
+          variables['Reinforcement.AttackP'] * forgeCount +
+          variables['Forge.AttackP'] * hammerCount;
+      }
+
+      // 会心率計算
+      if (weaponFormulas.CritR) {
+        critRate = evaluateFormula(weaponFormulas.CritR, variables);
+      } else {
+        critRate = baseCritR +
+          (rankBonus.CritR || 0) +
+          (alchemyBonus.CritR || 0) +
+          variables['Reinforcement.CritR'] * forgeCount +
+          variables['Forge.CritR'] * hammerCount;
+      }
+
+      // 会心ダメージ計算
+      if (weaponFormulas.CritD) {
+        critDamage = evaluateFormula(weaponFormulas.CritD, variables);
+      } else {
+        critDamage = baseCritD +
+          (rankBonus.CritD || 0) +
+          (alchemyBonus.CritD || 0) +
+          variables['Reinforcement.CritD'] * forgeCount +
+          variables['Forge.CritD'] * hammerCount;
+      }
+
+      // クールタイム計算
+      if (weaponFormulas.CoolT) {
+        coolTime = evaluateFormula(weaponFormulas.CoolT, variables);
+      } else {
+        coolTime = baseCoolT + (rankBonus.CoolT || 0);
+      }
+    } catch (error) {
+      console.warn('Failed to evaluate weapon formulas, using default calculation', error);
+      // フォールバック: デフォルト計算
+      const attackPowerBase = roundUp(baseAttackP);
+      attackPower = attackPowerBase +
+        (rankBonus.AttackP || 0) +
+        (alchemyBonus.AttackP || 0) +
+        ((eqConst.Weapon.Reinforcement as any)?.AttackP || 2) * forgeCount +
+        (eqConst.Weapon.Forge?.Other || 1) * hammerCount;
+
+      critRate = baseCritR +
+        (rankBonus.CritR || 0) +
+        (alchemyBonus.CritR || 0) +
+        ((eqConst.Weapon.Reinforcement as any)?.CritR || 0) * forgeCount;
+
+      critDamage = baseCritD +
+        (rankBonus.CritD || 0) +
+        (alchemyBonus.CritD || 0) +
+        ((eqConst.Weapon.Reinforcement as any)?.CritD || 1) * forgeCount;
+
+      coolTime = baseCoolT + (rankBonus.CoolT || 0);
+    }
+  } else {
+    // YAML式がない場合のデフォルト計算
+    const attackPowerBase = roundUp(baseAttackP);
+    attackPower = attackPowerBase +
+      (rankBonus.AttackP || 0) +
+      (alchemyBonus.AttackP || 0) +
+      ((eqConst.Weapon.Reinforcement as any)?.AttackP || 2) * forgeCount +
+      (eqConst.Weapon.Forge?.Other || 1) * hammerCount;
+
+    critRate = baseCritR +
+      (rankBonus.CritR || 0) +
+      (alchemyBonus.CritR || 0) +
+      ((eqConst.Weapon.Reinforcement as any)?.CritR || 0) * forgeCount;
+
+    critDamage = baseCritD +
+      (rankBonus.CritD || 0) +
+      (alchemyBonus.CritD || 0) +
+      ((eqConst.Weapon.Reinforcement as any)?.CritD || 1) * forgeCount;
+
+    coolTime = baseCoolT + (rankBonus.CoolT || 0);
+  }
+
+  // ダメージ補正は変わらない
+  const damageCorrection = weapon['ダメージ補正（初期値）'];
+
+  // 結果構築
+  const result: EquipmentStats = {
+    initial: {
+      attackPower: baseAttackP,
+      critRate: baseCritR,
+      critDamage: baseCritD,
+      coolTime: baseCoolT,
+      damageCorrection,
+    },
+    rankBonus: {
+      attackPower: rankBonus.AttackP || 0,
+      critRate: rankBonus.CritR || 0,
+      critDamage: rankBonus.CritD || 0,
+      coolTime: rankBonus.CoolT || 0,
+    },
+    reinforcement: {
+      attackPower: ((eqConst.Weapon.Reinforcement as any)?.AttackP || 2) * forgeCount,
+      critRate: ((eqConst.Weapon.Reinforcement as any)?.CritR || 0) * forgeCount,
+      critDamage: ((eqConst.Weapon.Reinforcement as any)?.CritD || 1) * forgeCount,
+    },
+    forge: {
+      attackPower: (eqConst.Weapon.Forge?.Other || 1) * hammerCount,
+    },
+    alchemy: alchemyEnabled ? {
+      attackPower: alchemyBonus.AttackP || 0,
+      critRate: alchemyBonus.CritR || 0,
+      critDamage: alchemyBonus.CritD || 0,
+    } : {},
+    final: {
+      attackPower,
+      critRate,
+      critDamage,
+      coolTime,
+      damageCorrection,
+    },
+    attackPower,
+    critRate,
+    critDamage,
+    coolTime,
+    damageCorrection,
+  };
+
+  return result;
+}
+
+// ===== 2. 防具計算 =====
+
+/**
+ * 防具ステータス計算
+ * 仕様書 §3.2, §3.3 に基づく
+ * UserStatusCalc.yamlのEquipmentStatusFormula.Armor式を使用
+ */
+export function calculateArmorStats(
+  armor: ArmorData,
+  rank: EquipmentRank,
+  reinforcementCount: number,
+  tatakiCount: number = 0,  // 叩き回数パラメータ (デフォルト0)
+  eqConst: EqConstData,
+  userStatusCalc?: UserStatusCalcData
+): EquipmentStats {
+  // バリデーション
+  if (!validateRank(rank, armor.最低ランク, armor.最高ランク)) {
+    throw new Error(`Invalid rank ${rank} for armor ${armor.アイテム名}`);
+  }
+
+  if (reinforcementCount < 0 || reinforcementCount > 40) {
+    throw new Error('Reinforcement must be between 0 and 40');
+  }
+
+  if (tatakiCount < 0 || tatakiCount > 12) {
+    throw new Error('Tataki count must be between 0 and 12');
+  }
+
+  // ランク値取得 (SSS=8, SS=7, S=6, A=5, B=4, C=3, D=2, E=1, F=0)
+  const rankValue = eqConst.Armor.Rank[rank] || 0;
+
+  // YAML式を取得
+  const armorFormula = (userStatusCalc?.EquipmentStatusFormula?.Armor as any)?.MainStatus as string | undefined;
+
+  // ステータス定義
+  const statNames = [
+    { key: 'power', csvKey: '力（初期値）', tatakiMultiplier: 2 }, // 通常ステータス: 叩き回数×2
+    { key: 'magic', csvKey: '魔力（初期値）', tatakiMultiplier: 2 },
+    { key: 'hp', csvKey: '体力（初期値）', tatakiMultiplier: 2 },
+    { key: 'mind', csvKey: '精神（初期値）', tatakiMultiplier: 2 },
+    { key: 'speed', csvKey: '素早さ（初期値）', tatakiMultiplier: 2 },
+    { key: 'dexterity', csvKey: '器用（初期値）', tatakiMultiplier: 2 },
+    { key: 'critDamage', csvKey: '撃力（初期値）', tatakiMultiplier: 2 },
+    { key: 'defense', csvKey: '守備力（初期値）', tatakiMultiplier: 1 }, // 守備力: 叩き回数×1
+  ];
+
+  // 結果格納用
+  const result: EquipmentStats = {
+    initial: {},
+    rankBonus: {},
+    reinforcement: {},
+    forge: {},
+    alchemy: {},
+    final: {},
+  };
+
+  // 各ステータスに対して計算式を適用
+  for (const stat of statNames) {
+    // 基礎値取得（CSVのFランク値）
+    const baseValue = armor[stat.csvKey as keyof ArmorData] as number || 0;
+
+    // 叩き値計算
+    const forgeValue = stat.key === 'defense'
+      ? eqConst.Armor.Forge?.Defence || 1
+      : eqConst.Armor.Forge?.Other || 2;
+    const tatakiValue = tatakiCount * forgeValue;
+
+    // 強化による追加値
+    const reinforcementValue = stat.key === 'defense'
+      ? (eqConst.Armor.Reinforcement?.Defence || 1) * reinforcementCount
+      : (eqConst.Armor.Reinforcement?.Other || 2) * reinforcementCount;
+
+    let finalValue: number;
+
+    if (armorFormula) {
+      // YAML式を使用した計算
+      const variables: Record<string, number> = {
+        [`Initial.${stat.key}`]: baseValue,
+        [`Forge.${stat.key}`]: forgeValue,
+        'ForgeCount': tatakiCount,
+        'Bonus.Rank': rankValue,
+        'AvailableLv': armor.使用可能Lv,
+        'ReinforcementLevel': reinforcementCount,
+        [`Reinforcement.${stat.key}`]: reinforcementValue / reinforcementCount || 0,
+      };
+
+      // 計算式の<Stat>を実際のステータス名に置き換え
+      const statFormula = armorFormula.replace(/<Stat>/g, stat.key);
+
+      try {
+        const calculatedValue = round(evaluateFormula(statFormula, variables));
+        // 強化値を加算
+        finalValue = calculatedValue + reinforcementValue;
+      } catch (error) {
+        console.warn(`Failed to evaluate armor formula for ${stat.key}, using default`, error);
+        // フォールバック: デフォルト計算
+        const baseWithTataki = baseValue + tatakiValue;
+        const calculatedValue = round(
+          baseWithTataki * (1 + Math.pow(baseWithTataki, 0.2) * (rankValue / armor.使用可能Lv))
+        );
+        finalValue = calculatedValue + reinforcementValue;
+      }
+    } else {
+      // デフォルト計算
+      const baseWithTataki = baseValue + tatakiValue;
+      const calculatedValue = round(
+        baseWithTataki * (1 + Math.pow(baseWithTataki, 0.2) * (rankValue / armor.使用可能Lv))
+      );
+      finalValue = calculatedValue + reinforcementValue;
+    }
+
+    // 結果格納
+    result.initial[stat.key] = baseValue;
+    result.forge[stat.key] = tatakiValue; // 叩き値をforgeに格納
+    result.reinforcement[stat.key] = reinforcementValue;
+    result.rankBonus[stat.key] = finalValue - baseValue - tatakiValue - reinforcementValue; // ランクによる増分
+    result.final[stat.key] = finalValue;
+  }
+
+  // EX計算（仕様書§4: 防具には2種類のEXステータスが付与される）
+  // TODO: 将来的にはCSVにEX1/EX2カラムを追加する
+  // 現時点では器用（dexterity）と撃力（critDamage）をデフォルトEXとして計算
+  const ex = calculateArmorEX(armor, rank, 'Dex', 'CritDamage');
+
+  // EXステータスを最終値に加算
+  // 器用（Dex）は実際のステータス名にマッピング
+  result.final.dexterity = (result.final.dexterity || 0) + ex.ex1;
+  result.final.critDamage = (result.final.critDamage || 0) + ex.ex2;
+
+  return result;
+}
+
+/**
+ * 防具EXステータス計算
+ * 仕様書 §4.1 に基づく
+ * @param level 使用可能レベル
+ * @param rank 装備ランク
+ * @param exStatType EXステータスの種類
+ * @returns EX実数値
+ */
+function calculateArmorEXValue(
+  level: number,
+  rank: EquipmentRank,
+  exStatType: 'Dex' | 'CritDamage' | 'Speed' | 'HP' | 'Power' | 'Magic' | 'Mind' | 'Defense'
+): number {
+  // エラーハンドリング：levelが0や負数の場合
+  if (level <= 0) {
+    return 1; // 最小値は1
+  }
+
+  // ランクEX係数テーブル（仕様書§4.1より）
+  const coeffTable: Record<string, Record<EquipmentRank, number>> = {
+    'Dex': {
+      'SSS': 0.15, 'SS': 0.13, 'S': 0.11, 'A': 0.09, 'B': 0.09,
+      'C': 0.07, 'D': 0.07, 'E': 0.05, 'F': 0.05
+    },
+    'CritDamage': {
+      'SSS': 0.6, 'SS': 0.5, 'S': 0.4, 'A': 0.3, 'B': 0.3,
+      'C': 0.2, 'D': 0.2, 'E': 0.1, 'F': 0.1
+    },
+    'Speed': {
+      'SSS': 0.6, 'SS': 0.5, 'S': 0.4, 'A': 0.3, 'B': 0.3,
+      'C': 0.2, 'D': 0.2, 'E': 0.1, 'F': 0.1
+    },
+    'Other': { // HP, Power, Magic, Mind, Defense
+      'SSS': 0.7, 'SS': 0.6, 'S': 0.5, 'A': 0.4, 'B': 0.4,
+      'C': 0.3, 'D': 0.3, 'E': 0.2, 'F': 0.2
+    }
+  };
+
+  const statCategory = ['Dex', 'CritDamage', 'Speed'].includes(exStatType)
+    ? exStatType
+    : 'Other';
+
+  const coeff = coeffTable[statCategory][rank];
+
+  // EX実数値 = ROUND(Lv × ランクEX係数 + 1)
+  return round(level * coeff + 1);
+}
+
+/**
+ * 防具EXステータス2種を計算（仕様書§4では2種類付与される）
+ * @param armor 防具データ
+ * @param rank 装備ランク
+ * @param ex1Type EX1の種類
+ * @param ex2Type EX2の種類
+ * @returns EX1とEX2の計算結果
+ */
+export function calculateArmorEX(
+  armor: ArmorData,
+  rank: EquipmentRank,
+  ex1Type: 'Dex' | 'CritDamage' | 'Speed' | 'HP' | 'Power' | 'Magic' | 'Mind' | 'Defense',
+  ex2Type: 'Dex' | 'CritDamage' | 'Speed' | 'HP' | 'Power' | 'Magic' | 'Mind' | 'Defense'
+): { ex1: number; ex2: number; ex1Type: string; ex2Type: string } {
+  const level = armor.使用可能Lv;
+
+  return {
+    ex1: calculateArmorEXValue(level, rank, ex1Type),
+    ex2: calculateArmorEXValue(level, rank, ex2Type),
+    ex1Type,
+    ex2Type
+  };
+}
+
+/**
+ * アクセサリEXステータスを計算
+ * 仕様書 §5.3 に基づく（防具EXと同様のルール）
+ */
+export function calculateAccessoryEX(
+  accessory: AccessoryData,
+  rank: EquipmentRank,
+  exType: 'Dex' | 'CritDamage' | 'Speed' | 'HP' | 'Power' | 'Magic' | 'Mind'
+): { exValue: number; exType: string } {
+  const level = accessory.使用可能Lv;
+
+  return {
+    exValue: calculateArmorEXValue(level, rank, exType),
+    exType
+  };
+}
+
+// ===== 3. アクセサリー計算 =====
+
+/**
+ * アクセサリーステータス計算
+ * 仕様書 §3.4, §4.2 に基づく
+ */
+export function calculateAccessoryStats(
+  accessory: AccessoryData,
+  rank: EquipmentRank,
+  eqConst: EqConstData
+): EquipmentStats {
+  // バリデーション
+  if (!validateRank(rank, accessory.最低ランク, accessory.最高ランク)) {
+    throw new Error(`Invalid rank ${rank} for accessory ${accessory.アイテム名}`);
+  }
+
+  // ランク補正テーブル（仕様書 §5.2より）
+  const rankCorrection: Record<EquipmentRank, number | null> = {
+    'SSS': 10,
+    'SS': 11,
+    'S': 12,
+    'A': 13,
+    'B': 13,
+    'C': 15,
+    'D': 15,
+    'E': null, // 基礎値そのまま(補正なし)
+    'F': null, // 基礎値そのまま(補正なし)
+  };
+
+  // アクセサリーが持つ6つのステータス（仕様書 §5.1より）
+  const statsMapping = [
+    { key: 'HP', csvKey: '体力（初期値）' },
+    { key: 'Power', csvKey: '力（初期値）' },
+    { key: 'Magic', csvKey: '魔力（初期値）' },
+    { key: 'Mind', csvKey: '精神（初期値）' },
+    { key: 'CritDamage', csvKey: '撃力（初期値）' },
+    { key: 'Speed', csvKey: '素早さ（初期値）' },
+  ];
+
+  // 結果構築
+  const result: EquipmentStats = {
+    initial: {},
+    rankBonus: {},
+    reinforcement: {},
+    forge: {},
+    alchemy: {},
+    final: {},
+  };
+
+  // 各ステータスについて計算
+  for (const stat of statsMapping) {
+    // AccessoryDataから値を取得（型安全にアクセス）
+    const baseValue = (accessory[stat.csvKey as keyof AccessoryData] as number) || 0;
+
+    // 基礎値が0の場合はスキップ
+    if (baseValue === 0) continue;
+
+    let finalValue: number;
+    const correction = rankCorrection[rank];
+
+    if (correction === null) {
+      // E/Fランクは基礎値そのまま
+      finalValue = baseValue;
+    } else {
+      // その他のランクは補正式を適用
+      // 実数値 = ROUND( 基礎値 + (Lv / ランク補正) )
+      finalValue = round(baseValue + (accessory.使用可能Lv / correction));
+    }
+
+    // 結果に格納
+    result.initial[stat.key] = baseValue;
+    result.rankBonus[stat.key] = finalValue - baseValue;
+    result.final[stat.key] = finalValue;
+  }
+
+  // アクセサリEX計算（仕様書§5.3）
+  // TODO: CSVにEXカラムを追加する
+  // 現時点では撃力をデフォルトEXとして計算
+  const ex = calculateAccessoryEX(accessory, rank, 'CritDamage');
+
+  // EXステータスを最終値に加算
+  result.final.CritDamage = (result.final.CritDamage || 0) + ex.exValue;
+
+  return result;
+}
+
+// ===== 4. 紋章計算 =====
+
+/**
+ * 紋章ステータス計算
+ * 仕様書 §3.5, §5.2 に基づく
+ */
+export function calculateEmblemStats(emblem: EmblemData): EquipmentStats {
+  // 紋章は%ボーナスとして扱う
+  // CSVの「効果」フィールドがステータスタイプ
+  const statType = emblem.効果;
+  const bonusValue = emblem.数値;
+
+  // 結果構築（%ボーナスとして保存）
+  const result: EquipmentStats = {
+    initial: {},
+    rankBonus: {},
+    reinforcement: {},
+    forge: {},
+    alchemy: {},
+    final: {
+      [`${statType}_percent`]: bonusValue, // %補正として保存
+    },
+  };
+
+  return result;
+}
+
+// ===== 5. ルーンストーン計算 =====
+
+/**
+ * ルーンストーンステータス計算
+ * 仕様書 §3.6, §6.2 に基づく
+ */
+export function calculateRuneStats(runes: RunestoneData[]): EquipmentStats {
+  // グレード重複チェック
+  const grades = new Set<string>();
+  for (const rune of runes) {
+    if (grades.has(rune.タイプ)) {
+      throw new Error(`Duplicate rune grade: ${rune.タイプ}`);
+    }
+    grades.add(rune.タイプ);
+  }
+
+  // 各グレードから1個ずつまで
+  const validGrades = ['ノーマル', 'グレート', 'バスター', 'レプリカ'];
+  if (runes.length > 4) {
+    throw new Error('Maximum 4 runes allowed');
+  }
+
+  // ステータス合算
+  const finalStats: StatBlock = {};
+  for (const rune of runes) {
+    // 効果フィールドがステータスタイプ
+    const statType = rune.効果;
+    const statValue = rune.数値;
+    
+    if (!finalStats[statType]) {
+      finalStats[statType] = 0;
+    }
+    finalStats[statType] += statValue;
+
+    // セット効果があれば追加
+    if (rune.セット効果 && rune.セット数値) {
+      const setStatType = rune.セット効果;
+      const setStatValue = rune.セット数値;
+      
+      if (!finalStats[setStatType]) {
+        finalStats[setStatType] = 0;
+      }
+      finalStats[setStatType] += setStatValue;
+    }
+  }
+
+  // 結果構築
+  const result: EquipmentStats = {
+    initial: {},
+    rankBonus: {},
+    reinforcement: {},
+    forge: {},
+    alchemy: {},
+    final: finalStats,
+  };
+
+  return result;
+}
+
+// ===== 6. リング計算 =====
+
+/**
+ * リングステータス計算（未実装）
+ * 仕様書 §3.7, §7.2 に基づく
+ */
+export function calculateRingStats(ring: RingData | null): EquipmentStats {
+  // 未実装なので空のステータスを返す
+  const result: EquipmentStats = {
+    initial: {},
+    rankBonus: {},
+    reinforcement: {},
+    forge: {},
+    alchemy: {},
+    final: {},
+  };
+
+  return result;
+}
+
+// ===== 7. 統合関数 =====
+
+/**
+ * 全装備のステータスを合算
+ */
+export function calculateAllEquipmentStats(
+  equipment: SelectedEquipment,
+  eqConst: EqConstData
+): EquipmentStats {
+  const allStats: EquipmentStats = {
+    initial: {},
+    rankBonus: {},
+    reinforcement: {},
+    forge: {},
+    alchemy: {},
+    final: {},
+  };
+
+  // 各装備のステータスを計算して合算
+  
+  // 武器
+  if (equipment.weapon) {
+    const weaponStats = calculateWeaponStats(
+      equipment.weapon.data,
+      equipment.weapon.rank,
+      equipment.weapon.reinforcement,
+      equipment.weapon.hammerCount,
+      equipment.weapon.alchemyEnabled,
+      eqConst
+    );
+    mergeStats(allStats, weaponStats);
+  }
+
+  // 頭防具
+  if (equipment.head) {
+    const headStats = calculateArmorStats(
+      equipment.head.data,
+      equipment.head.rank,
+      equipment.head.reinforcement,
+      equipment.head.tatakiCount || 0,
+      eqConst
+    );
+    mergeStats(allStats, headStats);
+  }
+
+  // 胴防具
+  if (equipment.body) {
+    const bodyStats = calculateArmorStats(
+      equipment.body.data,
+      equipment.body.rank,
+      equipment.body.reinforcement,
+      equipment.body.tatakiCount || 0,
+      eqConst
+    );
+    mergeStats(allStats, bodyStats);
+  }
+
+  // 脚防具
+  if (equipment.leg) {
+    const legStats = calculateArmorStats(
+      equipment.leg.data,
+      equipment.leg.rank,
+      equipment.leg.reinforcement,
+      equipment.leg.tatakiCount || 0,
+      eqConst
+    );
+    mergeStats(allStats, legStats);
+  }
+
+  // ネックレス
+  if (equipment.necklace) {
+    const necklaceStats = calculateAccessoryStats(
+      equipment.necklace.data,
+      equipment.necklace.rank,
+      eqConst
+    );
+    mergeStats(allStats, necklaceStats);
+  }
+
+  // ブレスレット
+  if (equipment.bracelet) {
+    const braceletStats = calculateAccessoryStats(
+      equipment.bracelet.data,
+      equipment.bracelet.rank,
+      eqConst
+    );
+    mergeStats(allStats, braceletStats);
+  }
+
+  // 紋章
+  if (equipment.emblem) {
+    const emblemStats = calculateEmblemStats(equipment.emblem);
+    mergeStats(allStats, emblemStats);
+  }
+
+  // ルーンストーン
+  if (equipment.runes && equipment.runes.length > 0) {
+    const runeStats = calculateRuneStats(equipment.runes);
+    mergeStats(allStats, runeStats);
+  }
+
+  // リング（未実装）
+  if (equipment.ring) {
+    const ringStats = calculateRingStats(equipment.ring);
+    mergeStats(allStats, ringStats);
+  }
+
+  return allStats;
+}
+
+/**
+ * ステータスをマージするヘルパー関数
+ */
+function mergeStats(target: EquipmentStats, source: EquipmentStats): void {
+  // 各カテゴリをマージ
+  mergeStatBlock(target.initial, source.initial);
+  mergeStatBlock(target.rankBonus, source.rankBonus);
+  mergeStatBlock(target.reinforcement, source.reinforcement);
+  mergeStatBlock(target.forge, source.forge);
+  mergeStatBlock(target.alchemy, source.alchemy);
+  mergeStatBlock(target.final, source.final);
+
+  // 武器固有値を保持
+  if (source.attackPower !== undefined) target.attackPower = source.attackPower;
+  if (source.critRate !== undefined) target.critRate = source.critRate;
+  if (source.critDamage !== undefined) target.critDamage = source.critDamage;
+  if (source.damageCorrection !== undefined) target.damageCorrection = source.damageCorrection;
+  if (source.coolTime !== undefined) target.coolTime = source.coolTime;
+}
+
+/**
+ * StatBlockをマージするヘルパー関数
+ */
+function mergeStatBlock(target: StatBlock, source: StatBlock): void {
+  for (const [key, value] of Object.entries(source)) {
+    if (target[key] === undefined) {
+      target[key] = 0;
+    }
+    target[key] += value;
+  }
+}

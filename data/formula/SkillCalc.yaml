@@ -1,0 +1,203 @@
+SkillDefinition:
+
+  # ----------------------------------
+  # スキル本（武器固有スキル）
+  # ----------------------------------
+  SkillBook:
+
+    Sword:
+      Zan_gekiha:
+        MP: "15 + <Level>*5"
+        CT: "7 - <Level>*0.25"
+        Damage: null
+
+      Kaen_zan:
+        MP: "24 + <Level>"
+        CT: "9 - <Level>*0.25"
+        Damage: null
+
+      Zan_gekiha_kai:
+        MP: "37 + <Level>*5"
+        CT: "13 - <Level>*0.25"
+        Damage: null
+
+    Wand:
+      Fairy_Swift:
+        MP: "18 + <Level>"
+        CT: "7 - <Level>*0.25"
+
+      Wolta:
+        MP: "23 + <Level>"
+        CT: "9 - <Level>*0.25"
+
+    Bow:
+      Blood_Shot:
+        MP: "28 + <Level>*2"
+        CT: "14 - <Level>*0.5"
+        Damage: null
+        Extra:
+          BleedDamage: "UserHP * (1.025 + <Level>*0.1)"
+
+    GreatSword:
+      Zan_gekiha_GS:
+        MP: "15 + <Level>*5"
+        CT: "7 - <Level>*0.25"
+        Damage: "BaseDamage.GreatSword * (<Level> + 2) * 0.1"
+
+    Dagger:
+      Renge_Ha:
+        MP: null
+        Damage: "BaseDamage.Dagger * (<Level> + 13) * 0.05 + UserSpeed * <AgilityFactor>"
+
+      Kyoumou_zan:
+        MP: null
+        Damage: "BaseDamage.Dagger * (<Level> + 39) * 0.02"
+
+  # ----------------------------------
+  # 職業スキル
+  # ----------------------------------
+  JobSkill:
+
+    Novice:
+      Oukyuu_Teate:
+        MP: 6
+        CT: 7
+        Heal: "UserMaxHP * 0.3"
+
+      Sentou_Taisei:
+        Buff:
+          HP: "UserHP * 0.05"
+          Power: "UserPower * 0.05"
+          Magic: "UserMagic * 0.05"
+
+      Nagihara_i:
+        MP: 5
+        CT: 5
+        Damage: "BaseDamage.Sword * 1.3"
+
+      Bunmawashi:
+        MP: 6
+        CT: 7
+        Damage: "BaseDamage.Bow * 1.4"
+
+      Fire_1:
+        MP: 5
+        CT: 5
+        Damage: "BaseDamage.Sword(MagicVer) * 1.3"
+
+      Ice_1:
+        MP: 7
+        CT: 6
+        Damage: "BaseDamage.Wand * 1.3"
+
+    Fighter:
+      Retsujin_Enzangeki:
+        MP: 12
+        CT: 9
+        Hits: 5
+        Damage: "BaseDamage.Sword * 0.4"
+
+      Tokoyami_Zangeki:
+        MP: 24
+        CT: 10
+        Hits: "5~6"
+        Damage: "BaseDamage.Sword * 0.6"
+
+      LimitBreak:
+        Duration: 15
+        Buff:
+          Power: "UserPower * 0.15"
+          Dexterity: "UserCritRate * 0.15"
+          Defense: "UserDefense * 0.15"
+
+      Teppeki_no_Kokoro:
+        MP: 30
+        Duration: 30
+        CT: 44
+        Buff:
+          HP: "UserHP * 0.15"
+
+      Shugo_no_Yoroi:
+        Duration: 50
+        Buff:
+          Defense: "UserDefense * 0.41"
+
+      Hook_Return:
+        MP: 10
+        CT: 9
+
+    Warrior:
+      LimitBreak_2:
+        Duration: 17
+        Buff:
+          Power: "UserPower * 0.18"
+          Dexterity: "UserCritRate * 0.18"
+          Defense: "UserDefense * 0.18"
+
+      Haou_Gokuenzan:
+        Duration: 30
+        Buff:
+          Power: "UserPower * 0.157"
+          Dexterity: "UserCritRate * 0.157"
+        Damage: null
+
+    Wizard:
+      Wind_2:
+        MP: 19
+        CT: 8
+        Hits: 3
+        Damage: "(BaseDamage.Wand*0.65 + UserMind*0.12985)"
+
+      Wind_Ra_2:
+        MP: 33
+        CT: 10
+        Hits: 5
+        Damage: "(BaseDamage.Wand*a + UserMind*b)"
+
+      Wind_Burst_2:
+        MP: 46
+        CT: 16
+        Hits: 8
+        Damage: "(BaseDamage.Wand*0.65 + UserMind*0.12985)"
+
+      Additional_Spirit_2:
+        MP: 37
+        CT: 17
+        Duration: 40
+        Buff:
+          Mind: "UserMind * 0.25 + 1"
+
+      Additional_Spirit_3:
+        MP: 38
+        CT: 16
+        Duration: 50
+        Buff:
+          Mind: "UserMind * 0.3 + 1"
+
+      NonElement_Explode_1:
+        Damage: "BaseDamage.Wand * UserMP * 0.03115"
+
+      NonElement_Explode_2:
+        Damage: "BaseDamage.Wand * UserMP * 0.03185"
+
+    Ranger:
+      ArrowRain_2:
+        Damage: "BaseDamage.Bow * 0.5"
+
+      Gouwan_Shatei_2:
+        Buff:
+          CritPower: "UserCritDamage * 0.455"
+
+      Marina_Lane_2:
+        Damage: "BaseDamage.Bow * 0.6"
+        Hits: "floor(UserSpeed/50) + 8"
+
+    Hunter:
+      Shippuu_Rengeki:
+        Damage: "BaseDamage.Dagger * 0.6 + UserSpeed * 0.3"
+
+      Shippuu_no_Mai_3:
+        Buff:
+          Power: "UserPower * 0.499 + 1"
+          Agility: "UserSpeed * 0.499 + 1"
+          CritPower: "UserCritDamage * 0.499 + 1"

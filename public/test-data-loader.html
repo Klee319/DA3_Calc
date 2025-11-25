@@ -1,0 +1,166 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>データローダーテスト</title>
+    <style>
+        body {
+            font-family: 'Courier New', monospace;
+            background: #1e1e1e;
+            color: #d4d4d4;
+            padding: 20px;
+            margin: 0;
+        }
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+        h1 {
+            color: #569cd6;
+            border-bottom: 2px solid #569cd6;
+            padding-bottom: 10px;
+        }
+        button {
+            background: #569cd6;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            font-size: 16px;
+            cursor: pointer;
+            border-radius: 4px;
+            margin-right: 10px;
+        }
+        button:hover {
+            background: #4b8cc4;
+        }
+        #output {
+            background: #2d2d30;
+            border: 1px solid #3e3e42;
+            padding: 20px;
+            margin-top: 20px;
+            border-radius: 4px;
+            min-height: 400px;
+            white-space: pre-wrap;
+            font-size: 14px;
+            line-height: 1.6;
+            overflow-x: auto;
+        }
+        .success {
+            color: #4ec9b0;
+        }
+        .error {
+            color: #f48771;
+        }
+        .warning {
+            color: #dcdcaa;
+        }
+        .info {
+            color: #9cdcfe;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🔧 データローダーテスト</h1>
+        
+        <div>
+            <button id="runTest">テスト実行</button>
+            <button id="clearOutput">出力クリア</button>
+        </div>
+        
+        <div id="output">
+            テストを実行するには「テスト実行」ボタンをクリックしてください。
+        </div>
+    </div>
+
+    <script type="module">
+        // コンソール出力をキャプチャ
+        const output = document.getElementById('output');
+        let outputBuffer = [];
+        
+        const originalLog = console.log;
+        const originalError = console.error;
+        const originalWarn = console.warn;
+        const originalTime = console.time;
+        const originalTimeEnd = console.timeEnd;
+        
+        const timeMap = new Map();
+        
+        function appendOutput(text, className = '') {
+            const span = document.createElement('span');
+            span.textContent = text + '\n';
+            if (className) {
+                span.className = className;
+            }
+            output.appendChild(span);
+            output.scrollTop = output.scrollHeight;
+        }
+        
+        console.log = function(...args) {
+            originalLog.apply(console, args);
+            const text = args.map(arg => 
+                typeof arg === 'object' ? JSON.stringify(arg, null, 2) : arg
+            ).join(' ');
+            
+            if (text.includes('✓')) {
+                appendOutput(text, 'success');
+            } else if (text.includes('✅')) {
+                appendOutput(text, 'success');
+            } else if (text.includes('【')) {
+                appendOutput(text, 'info');
+            } else {
+                appendOutput(text);
+            }
+        };
+        
+        console.error = function(...args) {
+            originalError.apply(console, args);
+            const text = args.map(arg => 
+                typeof arg === 'object' ? JSON.stringify(arg, null, 2) : arg
+            ).join(' ');
+            appendOutput(text, 'error');
+        };
+        
+        console.warn = function(...args) {
+            originalWarn.apply(console, args);
+            const text = args.map(arg => 
+                typeof arg === 'object' ? JSON.stringify(arg, null, 2) : arg
+            ).join(' ');
+            appendOutput(text, 'warning');
+        };
+        
+        console.time = function(label) {
+            timeMap.set(label, performance.now());
+        };
+        
+        console.timeEnd = function(label) {
+            const start = timeMap.get(label);
+            if (start) {
+                const duration = performance.now() - start;
+                appendOutput(`${label}: ${duration.toFixed(2)}ms`, 'info');
+                timeMap.delete(label);
+            }
+        };
+        
+        // テストモジュールを動的にインポート
+        async function runTest() {
+            output.innerHTML = '';
+            appendOutput('テストモジュールを読み込み中...', 'info');
+            
+            try {
+                const module = await import('/src/lib/data/test-loader.ts');
+                await module.testDataLoader();
+            } catch (error) {
+                console.error('テスト実行エラー:', error);
+            }
+        }
+        
+        document.getElementById('runTest').addEventListener('click', runTest);
+        
+        document.getElementById('clearOutput').addEventListener('click', () => {
+            output.innerHTML = 'クリアされました。';
+        });
+    </script>
+</body>
+</html>

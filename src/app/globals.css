@@ -1,0 +1,100 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --background: 10 14 26;
+    --foreground: 250 250 250;
+  }
+
+  * {
+    @apply border-white/5;
+  }
+
+  body {
+    @apply bg-gradient-to-br from-rpg-darker via-rpg-dark to-rpg-darker text-white antialiased;
+    font-feature-settings: 'cv11', 'ss01';
+    letter-spacing: -0.01em;
+  }
+}
+
+@layer components {
+  .glass-card {
+    @apply bg-glass-medium backdrop-blur-xl border border-white/10 rounded-2xl shadow-glass;
+  }
+
+  .glass-input {
+    @apply bg-glass-dark backdrop-blur-md border border-white/20 rounded-xl px-4 py-3 
+           text-white placeholder:text-gray-400 focus:border-rpg-accent/50 focus:ring-2 
+           focus:ring-rpg-accent/20 transition-all;
+  }
+
+  .btn-primary {
+    @apply bg-gradient-to-r from-rpg-accent to-indigo-600 hover:from-indigo-600 hover:to-rpg-accent
+           text-white font-medium px-6 py-3 rounded-xl shadow-glow transition-all duration-200
+           hover:-translate-y-0.5 hover:shadow-xl;
+  }
+
+  .stat-card {
+    @apply glass-card p-6 hover:bg-glass-medium hover:shadow-glow transition-all duration-200
+           hover:-translate-y-1;
+  }
+
+  .bento-grid {
+    @apply grid gap-4 md:gap-6 lg:gap-8;
+    grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  }
+
+  .glass-card-secondary {
+    @apply bg-glass-dark/50 backdrop-blur-sm border border-white/5;
+  }
+
+  .select-primary {
+    @apply bg-glass-dark backdrop-blur-md border border-white/20 rounded-xl px-4 py-3
+           text-white focus:border-rpg-accent/50 focus:ring-2
+           focus:ring-rpg-accent/20 transition-all appearance-none
+           hover:border-white/30;
+  }
+
+  .input-primary {
+    @apply bg-glass-dark backdrop-blur-md border border-white/20 rounded-xl px-4 py-3
+           text-white placeholder:text-gray-400 focus:border-rpg-accent/50 focus:ring-2
+           focus:ring-rpg-accent/20 transition-all;
+  }
+
+  .input-secondary {
+    @apply bg-glass-dark/50 backdrop-blur-sm border border-white/10 rounded-lg px-2 py-1
+           text-white placeholder:text-gray-500 focus:border-rpg-accent/30 focus:ring-1
+           focus:ring-rpg-accent/10 transition-all text-sm;
+  }
+
+  .checkbox-primary {
+    @apply w-5 h-5 bg-glass-dark border-2 border-white/20 rounded
+           checked:bg-rpg-accent checked:border-rpg-accent
+           focus:ring-2 focus:ring-rpg-accent/20 focus:ring-offset-0
+           focus:ring-offset-transparent transition-all cursor-pointer
+           hover:border-white/30;
+  }
+
+  .animate-fadeIn {
+    animation: fadeIn 0.2s ease-in-out;
+  }
+
+  @keyframes fadeIn {
+    from {
+      opacity: 0;
+      transform: translateY(-10px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+}
+
+@layer utilities {
+  .text-gradient {
+    @apply bg-clip-text text-transparent bg-gradient-to-r;
+  }
+}
