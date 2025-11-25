@@ -308,7 +308,7 @@ export const EquipmentSlot: React.FC<EquipmentSlotProps> = ({
   const isArmorWithSmithing = ['head', 'body', 'leg'].includes(slot);
 
   return (
-    <div className={`p-6 rounded-xl bg-glass-dark backdrop-blur-md border border-white/20 relative overflow-hidden ${isSelectOpen ? 'z-50' : 'z-auto'} ${className}`}>
+    <div className={`p-6 rounded-xl bg-glass-dark backdrop-blur-md border border-white/20 relative ${isSelectOpen ? 'z-50 overflow-visible' : 'z-auto overflow-hidden'} ${className}`}>
       {/* スロット名とカスタマイズ切替 */}
       <div className="flex items-center justify-between mb-4">
         <h3 className="text-xl font-bold text-white/90">
