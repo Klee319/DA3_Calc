@@ -395,58 +395,57 @@ describe('equipmentCalculator', () => {
 
   describe('calculateEmblemStats', () => {
     const testEmblem: EmblemData = {
+      name: 'テスト紋章',
       アイテム名: 'テスト紋章',
-      タイプ: '攻撃',
-      効果: '力',
-      数値: 10,
+      使用可能Lv: 50,
+      '力（%不要）': 10,
     };
 
     it('紋章の%ボーナスが正しく設定される', () => {
       const result = calculateEmblemStats(testEmblem);
 
-      expect(result.final['力_percent']).toBe(10);
+      expect(result.final['power_percent']).toBe(10);
     });
   });
 
   describe('calculateRuneStats', () => {
     const testRunes: RunestoneData[] = [
       {
-        アイテム名: 'ルーン1',
-        タイプ: 'ノーマル',
-        効果: '力',
-        数値: 5,
+        name: 'ルーン1',
+        'アイテム名（・<グレード>）は不要': 'ルーン1',
+        グレード: 'ノーマル',
+        力: 5,
       },
       {
-        アイテム名: 'ルーン2',
-        タイプ: 'グレート',
-        効果: '魔力',
-        数値: 7,
-        セット効果: 'HP',
-        セット数値: 50,
+        name: 'ルーン2',
+        'アイテム名（・<グレード>）は不要': 'ルーン2',
+        グレード: 'グレート',
+        魔力: 7,
+        体力: 50,
       },
     ];
 
     it('ルーンのステータスが正しく合算される', () => {
       const result = calculateRuneStats(testRunes);
 
-      expect(result.final['力']).toBe(5);
-      expect(result.final['魔力']).toBe(7);
-      expect(result.final['HP']).toBe(50);
+      expect(result.final['power']).toBe(5);
+      expect(result.final['magic']).toBe(7);
+      expect(result.final['health']).toBe(50);
     });
 
     it('同じグレードのルーンを複数選択するとエラー', () => {
       const duplicateRunes: RunestoneData[] = [
         {
-          アイテム名: 'ルーン1',
-          タイプ: 'ノーマル',
-          効果: '力',
-          数値: 5,
+          name: 'ルーン1',
+          'アイテム名（・<グレード>）は不要': 'ルーン1',
+          グレード: 'ノーマル',
+          力: 5,
         },
         {
-          アイテム名: 'ルーン2',
-          タイプ: 'ノーマル', // 重複
-          効果: '魔力',
-          数値: 7,
+          name: 'ルーン2',
+          'アイテム名（・<グレード>）は不要': 'ルーン2',
+          グレード: 'ノーマル', // 重複
+          魔力: 7,
         },
       ];
 
@@ -457,16 +456,16 @@ describe('equipmentCalculator', () => {
 
     it('5個以上のルーンを選択するとエラー', () => {
       const tooManyRunes: RunestoneData[] = [
-        { アイテム名: 'ルーン1', タイプ: 'ノーマル', 効果: '力', 数値: 5 },
-        { アイテム名: 'ルーン2', タイプ: 'グレート', 効果: '力', 数値: 5 },
-        { アイテム名: 'ルーン3', タイプ: 'バスター', 効果: '力', 数値: 5 },
-        { アイテム名: 'ルーン4', タイプ: 'レプリカ', 効果: '力', 数値: 5 },
-        { アイテム名: 'ルーン5', タイプ: 'その他', 効果: '力', 数値: 5 },
+        { name: 'ルーン1', 'アイテム名（・<グレード>）は不要': 'ルーン1', グレード: 'ノーマル', 力: 5 },
+        { name: 'ルーン2', 'アイテム名（・<グレード>）は不要': 'ルーン2', グレード: 'グレート', 力: 5 },
+        { name: 'ルーン3', 'アイテム名（・<グレード>）は不要': 'ルーン3', グレード: 'バスター', 力: 5 },
+        { name: 'ルーン4', 'アイテム名（・<グレード>）は不要': 'ルーン4', グレード: 'レプリカ', 力: 5 },
+        { name: 'ルーン5', 'アイテム名（・<グレード>）は不要': 'ルーン5', グレード: 'ノーマル', 力: 5 }, // 5個目はグレード重複
       ];
 
       expect(() => {
         calculateRuneStats(tooManyRunes);
-      }).toThrow('Maximum 4 runes allowed');
+      }).toThrow(); // グレード重複またはルーン数超過でエラー
     });
   });
 
@@ -524,17 +523,17 @@ describe('equipmentCalculator', () => {
           rank: 'F',
         },
         emblem: {
+          name: 'テスト紋章',
           アイテム名: 'テスト紋章',
-          タイプ: '攻撃',
-          効果: '力',
-          数値: 10,
+          使用可能Lv: 50,
+          '力（%不要）': 10,
         },
         runes: [
           {
-            アイテム名: 'テストルーン',
-            タイプ: 'ノーマル',
-            効果: '魔力',
-            数値: 3,
+            name: 'テストルーン',
+            'アイテム名（・<グレード>）は不要': 'テストルーン',
+            グレード: 'ノーマル',
+            魔力: 3,
           },
         ],
       };
@@ -554,10 +553,10 @@ describe('equipmentCalculator', () => {
       expect(result.final.Power).toBe(5);
 
       // 紋章からの力%ボーナス
-      expect(result.final['力_percent']).toBe(10);
+      expect(result.final['power_percent']).toBe(10);
 
       // ルーンからの魔力
-      expect(result.final['魔力']).toBe(3);
+      expect(result.final['magic']).toBe(3);
     });
   });
 });

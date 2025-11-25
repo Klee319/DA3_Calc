@@ -233,7 +233,25 @@ export async function loadAccessories(): Promise<AccessoryData[]> {
  * CSVカラム: アイテム名,使用可能Lv,力（%不要）,魔力（%不要）,体力（%不要）,精神（%不要）,素早さ（%不要）,器用（%不要）,撃力（%不要）,守備力（%不要）
  */
 export async function loadEmblems(): Promise<EmblemData[]> {
-  return loadCsvFile<EmblemData>('/data/csv/Equipment/DA_EqCalc_Data - 紋章.csv');
+  const rawData = await loadCsvFile<any>('/data/csv/Equipment/DA_EqCalc_Data - 紋章.csv');
+
+  return rawData.map(item => {
+    const itemName = item['アイテム名'] || '';
+    return {
+      // nameプロパティにアイテム名をコピー（プリセット保存・復元用）
+      name: itemName,
+      アイテム名: itemName,
+      使用可能Lv: item['使用可能Lv'] || 1,
+      '力（%不要）': item['力（%不要）'] || undefined,
+      '魔力（%不要）': item['魔力（%不要）'] || undefined,
+      '体力（%不要）': item['体力（%不要）'] || undefined,
+      '精神（%不要）': item['精神（%不要）'] || undefined,
+      '素早さ（%不要）': item['素早さ（%不要）'] || undefined,
+      '器用（%不要）': item['器用（%不要）'] || undefined,
+      '撃力（%不要）': item['撃力（%不要）'] || undefined,
+      '守備力（%不要）': item['守備力（%不要）'] || undefined,
+    } as EmblemData;
+  });
 }
 
 /**
@@ -245,8 +263,13 @@ export async function loadRunestones(): Promise<RunestoneData[]> {
   const rawData = await loadCsvFile<any>('/data/csv/Equipment/DA_EqCalc_Data - ルーンストーン.csv');
 
   return rawData.map(item => {
+    // CSVカラム名からアイテム名を取得
+    const itemName = item['アイテム名（・<グレード>）は不要'] || '';
+
     const runestone: RunestoneData = {
-      'アイテム名（・<グレード>）は不要': item['アイテム名（・<グレード>）は不要'] || '',
+      // nameプロパティにアイテム名をコピー（プリセット保存・復元用）
+      name: itemName,
+      'アイテム名（・<グレード>）は不要': itemName,
       グレード: item['グレード'] as RunestoneGrade,
       力: item['力'] || undefined,
       魔力: item['魔力'] || undefined,
@@ -325,9 +348,58 @@ export async function loadRunestones(): Promise<RunestoneData[]> {
 
 /**
  * 食べ物データを読み込む
+ * CSVカラム: アイテム名,力,魔力,体力,精神,素早さ,器用,撃力,守備力,耐性１,値(%除く),耐性２,値,...
  */
 export async function loadFoods(): Promise<FoodData[]> {
-  return loadCsvFile<FoodData>('/data/csv/Equipment/DA_EqCalc_Data - 食べ物.csv');
+  const rawData = await loadCsvFile<any>('/data/csv/Equipment/DA_EqCalc_Data - 食べ物.csv');
+
+  return rawData.map(item => {
+    const food: FoodData = {
+      アイテム名: item['アイテム名'] || '',
+      力: item['力'] || undefined,
+      魔力: item['魔力'] || undefined,
+      体力: item['体力'] || undefined,
+      精神: item['精神'] || undefined,
+      素早さ: item['素早さ'] || undefined,
+      器用: item['器用'] || undefined,
+      撃力: item['撃力'] || undefined,
+      守備力: item['守備力'] || undefined,
+    };
+
+    // 耐性データの解析（耐性1〜8）
+    // CSVカラム名: 耐性１, 値(%除く), 耐性２, 値, 耐性３, 値, ... 耐性8, 値
+
+    // 耐性１と値(%除く)のペア
+    if (item['耐性１'] && item['値(%除く)'] !== undefined) {
+      food.耐性1 = {
+        type: String(item['耐性１']),
+        value: Number(item['値(%除く)']) || 0
+      };
+    }
+
+    // 耐性２以降（値カラムが複数あるため「値」「値.1」「値.2」...のような形式）
+    for (let i = 2; i <= 8; i++) {
+      const typeKey = `耐性${i === 2 ? '２' : i === 3 ? '３' : i === 4 ? '４' : i === 5 ? '５' : i === 6 ? '６' : i === 7 ? '7' : '8'}`;
+      const typeValue = item[typeKey];
+
+      if (typeValue && String(typeValue).trim() !== '') {
+        // 対応する値カラムを探す
+        const valueKeyIndex = i - 2; // 0, 1, 2, 3, 4, 5, 6
+        const valueKey = valueKeyIndex === 0 ? '値' : `値.${valueKeyIndex}`;
+        const numValue = item[valueKey];
+
+        if (numValue !== undefined && numValue !== '') {
+          const resistanceKey = `耐性${i}` as keyof FoodData;
+          (food as any)[resistanceKey] = {
+            type: String(typeValue),
+            value: Number(numValue) || 0
+          };
+        }
+      }
+    }
+
+    return food;
+  });
 }
 
 /**

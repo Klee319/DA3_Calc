@@ -1,7 +1,20 @@
 import { StatType } from './index';
 
+// 内部計算用ステータスキー（Power, Magic等の形式）
+export type InternalStatKey =
+  | 'HP'
+  | 'Power'
+  | 'Magic'
+  | 'Defense'
+  | 'Mind'
+  | 'Agility'
+  | 'Dex'
+  | 'CritDamage'
+  | 'CritRate';
+
 // ステータスブロック（各ステータスの値を保持）
-export type StatBlock = Partial<Record<StatType, number>>;
+// UI形式（ATK, MATK等）と内部形式（Power, Magic等）の両方を許容
+export type StatBlock = Partial<Record<StatType | InternalStatKey, number>>;
 
 // equipmentCalculatorから型を再エクスポート
 export type { SelectedEquipment } from '@/lib/calc/equipmentCalculator';

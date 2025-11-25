@@ -57,18 +57,21 @@ export function calculateStatus(
     const userOption = input.userOption || {};
     const jobBonusPercent = input.jobStats.bonusPercent || {};
     const emblemBonusPercent = input.emblemBonusPercent || {};
+    const runestoneBonus = input.runestoneBonus || {};
     const jobLevel = input.jobLevel || 1;
 
     // YAMLから計算式を取得
     const baseFormula = userStatusFormulas?.UserStatusFormula?.BaseStatus;
 
     // 1. BaseStatus算出（%補正前）
+    // ルーンストーンボーナスを固定値として加算する
     const baseBeforePercent = calculateBaseStatus(
       equipment,
       jobInitial,
       jobSP,
       food,
       userOption,
+      runestoneBonus,
       jobLevel,
       baseFormula
     );
@@ -95,6 +98,7 @@ export function calculateStatus(
         ...Object.keys(jobSP),
         ...Object.keys(food),
         ...Object.keys(userOption),
+        ...Object.keys(runestoneBonus),
         ...Object.keys(jobBonusPercent),
         ...Object.keys(emblemBonusPercent)
       ]);
@@ -107,6 +111,7 @@ export function calculateStatus(
           [`Job.SP.${statKey}`]: jobSP[key] || 0,
           [`Food.${statKey}`]: food[key] || 0,
           [`UserOption.${statKey}`]: userOption[key] || 0,
+          [`Runestone.${statKey}`]: runestoneBonus[key] || 0,
           [`Job.Bonus.${statKey}`]: jobBonusPercent[key] || 0,
           [`Emblem.Bonus.${statKey}`]: emblemBonusPercent[key] || 0,
           JobLevel: jobLevel,
@@ -118,12 +123,13 @@ export function calculateStatus(
           result[key] = round(evaluateFormula(statFormula, variables));
         } catch (error) {
           console.warn(`Failed to evaluate full formula for ${statKey}, using fallback`, error);
-          // フォールバック: デフォルト計算
+          // フォールバック: デフォルト計算（ルーンストーン含む）
           const baseValue = (equipment[key] || 0) +
                           (jobInitial[key] || 0) +
                           (jobSP[key] || 0) +
                           (food[key] || 0) +
-                          (userOption[key] || 0);
+                          (userOption[key] || 0) +
+                          (runestoneBonus[key] || 0);
           const multiplier = 1 + ((jobBonusPercent[key] || 0) + (emblemBonusPercent[key] || 0)) / 100;
           result[key] = round(baseValue * multiplier);
         }
@@ -193,13 +199,14 @@ export function calculateStatus(
  * BaseStatusの算出（%補正前）
  *
  * YAML式またはデフォルト計算:
- * 装備合計 + 職業初期値×Level + SP + Food + UserOption
+ * 装備合計 + 職業初期値×Level + SP + Food + UserOption + Runestone
  *
  * @param equipment 装備合計ステータス
  * @param jobInitial 職業初期値×レベル
  * @param jobSP SP由来ステータス
  * @param food 食べ物バフ
  * @param userOption 高度設定
+ * @param runestone ルーンストーンボーナス
  * @param jobLevel 職業レベル（YAML式用）
  * @param formula YAMLから読み込んだ計算式（オプション）
  * @returns 合算されたBaseStatus
@@ -210,6 +217,7 @@ export function calculateBaseStatus(
   jobSP: StatBlock,
   food: StatBlock,
   userOption: StatBlock,
+  runestone: StatBlock,
   jobLevel: number = 1,
   formula?: string
 ): StatBlock {
@@ -223,7 +231,8 @@ export function calculateBaseStatus(
       ...Object.keys(jobInitial),
       ...Object.keys(jobSP),
       ...Object.keys(food),
-      ...Object.keys(userOption)
+      ...Object.keys(userOption),
+      ...Object.keys(runestone)
     ]);
 
     // 各ステータスについて計算
@@ -240,6 +249,8 @@ export function calculateBaseStatus(
         [`Food.${statKey}`]: (food as any)[statKey] || 0,
         // ユーザーオプション
         [`UserOption.${statKey}`]: (userOption as any)[statKey] || 0,
+        // ルーンストーン
+        [`Runestone.${statKey}`]: (runestone as any)[statKey] || 0,
         // 職業レベル
         JobLevel: jobLevel,
       };
@@ -251,20 +262,21 @@ export function calculateBaseStatus(
         (result as any)[statKey] = round(evaluateFormula(statFormula, variables));
       } catch (error) {
         console.warn(`Failed to evaluate formula for ${statKey}, using default calculation`, error);
-        // エラー時はデフォルト計算を使用
+        // エラー時はデフォルト計算を使用（ルーンストーン含む）
         (result as any)[statKey] = ((equipment as any)[statKey] || 0) +
                          ((jobInitial as any)[statKey] || 0) +
                          ((jobSP as any)[statKey] || 0) +
                          ((food as any)[statKey] || 0) +
-                         ((userOption as any)[statKey] || 0);
+                         ((userOption as any)[statKey] || 0) +
+                         ((runestone as any)[statKey] || 0);
       }
     }
 
     return result;
   }
 
-  // デフォルト計算（既存のロジック）
-  return sumStats(equipment, jobInitial, jobSP, food, userOption);
+  // デフォルト計算（既存のロジック + ルーンストーン）
+  return sumStats(equipment, jobInitial, jobSP, food, userOption, runestone);
 }
 
 /**

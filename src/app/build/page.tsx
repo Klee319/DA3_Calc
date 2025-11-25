@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { useBuildStore, UserOption, RingOption, Food } from '@/store/buildStore';
+import { useBuildStore, UserOption, RingOption, Food, BuildPreset } from '@/store/buildStore';
 import { initializeGameData } from '@/lib/data';
 import { JobSelector } from '@/components/JobSelector';
 import { LevelInput } from '@/components/LevelInput';
@@ -54,6 +54,12 @@ export default function BuildPage() {
     message: string;
   }>>([]);
 
+  // プリセット管理用のstate
+  const [showPresetPanel, setShowPresetPanel] = useState(false);
+  const [presetName, setPresetName] = useState('');
+  const [editingPresetId, setEditingPresetId] = useState<string | null>(null);
+  const [editingPresetName, setEditingPresetName] = useState('');
+
   // タブ定義
   const tabs = [
     { id: 0, label: '職業', icon: '👤' },
@@ -99,6 +105,13 @@ export default function BuildPage() {
     setAvailableEmblems,
     setAvailableRunestones,
     setGameData,
+    // プリセット関連
+    presets,
+    savePreset,
+    loadPreset,
+    deletePreset,
+    updatePreset,
+    loadPresetsFromStorage,
   } = useBuildStore();
 
   // データ初期化
@@ -288,6 +301,11 @@ export default function BuildPage() {
               requiredLevel: w.使用可能Lv || 1,
               requiredJob,
               description: `${w.制作 === 'TRUE' ? '制作可能' : 'ドロップ'} / 最低ランク: ${w.最低ランク || 'F'}`,
+              // 計算システム用の元データ参照
+              sourceData: {
+                type: 'weapon' as const,
+                data: w,
+              },
             };
           }),
 
@@ -318,7 +336,7 @@ export default function BuildPage() {
               stats.push({ stat: 'DEX', value: a['器用（初期値）'], isPercent: false });
             }
             if (a['撃力（初期値）'] > 0) {
-              stats.push({ stat: 'CRI', value: a['撃力（初期値）'], isPercent: false });
+              stats.push({ stat: 'HIT', value: a['撃力（初期値）'], isPercent: false });  // 撃力はHIT
             }
 
             // 部位のマッピング（腕装備は削除）
@@ -364,6 +382,11 @@ export default function BuildPage() {
               requiredLevel: a.使用可能Lv || 1,
               requiredJob,
               description: `${a.タイプを選択}装備 / 最低ランク: ${a.最低ランク || 'F'}`,
+              // 計算システム用の元データ参照
+              sourceData: {
+                type: 'armor' as const,
+                data: a,
+              },
             };
           }),
 
@@ -385,7 +408,7 @@ export default function BuildPage() {
               stats.push({ stat: 'MDEF', value: a['精神（初期値）'], isPercent: false });
             }
             if (a['撃力（初期値）'] > 0) {
-              stats.push({ stat: 'CRI', value: a['撃力（初期値）'], isPercent: false });
+              stats.push({ stat: 'HIT', value: a['撃力（初期値）'], isPercent: false });  // 撃力はHIT
             }
             if (a['素早さ（初期値）'] > 0) {
               stats.push({ stat: 'AGI', value: a['素早さ（初期値）'], isPercent: false });
@@ -403,72 +426,51 @@ export default function BuildPage() {
               requiredLevel: a.使用可能Lv || 1,
               requiredJob: [], // 職業制限は後で実装
               description: `${a.タイプを選択} / 最低ランク: ${a.最低ランク || 'F'}`,
+              // 計算システム用の元データ参照
+              sourceData: {
+                type: 'accessory' as const,
+                data: a,
+              },
             };
           }),
         ];
 
-        // 食べ物データの変換（効果マッピングを改善）
+        // 食べ物データの変換（新フォーマット対応）
+        // CSVカラム: アイテム名,力,魔力,体力,精神,素早さ,器用,撃力,守備力,耐性１,値(%除く),...
         const foods: Food[] = gameData.csv.foods.map((f, index) => {
           const effects: Array<{ stat: StatType; value: number; isPercent: boolean }> = [];
 
-          // 効果マッピング関数
-          const mapFoodEffect = (effectName: string): StatType | null => {
-            const effectMap: Record<string, StatType> = {
-              'HP': 'HP',
-              '体力': 'HP',
-              'MP': 'MP',
-              '魔力': 'MATK',
-              '攻撃力': 'ATK',
-              '力': 'ATK',
-              '防御力': 'DEF',
-              '守備力': 'DEF',
-              '魔法攻撃力': 'MATK',
-              '魔法防御力': 'MDEF',
-              '精神': 'MDEF',
-              '素早さ': 'AGI',
-              '器用': 'DEX',
-              '器用さ': 'DEX',
-              '撃力': 'CRI',
-              '会心率': 'CRI',
-            };
-
-            for (const [key, stat] of Object.entries(effectMap)) {
-              if (effectName && effectName.includes(key)) {
-                return stat;
-              }
-            }
-            return null;
-          };
-
-          // 効果1の処理
-          if (f.効果1 && f.数値1) {
-            const stat = mapFoodEffect(f.効果1);
-            if (stat) {
-              effects.push({
-                stat,
-                value: Number(f.数値1) || 0,
-                isPercent: Boolean(typeof f.効果1 === 'string' && f.効果1.includes('%')),
-              });
-            }
+          // 各ステータスを直接変換
+          if (f.力 && f.力 !== 0) {
+            effects.push({ stat: 'ATK', value: f.力, isPercent: false });
           }
-
-          // 効果2の処理
-          if (f.効果2 && f.数値2) {
-            const stat = mapFoodEffect(f.効果2);
-            if (stat) {
-              effects.push({
-                stat,
-                value: Number(f.数値2) || 0,
-                isPercent: Boolean(typeof f.効果2 === 'string' && f.効果2.includes('%')),
-              });
-            }
+          if (f.魔力 && f.魔力 !== 0) {
+            effects.push({ stat: 'MATK', value: f.魔力, isPercent: false });
+          }
+          if (f.体力 && f.体力 !== 0) {
+            effects.push({ stat: 'HP', value: f.体力, isPercent: false });
+          }
+          if (f.精神 && f.精神 !== 0) {
+            effects.push({ stat: 'MDEF', value: f.精神, isPercent: false });
+          }
+          if (f.素早さ && f.素早さ !== 0) {
+            effects.push({ stat: 'AGI', value: f.素早さ, isPercent: false });
+          }
+          if (f.器用 && f.器用 !== 0) {
+            effects.push({ stat: 'DEX', value: f.器用, isPercent: false });
+          }
+          if (f.撃力 && f.撃力 !== 0) {
+            effects.push({ stat: 'HIT', value: f.撃力, isPercent: false });
+          }
+          if (f.守備力 && f.守備力 !== 0) {
+            effects.push({ stat: 'DEF', value: f.守備力, isPercent: false });
           }
 
           return {
             id: `food_${index}_${f.アイテム名}`,
             name: f.アイテム名,
             effects,
-            duration: f.持続時間 || 30,
+            duration: 30, // 持続時間は固定（CSVに持続時間カラムがないため）
           };
         });
 
@@ -479,6 +481,9 @@ export default function BuildPage() {
         // 紋章とルーンストーンデータを設定
         setAvailableEmblems(gameData.csv.emblems);
         setAvailableRunestones(gameData.csv.runestones);
+
+        // プリセットをlocalStorageから読み込み
+        loadPresetsFromStorage();
 
         setIsLoading(false);
       } catch (error) {
@@ -668,14 +673,198 @@ export default function BuildPage() {
   return (
     <main className="container mx-auto px-4 max-w-7xl">
       {/* ページヘッダー */}
-      <div className="mb-12">
-        <h1 className="text-5xl md:text-6xl font-thin mb-4 text-gradient from-white to-gray-300">
-          キャラクタービルド
-        </h1>
+      <div className="mb-8">
+        <div className="flex items-center justify-between mb-4">
+          <h1 className="text-5xl md:text-6xl font-thin text-gradient from-white to-gray-300">
+            キャラクタービルド
+          </h1>
+          <button
+            onClick={() => setShowPresetPanel(!showPresetPanel)}
+            className="flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors"
+          >
+            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 8h14M5 8a2 2 0 110-4h14a2 2 0 110 4M5 8v10a2 2 0 002 2h10a2 2 0 002-2V8m-9 4h4" />
+            </svg>
+            プリセット {presets.length > 0 && `(${presets.length})`}
+          </button>
+        </div>
         <p className="text-lg text-gray-400 line-clamp-2">
           職業・装備・SPを設定して、最強のキャラクターを構築しよう
         </p>
       </div>
+
+      {/* プリセットパネル */}
+      {showPresetPanel && (
+        <div className="mb-8 bg-gray-800 border border-gray-700 rounded-xl p-6">
+          <div className="flex items-center justify-between mb-4">
+            <h2 className="text-xl font-semibold text-white">ビルドプリセット</h2>
+            <button
+              onClick={() => setShowPresetPanel(false)}
+              className="text-gray-400 hover:text-white"
+            >
+              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+              </svg>
+            </button>
+          </div>
+
+          {/* 新規プリセット保存 */}
+          <div className="flex gap-3 mb-6">
+            <input
+              type="text"
+              value={presetName}
+              onChange={(e) => setPresetName(e.target.value)}
+              placeholder="プリセット名を入力..."
+              className="flex-1 px-4 py-2 bg-gray-700 border border-gray-600 rounded-lg text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500"
+            />
+            <button
+              onClick={() => {
+                if (presetName.trim()) {
+                  savePreset(presetName.trim());
+                  setPresetName('');
+                }
+              }}
+              disabled={!presetName.trim()}
+              className="px-4 py-2 bg-green-600 hover:bg-green-700 disabled:bg-gray-600 disabled:cursor-not-allowed text-white rounded-lg transition-colors flex items-center gap-2"
+            >
+              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7H5a2 2 0 00-2 2v9a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-3m-1 4l-3 3m0 0l-3-3m3 3V4" />
+              </svg>
+              保存
+            </button>
+          </div>
+
+          {/* プリセット一覧 */}
+          {presets.length === 0 ? (
+            <div className="text-center py-8 text-gray-400">
+              <svg className="w-12 h-12 mx-auto mb-3 opacity-50" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M20 13V6a2 2 0 00-2-2H6a2 2 0 00-2 2v7m16 0v5a2 2 0 01-2 2H6a2 2 0 01-2-2v-5m16 0h-2.586a1 1 0 00-.707.293l-2.414 2.414a1 1 0 01-.707.293h-3.172a1 1 0 01-.707-.293l-2.414-2.414A1 1 0 006.586 13H4" />
+              </svg>
+              <p>保存されたプリセットはありません</p>
+              <p className="text-sm mt-1">現在のビルドを保存してみましょう</p>
+            </div>
+          ) : (
+            <div className="space-y-3 max-h-80 overflow-y-auto">
+              {presets.map((preset) => (
+                <div
+                  key={preset.id}
+                  className="flex items-center justify-between p-4 bg-gray-700 rounded-lg hover:bg-gray-650 transition-colors"
+                >
+                  <div className="flex-1 min-w-0">
+                    {editingPresetId === preset.id ? (
+                      <input
+                        type="text"
+                        value={editingPresetName}
+                        onChange={(e) => setEditingPresetName(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') {
+                            updatePreset(preset.id, editingPresetName);
+                            setEditingPresetId(null);
+                          } else if (e.key === 'Escape') {
+                            setEditingPresetId(null);
+                          }
+                        }}
+                        className="w-full px-2 py-1 bg-gray-600 border border-gray-500 rounded text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                        autoFocus
+                      />
+                    ) : (
+                      <>
+                        <h3 className="font-medium text-white truncate">{preset.name}</h3>
+                        <p className="text-sm text-gray-400">
+                          {preset.build.job?.name || '未設定'} Lv.{preset.build.level}
+                          {' - '}
+                          {new Date(preset.updatedAt).toLocaleString('ja-JP', {
+                            month: 'short',
+                            day: 'numeric',
+                            hour: '2-digit',
+                            minute: '2-digit'
+                          })}
+                        </p>
+                      </>
+                    )}
+                  </div>
+                  <div className="flex items-center gap-2 ml-4">
+                    {editingPresetId === preset.id ? (
+                      <>
+                        <button
+                          onClick={() => {
+                            updatePreset(preset.id, editingPresetName);
+                            setEditingPresetId(null);
+                          }}
+                          className="p-2 text-green-400 hover:text-green-300 hover:bg-gray-600 rounded"
+                          title="保存"
+                        >
+                          <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                          </svg>
+                        </button>
+                        <button
+                          onClick={() => setEditingPresetId(null)}
+                          className="p-2 text-gray-400 hover:text-gray-300 hover:bg-gray-600 rounded"
+                          title="キャンセル"
+                        >
+                          <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                          </svg>
+                        </button>
+                      </>
+                    ) : (
+                      <>
+                        <button
+                          onClick={() => {
+                            loadPreset(preset.id);
+                            setShowPresetPanel(false);
+                          }}
+                          className="p-2 text-blue-400 hover:text-blue-300 hover:bg-gray-600 rounded"
+                          title="読み込み"
+                        >
+                          <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" />
+                          </svg>
+                        </button>
+                        <button
+                          onClick={() => updatePreset(preset.id)}
+                          className="p-2 text-yellow-400 hover:text-yellow-300 hover:bg-gray-600 rounded"
+                          title="現在のビルドで上書き"
+                        >
+                          <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                          </svg>
+                        </button>
+                        <button
+                          onClick={() => {
+                            setEditingPresetId(preset.id);
+                            setEditingPresetName(preset.name);
+                          }}
+                          className="p-2 text-gray-400 hover:text-gray-300 hover:bg-gray-600 rounded"
+                          title="名前変更"
+                        >
+                          <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+                          </svg>
+                        </button>
+                        <button
+                          onClick={() => {
+                            if (confirm(`プリセット「${preset.name}」を削除しますか？`)) {
+                              deletePreset(preset.id);
+                            }
+                          }}
+                          className="p-2 text-red-400 hover:text-red-300 hover:bg-gray-600 rounded"
+                          title="削除"
+                        >
+                          <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                          </svg>
+                        </button>
+                      </>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
 
       {/* タブナビゲーション */}
       <div className="mb-6 border-b border-gray-200 dark:border-gray-700">
@@ -857,8 +1046,27 @@ export default function BuildPage() {
                     slot={slot}
                     equipment={currentEquipment || null}
                     availableEquipment={getFilteredEquipment(slot)}
-                    onEquipmentChange={(equipment) => setEquipment(slot, equipment)}
-                    rank={currentEquipment?.rank || 'F'}
+                    onEquipmentChange={(equipment) => {
+                      if (equipment) {
+                        // 新しい装備を選択した場合、デフォルト値を設定
+                        // ランク: SSS、強化値: 武器80、防具40、アクセサリー0
+                        let defaultEnhancement = 0;
+                        if (slot === 'weapon') {
+                          defaultEnhancement = 80;
+                        } else if (['head', 'body', 'leg'].includes(slot)) {
+                          defaultEnhancement = 40;
+                        }
+                        // アクセサリーは強化なし（0）
+                        setEquipment(slot, {
+                          ...equipment,
+                          rank: equipment.rank || 'SSS',
+                          enhancementLevel: equipment.enhancementLevel ?? defaultEnhancement,
+                        });
+                      } else {
+                        setEquipment(slot, equipment);
+                      }
+                    }}
+                    rank={currentEquipment?.rank || 'SSS'}
                     onRankChange={(rank) => {
                       if (currentEquipment) {
                         setEquipment(slot, { ...currentEquipment, rank: rank as Equipment['rank'] });

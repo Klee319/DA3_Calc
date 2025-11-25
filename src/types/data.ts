@@ -131,6 +131,8 @@ export interface AccessoryData {
  * 注: 各ステータスは%補正として扱う（CSVには%記号なしで記載されているが実際は%補正）
  */
 export interface EmblemData {
+  /** アクセス用の名前プロパティ（プリセット保存・復元用） */
+  name: string;
   アイテム名: string;
   使用可能Lv: number;
   '力（%不要）'?: number;
@@ -162,6 +164,8 @@ export type RunestoneGrade = 'ノーマル' | 'グレート' | 'バスター' | 
  * 注: 同グレードは1つまで装備可能
  */
 export interface RunestoneData {
+  /** アクセス用の名前プロパティ（CSVカラム名からコピー） */
+  name: string;
   'アイテム名（・<グレード>）は不要': string;
   グレード: RunestoneGrade;
   力?: number;
@@ -180,14 +184,37 @@ export interface RunestoneData {
   耐性6?: RunestoneResistance;
 }
 
+/**
+ * 食べ物の耐性データ型定義
+ */
+export interface FoodResistance {
+  type: string;
+  value: number;
+}
+
+/**
+ * 食べ物データ型定義
+ * CSVカラム: アイテム名,力,魔力,体力,精神,素早さ,器用,撃力,守備力,耐性１,値(%除く),耐性２,値,...
+ * 注: 各ステータスは固定値として加算される
+ */
 export interface FoodData {
   アイテム名: string;
-  効果1: string;
-  数値1: number;
-  効果2?: string;
-  数値2?: number;
-  持続時間: number;
-  入手方法?: string;
+  力?: number;
+  魔力?: number;
+  体力?: number;
+  精神?: number;
+  素早さ?: number;
+  器用?: number;
+  撃力?: number;
+  守備力?: number;
+  耐性1?: FoodResistance;
+  耐性2?: FoodResistance;
+  耐性3?: FoodResistance;
+  耐性4?: FoodResistance;
+  耐性5?: FoodResistance;
+  耐性6?: FoodResistance;
+  耐性7?: FoodResistance;
+  耐性8?: FoodResistance;
 }
 
 export interface JobSPData {

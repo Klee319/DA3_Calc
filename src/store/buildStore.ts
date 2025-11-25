@@ -10,13 +10,17 @@ import type {
   SPAllocation,
 } from "@/types";
 
+// localStorage キー
+const PRESETS_STORAGE_KEY = 'da_calc_build_presets';
+
 // 計算システムのインポート
-import { calculateAllEquipmentStats, calculateWeaponStats } from "@/lib/calc/equipmentCalculator";
-import { calculateAllJobStats } from "@/lib/calc/jobCalculator";
+import { calculateAllEquipmentStats, calculateWeaponStats, calculateArmorStats, calculateAccessoryStats } from "@/lib/calc/equipmentCalculator";
+import type { EquipmentRank } from "@/lib/calc/equipmentCalculator";
+import type { ArmorData, AccessoryData } from "@/types/data";
+import { calculateAllJobStats, calculateBranchBonus } from "@/lib/calc/jobCalculator";
 import { calculateStatus } from "@/lib/calc/statusCalculator";
 import { convertJobNameToYAML } from "@/constants/jobMappings";
 import type {
-  EqConstData,
   JobSPData as CalcJobSPData,
   SelectedEquipment,
   StatusCalcInput,
@@ -24,6 +28,7 @@ import type {
   StatBlock
 } from "@/types/calc";
 import type {
+  EqConstData,
   EmblemData,
   RunestoneData,
   JobConstData,
@@ -41,8 +46,8 @@ const convertToUIStats = (calcStats: CalcSystemStats): CalculatedStats => {
     Mind: 'MDEF',
     Dex: 'DEX',
     Agility: 'AGI',
-    CritRate: 'CRI',
-    // 他のステータスマッピングも追加
+    CritDamage: 'HIT',  // 撃力
+    // 注: CritRate（会心率）は別途calculateStatusで計算される
   };
   
   const convertStatBlock = (block: StatBlock): Record<StatType, number> => {
@@ -56,15 +61,36 @@ const convertToUIStats = (calcStats: CalcSystemStats): CalculatedStats => {
     return result;
   };
   
+  // 会心率は別途計算されるため、totalに追加
+  const totalStats = convertStatBlock(calcStats.final);
+  // 会心率（武器会心率 + 器用さ * 0.3）をCRIに設定
+  if (calcStats.critRate !== undefined) {
+    totalStats.CRI = Math.floor(calcStats.critRate);
+  }
+
+  // 基本値 = 職業初期値 + SP振り（calculateAllJobStatsで統合済み）
+  // breakdown.jobInitialには職業の基礎ステータス（レベル成長含む）が入っている
+  // breakdown.jobSPは現在空（SPは既にjobInitialに含まれている）
+  const baseStats = convertStatBlock(calcStats.breakdown?.jobInitial || {});
+
+  // 装備ステータス
+  const equipmentStats = convertStatBlock(calcStats.breakdown?.equipment || {});
+
+  // SPボーナス（現在は空、将来の拡張用）
+  const skillStats = convertStatBlock(calcStats.breakdown?.jobSP || {});
+
+  // バフ（食べ物 + ユーザー手動補正）
+  const buffStats = convertStatBlock({
+    ...(calcStats.breakdown?.food || {}),
+    ...(calcStats.breakdown?.userOption || {})
+  });
+
   return {
-    base: convertStatBlock(calcStats.base),
-    fromEquipment: convertStatBlock(calcStats.breakdown?.equipment || {}),
-    fromSkills: convertStatBlock(calcStats.breakdown?.jobSP || {}),
-    fromBuffs: convertStatBlock({
-      ...(calcStats.breakdown?.food || {}),
-      ...(calcStats.breakdown?.userOption || {})
-    }),
-    total: convertStatBlock(calcStats.final)
+    base: baseStats,
+    fromEquipment: equipmentStats,
+    fromSkills: skillStats,
+    fromBuffs: buffStats,
+    total: totalStats
   };
 };
 
@@ -98,7 +124,7 @@ const initialBuild = (): CharacterBuild => ({
   id: "default",
   name: "新規ビルド",
   job: null,
-  level: 1,
+  level: 100,  // デフォルトを最大レベル（100）に設定
   equipment: {},
   spAllocation: {},
   buffs: [],
@@ -117,6 +143,22 @@ export interface RingOption {
     type: 'attack' | 'magic' | 'defense' | 'special';
     level: number;
   }>;
+}
+
+// プリセット型定義
+export interface BuildPreset {
+  id: string;
+  name: string;
+  createdAt: number;
+  updatedAt: number;
+  build: CharacterBuild;
+  userOption: UserOption;
+  ringOption: RingOption;
+  selectedFoodId: string | null;
+  foodEnabled: boolean;
+  weaponSkillEnabled: boolean;
+  selectedEmblemName: string | null;
+  selectedRunestoneNames: string[];
 }
 
 // WeaponStats の型定義（計算済み武器ステータス）
@@ -180,6 +222,9 @@ interface BuildState {
   selectedEmblem: EmblemData | null;
   selectedRunestones: RunestoneData[];
 
+  // プリセット
+  presets: BuildPreset[];
+
   // アクション
   setJob: (job: Job | null) => void;
   setLevel: (level: number) => void;
@@ -217,6 +262,13 @@ interface BuildState {
   }) => void;
 
   recalculateStats: () => void;
+
+  // プリセットアクション
+  savePreset: (name: string) => void;
+  loadPreset: (id: string) => void;
+  deletePreset: (id: string) => void;
+  updatePreset: (id: string, name?: string) => void;
+  loadPresetsFromStorage: () => void;
 }
 
 export const useBuildStore = create<BuildState>((set, get) => ({
@@ -242,6 +294,7 @@ export const useBuildStore = create<BuildState>((set, get) => ({
   weaponSkillEnabled: false,
   selectedEmblem: null,
   selectedRunestones: [],
+  presets: [],
 
   setJob: (job) => {
     const state = get();
@@ -252,14 +305,14 @@ export const useBuildStore = create<BuildState>((set, get) => ({
       maxLevel = state.gameData.jobConst.JobDefinition[yamlJobName]?.MaxLevel || 100;
     }
 
-    // 現在のレベルがMaxLevelを超えている場合は調整
-    const adjustedLevel = Math.min(state.currentBuild.level, maxLevel);
+    // 職業選択時はデフォルトでその職業の最大レベルに設定
+    const newLevel = maxLevel;
 
     set((state) => ({
       currentBuild: {
         ...state.currentBuild,
         job,
-        level: adjustedLevel,
+        level: newLevel,
         spAllocation: {}
       },
     }));
@@ -388,7 +441,7 @@ export const useBuildStore = create<BuildState>((set, get) => ({
       const weaponEquipment = currentBuild.equipment.weapon;
       if (weaponEquipment && weaponEquipment.sourceData?.type === 'weapon') {
         const weaponData = weaponEquipment.sourceData.data;
-        const rank = (weaponEquipment.rank || 'F') as import('@/lib/calc/equipmentCalculator').WeaponRank;
+        const rank = (weaponEquipment.rank || 'SSS') as import('@/lib/calc/equipmentCalculator').WeaponRank;
         const reinforcement = weaponEquipment.enhancementLevel || 0;
         // 武器の叩き回数は攻撃力用として取得（武器は通常攻撃力叩きのみ）
         const hammerCount = weaponEquipment.smithingCount || 0;
@@ -421,67 +474,285 @@ export const useBuildStore = create<BuildState>((set, get) => ({
       // 1. 装備ステータスを計算（新計算システム使用）
       const selectedEquipment: SelectedEquipment = {};
 
-      // 装備データを新しい計算システム用に変換
-      // 注: 現在の装備データ構造と新システムの要求する構造が異なるため、
-      // 簡易的な変換を行います。実際の実装では詳細な変換が必要です。
-
       // 装備のステータス効果を直接StatBlockに変換
-      const equipmentTotal: StatBlock = {};
+      // 内部計算では文字列キー(Power, Defenseなど)を使用
+      const equipmentTotal: Record<string, number> = {};
 
+      // 装備タイプに応じた計算を実行
       for (const [slot, equipment] of Object.entries(currentBuild.equipment)) {
-        if (equipment) {
-          for (const effect of equipment.baseStats) {
-            // ステータス名のマッピング
-            let statKey = '';
-            switch(effect.stat) {
-              case 'HP': statKey = 'HP'; break;
-              case 'ATK': statKey = 'Power'; break;
-              case 'MATK': statKey = 'Magic'; break;
-              case 'DEF': statKey = 'Defense'; break;
-              case 'MDEF': statKey = 'Mind'; break;
-              case 'DEX': statKey = 'Dex'; break;
-              case 'AGI': statKey = 'Agility'; break;
-              case 'CRI': statKey = 'CritRate'; break;
-              default: statKey = effect.stat;
-            }
+        if (equipment && equipment.sourceData) {
+          const slotType = slot as EquipSlot;
+          const rank = (equipment.rank || 'SSS') as EquipmentRank;
+          const reinforcementCount = equipment.enhancementLevel || 0;
 
-            if (effect.isPercent) {
-              // パーセント補正は後で適用
-              continue;
-            } else {
-              equipmentTotal[statKey as StatType] = (equipmentTotal[statKey as StatType] || 0) + effect.value;
+          // 計算機出力キーから統一内部フォーマットへのマッピング関数
+          // calculateArmorStats: lowercase (power, magic, hp, mind, speed, dexterity, critDamage, defense)
+          // calculateAccessoryStats: PascalCase (HP, Power, Magic, Mind, CritDamage, Speed)
+          // 統一フォーマット: HP, Power, Magic, Defense, Mind, Dex, Agility, CritRate
+          const mapCalcOutputKey = (stat: string): string => {
+            const mapping: Record<string, string> = {
+              // 防具出力キー（小文字）
+              'power': 'Power',
+              'magic': 'Magic',
+              'hp': 'HP',
+              'mind': 'Mind',
+              'speed': 'Agility',
+              'dexterity': 'Dex',
+              'critDamage': 'CritDamage',  // 撃力 → CritDamage (HIT)
+              'defense': 'Defense',
+              // アクセサリー出力キー（PascalCase - すでに正しい形式のものもある）
+              'HP': 'HP',
+              'Power': 'Power',
+              'Magic': 'Magic',
+              'Mind': 'Mind',
+              'CritDamage': 'CritDamage',  // 撃力 → CritDamage (HIT)
+              'Speed': 'Agility',
+              // UI形式からの変換（フォールバック用）
+              'ATK': 'Power',
+              'MATK': 'Magic',
+              'DEF': 'Defense',
+              'MDEF': 'Mind',
+              'DEX': 'Dex',
+              'AGI': 'Agility',
+              'HIT': 'CritDamage',  // 撃力
+              // 注: 'CRI'（会心率）は装備ステータスとしては使用しない
+              // 会心率は別途 weaponCritRate + DEX * 0.3 で計算される
+            };
+            return mapping[stat] || stat;
+          };
+
+          // 武器は既に個別計算済み（calculatedWeaponStats）
+          if (slotType === 'weapon') {
+            // 武器の攻撃力（attackPower）はキャラクターの「力」ステータスには加算しない
+            // 武器攻撃力は独立したステータスで、weaponStatsとして別途管理される
+            // 武器会心率（critRate）はweaponCritRateとしてcalculateStatusに渡されるため、
+            // equipmentTotalには追加しない（会心率 = 武器会心率 + 器用さ * 0.3 で計算される）
+            // 撃力（critDamage）はCritDamageとして追加
+            if (calculatedWeaponStats) {
+              equipmentTotal['CritDamage'] = (equipmentTotal['CritDamage'] || 0) + calculatedWeaponStats.critDamage;
+            }
+          }
+          // 防具（頭、胴、脚）
+          else if (['head', 'body', 'leg'].includes(slotType) && equipment.sourceData.type === 'armor') {
+            try {
+              const armorData = equipment.sourceData.data as ArmorData;
+              // 叩き回数を取得（各パラメータの合計）
+              const smithingCounts = equipment.smithingCounts || {};
+              const totalTatakiCount = Object.values(smithingCounts).reduce((sum: number, count) => sum + (count || 0), 0);
+
+              const armorStats = calculateArmorStats(
+                armorData,
+                rank,
+                reinforcementCount,
+                totalTatakiCount,
+                gameData.eqConst as EqConstData,
+                gameData.userStatusCalc
+              );
+
+              // 計算済みステータスをequipmentTotalに追加
+              if (armorStats.final) {
+                for (const [statKey, value] of Object.entries(armorStats.final)) {
+                  if (value && typeof value === 'number') {
+                    const mappedKey = mapCalcOutputKey(statKey);
+                    equipmentTotal[mappedKey] = (equipmentTotal[mappedKey] || 0) + value;
+                  }
+                }
+              }
+
+              // EXステータスを加算（防具は2つまで）
+              const exStats = equipment.exStats;
+              if (exStats) {
+                const exStatMapping: Record<string, string> = {
+                  'power': 'Power',
+                  'magic': 'Magic',
+                  'hp': 'HP',
+                  'mind': 'Mind',
+                  'speed': 'Agility',
+                  'dex': 'Dex',
+                  'critDamage': 'CritDamage',
+                  'defense': 'Defense',
+                };
+                // EX係数テーブル
+                const exCoeffTable: Record<string, Record<string, number>> = {
+                  'dex': { SSS: 0.15, SS: 0.13, S: 0.11, A: 0.09, B: 0.09, C: 0.07, D: 0.07, E: 0.05, F: 0.05 },
+                  'critDamage': { SSS: 0.6, SS: 0.5, S: 0.4, A: 0.3, B: 0.3, C: 0.2, D: 0.2, E: 0.1, F: 0.1 },
+                  'speed': { SSS: 0.6, SS: 0.5, S: 0.4, A: 0.3, B: 0.3, C: 0.2, D: 0.2, E: 0.1, F: 0.1 },
+                  'other': { SSS: 0.7, SS: 0.6, S: 0.5, A: 0.4, B: 0.4, C: 0.3, D: 0.3, E: 0.2, F: 0.2 },
+                };
+                const calculateExValue = (exType: string): number => {
+                  const level = armorData.使用可能Lv || 1;
+                  const category = ['dex', 'critDamage', 'speed'].includes(exType) ? exType : 'other';
+                  const coeff = exCoeffTable[category][rank] || 0;
+                  return Math.round(level * coeff + 1);
+                };
+                if (exStats.ex1) {
+                  const mappedKey = exStatMapping[exStats.ex1];
+                  if (mappedKey) {
+                    equipmentTotal[mappedKey] = (equipmentTotal[mappedKey] || 0) + calculateExValue(exStats.ex1);
+                  }
+                }
+                if (exStats.ex2) {
+                  const mappedKey = exStatMapping[exStats.ex2];
+                  if (mappedKey) {
+                    equipmentTotal[mappedKey] = (equipmentTotal[mappedKey] || 0) + calculateExValue(exStats.ex2);
+                  }
+                }
+              }
+            } catch (error) {
+              console.warn(`防具計算エラー (${slotType}):`, error);
+              // フォールバック: baseStatsを使用
+              for (const effect of equipment.baseStats) {
+                if (!effect.isPercent) {
+                  const statKey = mapCalcOutputKey(effect.stat);
+                  equipmentTotal[statKey] = (equipmentTotal[statKey] || 0) + effect.value;
+                }
+              }
+            }
+          }
+          // アクセサリー
+          else if (['accessory1', 'accessory2'].includes(slotType) && equipment.sourceData.type === 'accessory') {
+            try {
+              const accessoryData = equipment.sourceData.data as AccessoryData;
+
+              const accessoryStats = calculateAccessoryStats(
+                accessoryData,
+                rank,
+                gameData.eqConst as EqConstData
+              );
+
+              // 計算済みステータスをequipmentTotalに追加
+              if (accessoryStats.final) {
+                for (const [statKey, value] of Object.entries(accessoryStats.final)) {
+                  if (value && typeof value === 'number') {
+                    const mappedKey = mapCalcOutputKey(statKey);
+                    equipmentTotal[mappedKey] = (equipmentTotal[mappedKey] || 0) + value;
+                  }
+                }
+              }
+
+              // EXステータスを加算（アクセサリーは2つまで）
+              const exStats = equipment.exStats;
+              if (exStats) {
+                const exStatMapping: Record<string, string> = {
+                  'power': 'Power',
+                  'magic': 'Magic',
+                  'hp': 'HP',
+                  'mind': 'Mind',
+                  'speed': 'Agility',
+                  'dex': 'Dex',
+                  'critDamage': 'CritDamage',
+                  // アクセサリーには守備力EXはない
+                };
+                // EX係数テーブル（防具と同じ）
+                const exCoeffTable: Record<string, Record<string, number>> = {
+                  'dex': { SSS: 0.15, SS: 0.13, S: 0.11, A: 0.09, B: 0.09, C: 0.07, D: 0.07, E: 0.05, F: 0.05 },
+                  'critDamage': { SSS: 0.6, SS: 0.5, S: 0.4, A: 0.3, B: 0.3, C: 0.2, D: 0.2, E: 0.1, F: 0.1 },
+                  'speed': { SSS: 0.6, SS: 0.5, S: 0.4, A: 0.3, B: 0.3, C: 0.2, D: 0.2, E: 0.1, F: 0.1 },
+                  'other': { SSS: 0.7, SS: 0.6, S: 0.5, A: 0.4, B: 0.4, C: 0.3, D: 0.3, E: 0.2, F: 0.2 },
+                };
+                const calculateExValue = (exType: string): number => {
+                  const level = accessoryData.使用可能Lv || 1;
+                  const category = ['dex', 'critDamage', 'speed'].includes(exType) ? exType : 'other';
+                  const coeff = exCoeffTable[category][rank] || 0;
+                  return Math.round(level * coeff + 1);
+                };
+                // EX1を加算
+                if (exStats.ex1) {
+                  const mappedKey = exStatMapping[exStats.ex1];
+                  if (mappedKey) {
+                    equipmentTotal[mappedKey] = (equipmentTotal[mappedKey] || 0) + calculateExValue(exStats.ex1);
+                  }
+                }
+                // EX2を加算
+                if (exStats.ex2) {
+                  const mappedKey = exStatMapping[exStats.ex2];
+                  if (mappedKey) {
+                    equipmentTotal[mappedKey] = (equipmentTotal[mappedKey] || 0) + calculateExValue(exStats.ex2);
+                  }
+                }
+              }
+            } catch (error) {
+              console.warn(`アクセサリー計算エラー (${slotType}):`, error);
+              // フォールバック: baseStatsを使用
+              for (const effect of equipment.baseStats) {
+                if (!effect.isPercent) {
+                  const statKey = mapCalcOutputKey(effect.stat);
+                  equipmentTotal[statKey] = (equipmentTotal[statKey] || 0) + effect.value;
+                }
+              }
+            }
+          }
+          // その他（フォールバック）
+          else {
+            for (const effect of equipment.baseStats) {
+              if (!effect.isPercent) {
+                const statKey = mapCalcOutputKey(effect.stat);
+                equipmentTotal[statKey] = (equipmentTotal[statKey] || 0) + effect.value;
+              }
             }
           }
         }
       }
 
       // 2. 職業ステータスを計算（新計算システム使用）
-      // SPAllocationの形式に変換（branch, tier, spCostを持つ形式）
-      // TODO: 現在のspAllocationはnodeId/levelの簡易形式だが、
-      // calculateAllJobStatsはbranch/tier/spCost形式を期待している
-      // 暫定的に空配列を渡して基礎ステータスのみ計算
-      const spAllocationArray: any[] = [];
-
       // MapからJobに対応するJobSPData[]を取得
       const currentJobSPData = gameData.jobSPData?.get(currentBuild.job.id);
 
       // 日本語の職業名からYAML形式の職業名へ変換（共通マッピングを使用）
       const yamlJobName = convertJobNameToYAML(currentBuild.job.name || currentBuild.job.id);
 
+      // 基礎職業ステータスを計算（SPボーナスなし）
       const jobStats = calculateAllJobStats(
         yamlJobName,
         currentBuild.level,
-        spAllocationArray,
+        [], // SPAllocation配列は空にして基礎値のみ取得
         gameData.jobConst,
         currentJobSPData
       );
+
+      // SP割り振りからのステータスボーナスを計算
+      let spBonusStats: StatBlock = {};
+      if (currentJobSPData && currentBuild.spAllocation) {
+        const spAllocation = {
+          A: currentBuild.spAllocation.A || 0,
+          B: currentBuild.spAllocation.B || 0,
+          C: currentBuild.spAllocation.C || 0,
+        };
+
+        // 各ブランチのボーナスを計算
+        const branchBonus = calculateBranchBonus(spAllocation, currentJobSPData);
+
+        // 日本語キーを内部キーにマッピングして合算
+        const jpToInternal: Record<string, string> = {
+          '体力': 'HP',
+          '力': 'Power',
+          '魔力': 'Magic',
+          '精神': 'Mind',
+          '素早さ': 'Agility',
+          '器用さ': 'Dex',
+          '撃力': 'CritDamage',
+          '守備力': 'Defense',
+        };
+
+        // 全ブランチのボーナスを合算
+        (['A', 'B', 'C'] as const).forEach(branch => {
+          const bonus = branchBonus[branch];
+          Object.entries(bonus).forEach(([jpKey, value]) => {
+            const internalKey = jpToInternal[jpKey];
+            if (internalKey && value) {
+              spBonusStats[internalKey as keyof StatBlock] =
+                ((spBonusStats[internalKey as keyof StatBlock] as number) || 0) + value;
+            }
+          });
+        });
+      }
 
       // 3. 最終ステータスを計算（新計算システム使用）
       const statusInput: StatusCalcInput = {
         equipmentTotal: equipmentTotal,
         jobStats: {
           initial: jobStats,
-          sp: {},  // SPボーナスは既にjobStatsに含まれている
+          sp: spBonusStats,  // SP割り振りによるボーナス
           bonusPercent: {}  // 職業のパーセントボーナス（必要に応じて追加）
         },
         food: foodEnabled && selectedFood ?
@@ -495,6 +766,7 @@ export const useBuildStore = create<BuildState>((set, get) => ({
               case 'MDEF': statKey = 'Mind'; break;
               case 'DEX': statKey = 'Dex'; break;
               case 'AGI': statKey = 'Agility'; break;
+              case 'HIT': statKey = 'CritDamage'; break;  // 撃力はCritDamageにマッピング
               default: statKey = effect.stat;
             }
 
@@ -526,28 +798,28 @@ export const useBuildStore = create<BuildState>((set, get) => ({
         } : undefined,
         weaponCritRate: weaponCritRateValue,
         // 紋章ボーナスを計算（%補正として適用）
-        // StatTypeに対応するキー（ATK, MATK, HP, MDEF, AGI, DEX, CRI, DEF）を使用
+        // 内部キー形式（Power, Magic, HP, Mind, Agility, Dex, CritDamage, Defense）を使用
         emblemBonusPercent: selectedEmblem ? {
-          ATK: selectedEmblem['力（%不要）'] || 0,
-          MATK: selectedEmblem['魔力（%不要）'] || 0,
+          Power: selectedEmblem['力（%不要）'] || 0,
+          Magic: selectedEmblem['魔力（%不要）'] || 0,
           HP: selectedEmblem['体力（%不要）'] || 0,
-          MDEF: selectedEmblem['精神（%不要）'] || 0,
-          AGI: selectedEmblem['素早さ（%不要）'] || 0,
-          DEX: selectedEmblem['器用（%不要）'] || 0,
-          CRI: selectedEmblem['撃力（%不要）'] || 0,
-          DEF: selectedEmblem['守備力（%不要）'] || 0,
+          Mind: selectedEmblem['精神（%不要）'] || 0,
+          Agility: selectedEmblem['素早さ（%不要）'] || 0,
+          Dex: selectedEmblem['器用（%不要）'] || 0,
+          CritDamage: selectedEmblem['撃力（%不要）'] || 0,  // 撃力はCritDamage
+          Defense: selectedEmblem['守備力（%不要）'] || 0,
         } : {},
         // ルーンストーンボーナスを計算（固定値加算）
-        // StatTypeに対応するキーを使用
+        // 内部キー形式（Power, Magic, HP, Mind, Agility, Dex, CritDamage, Defense）を使用
         runestoneBonus: selectedRunestones.reduce((acc, rune) => {
-          if (rune.力) acc['ATK'] = (acc['ATK'] || 0) + rune.力;
-          if (rune.魔力) acc['MATK'] = (acc['MATK'] || 0) + rune.魔力;
+          if (rune.力) acc['Power'] = (acc['Power'] || 0) + rune.力;
+          if (rune.魔力) acc['Magic'] = (acc['Magic'] || 0) + rune.魔力;
           if (rune.体力) acc['HP'] = (acc['HP'] || 0) + rune.体力;
-          if (rune.精神) acc['MDEF'] = (acc['MDEF'] || 0) + rune.精神;
-          if (rune.素早さ) acc['AGI'] = (acc['AGI'] || 0) + rune.素早さ;
-          if (rune.器用) acc['DEX'] = (acc['DEX'] || 0) + rune.器用;
-          if (rune.撃力) acc['CRI'] = (acc['CRI'] || 0) + rune.撃力;
-          if (rune.守備力) acc['DEF'] = (acc['DEF'] || 0) + rune.守備力;
+          if (rune.精神) acc['Mind'] = (acc['Mind'] || 0) + rune.精神;
+          if (rune.素早さ) acc['Agility'] = (acc['Agility'] || 0) + rune.素早さ;
+          if (rune.器用) acc['Dex'] = (acc['Dex'] || 0) + rune.器用;
+          if (rune.撃力) acc['CritDamage'] = (acc['CritDamage'] || 0) + rune.撃力;  // 撃力はCritDamage
+          if (rune.守備力) acc['Defense'] = (acc['Defense'] || 0) + rune.守備力;
           return acc;
         }, {} as Record<string, number>),
       };
@@ -578,6 +850,145 @@ export const useBuildStore = create<BuildState>((set, get) => ({
         }
       });
       set({ calculatedStats: initialCalculatedStats(), weaponStats: null });
+    }
+  },
+
+  // プリセット機能
+  savePreset: (name: string) => {
+    const state = get();
+    const now = Date.now();
+    const id = `preset_${now}_${Math.random().toString(36).substr(2, 9)}`;
+
+    const newPreset: BuildPreset = {
+      id,
+      name,
+      createdAt: now,
+      updatedAt: now,
+      build: JSON.parse(JSON.stringify(state.currentBuild)), // Deep copy
+      userOption: JSON.parse(JSON.stringify(state.userOption)),
+      ringOption: JSON.parse(JSON.stringify(state.ringOption)),
+      selectedFoodId: state.selectedFood?.id || null,
+      foodEnabled: state.foodEnabled,
+      weaponSkillEnabled: state.weaponSkillEnabled,
+      selectedEmblemName: state.selectedEmblem?.name || null,
+      selectedRunestoneNames: state.selectedRunestones.map(r => r.name),
+    };
+
+    const updatedPresets = [...state.presets, newPreset];
+    set({ presets: updatedPresets });
+
+    // localStorageに保存
+    try {
+      localStorage.setItem(PRESETS_STORAGE_KEY, JSON.stringify(updatedPresets));
+    } catch (e) {
+      console.error('プリセットの保存に失敗しました:', e);
+    }
+  },
+
+  loadPreset: (id: string) => {
+    const state = get();
+    const preset = state.presets.find(p => p.id === id);
+    if (!preset) {
+      console.warn(`プリセット(${id})が見つかりません`);
+      return;
+    }
+
+    // ビルドを復元
+    set({
+      currentBuild: JSON.parse(JSON.stringify(preset.build)),
+      userOption: JSON.parse(JSON.stringify(preset.userOption)),
+      ringOption: JSON.parse(JSON.stringify(preset.ringOption)),
+      foodEnabled: preset.foodEnabled,
+      weaponSkillEnabled: preset.weaponSkillEnabled,
+    });
+
+    // 食べ物を復元
+    if (preset.selectedFoodId) {
+      const food = state.availableFoods.find(f => f.id === preset.selectedFoodId);
+      if (food) {
+        set({ selectedFood: food });
+      }
+    } else {
+      set({ selectedFood: null });
+    }
+
+    // 紋章を復元
+    if (preset.selectedEmblemName) {
+      const emblem = state.availableEmblems.find(e => e.name === preset.selectedEmblemName);
+      if (emblem) {
+        set({ selectedEmblem: emblem });
+      }
+    } else {
+      set({ selectedEmblem: null });
+    }
+
+    // ルーンストーンを復元
+    const runestones = preset.selectedRunestoneNames
+      .map(name => state.availableRunestones.find(r => r.name === name))
+      .filter((r): r is RunestoneData => r !== undefined);
+    set({ selectedRunestones: runestones });
+
+    // ステータス再計算
+    get().recalculateStats();
+  },
+
+  deletePreset: (id: string) => {
+    const state = get();
+    const updatedPresets = state.presets.filter(p => p.id !== id);
+    set({ presets: updatedPresets });
+
+    // localStorageを更新
+    try {
+      localStorage.setItem(PRESETS_STORAGE_KEY, JSON.stringify(updatedPresets));
+    } catch (e) {
+      console.error('プリセットの削除に失敗しました:', e);
+    }
+  },
+
+  updatePreset: (id: string, name?: string) => {
+    const state = get();
+    const presetIndex = state.presets.findIndex(p => p.id === id);
+    if (presetIndex === -1) {
+      console.warn(`プリセット(${id})が見つかりません`);
+      return;
+    }
+
+    const now = Date.now();
+    const updatedPreset: BuildPreset = {
+      ...state.presets[presetIndex],
+      name: name || state.presets[presetIndex].name,
+      updatedAt: now,
+      build: JSON.parse(JSON.stringify(state.currentBuild)),
+      userOption: JSON.parse(JSON.stringify(state.userOption)),
+      ringOption: JSON.parse(JSON.stringify(state.ringOption)),
+      selectedFoodId: state.selectedFood?.id || null,
+      foodEnabled: state.foodEnabled,
+      weaponSkillEnabled: state.weaponSkillEnabled,
+      selectedEmblemName: state.selectedEmblem?.name || null,
+      selectedRunestoneNames: state.selectedRunestones.map(r => r.name),
+    };
+
+    const updatedPresets = [...state.presets];
+    updatedPresets[presetIndex] = updatedPreset;
+    set({ presets: updatedPresets });
+
+    // localStorageを更新
+    try {
+      localStorage.setItem(PRESETS_STORAGE_KEY, JSON.stringify(updatedPresets));
+    } catch (e) {
+      console.error('プリセットの更新に失敗しました:', e);
+    }
+  },
+
+  loadPresetsFromStorage: () => {
+    try {
+      const stored = localStorage.getItem(PRESETS_STORAGE_KEY);
+      if (stored) {
+        const presets = JSON.parse(stored) as BuildPreset[];
+        set({ presets });
+      }
+    } catch (e) {
+      console.error('プリセットの読み込みに失敗しました:', e);
     }
   },
 }));

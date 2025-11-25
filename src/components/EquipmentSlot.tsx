@@ -1,13 +1,26 @@
 'use client';
 
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { Equipment, EquipSlot, SmithingCounts, SmithingParamType, StatType } from '@/types';
+import { ArmorData } from '@/types/data';
 import { Toggle } from '@/components/ui/Toggle';
 import { NumberInput } from '@/components/ui/NumberInput';
 import { Tooltip } from '@/components/ui/Tooltip';
 import { CustomSelect, CustomSelectOption } from '@/components/CustomSelect';
 
+// 防具タイプの定義
+type ArmorMaterialType = '布' | '革' | '金属';
+const ARMOR_TYPES: ArmorMaterialType[] = ['布', '革', '金属'];
+
+// 防具タイプのアイコンと説明
+const ARMOR_TYPE_INFO: Record<ArmorMaterialType, { icon: string; description: string }> = {
+  '布': { icon: '&#129525;', description: '魔法系向け・軽量' },
+  '革': { icon: '&#129422;', description: 'バランス型' },
+  '金属': { icon: '&#128737;', description: '防御特化・重装' },
+};
+
 // StatTypeから叩きパラメータ名への変換マッピング
+// 注: HIT = 撃力、CRI = 会心率（武器固有）
 const STAT_TO_SMITHING_PARAM: Partial<Record<StatType, SmithingParamType>> = {
   ATK: '力',
   MATK: '魔力',
@@ -15,7 +28,7 @@ const STAT_TO_SMITHING_PARAM: Partial<Record<StatType, SmithingParamType>> = {
   MDEF: '精神',
   AGI: '素早さ',
   DEX: '器用',
-  CRI: '撃力',
+  HIT: '撃力',  // 撃力はHITにマッピング
   DEF: '守備力',
 };
 
@@ -27,6 +40,13 @@ const SMITHING_BONUS = {
   Defence: 1,  // 守備力の叩き1回あたり+1
   Other: 2,    // その他のパラメータの叩き1回あたり+2
 } as const;
+
+// 武器の叩きボーナス値（EqConst.yaml Weapon.Forge.Other: 1 に基づく）
+const WEAPON_SMITHING_BONUS = 1;  // すべてのパラメータで1回あたり+1
+
+// 武器用叩きパラメータ
+type WeaponSmithingParamType = '攻撃力' | '会心率' | '会心ダメージ';
+const WEAPON_SMITHING_PARAMS: WeaponSmithingParamType[] = ['攻撃力', '会心率', '会心ダメージ'];
 
 // EXステータスのオプション定義
 const EX_STAT_OPTIONS = [
@@ -108,7 +128,7 @@ export const EquipmentSlot: React.FC<EquipmentSlotProps> = ({
   onEquipmentChange,
   enhancementLevel = 0,
   onEnhancementChange,
-  rank = 'F',
+  rank = 'SSS',
   onRankChange,
   smithingCount = 0,
   onSmithingCountChange,
@@ -126,8 +146,83 @@ export const EquipmentSlot: React.FC<EquipmentSlotProps> = ({
   className = '',
 }) => {
   const [showSmithingDetails, setShowSmithingDetails] = useState(false);
-  const [showAdvancedSettings, setShowAdvancedSettings] = useState(false);
+  const [showAdvancedSettings, setShowAdvancedSettings] = useState(true);
   const [isSelectOpen, setIsSelectOpen] = useState(false);
+
+  // 防具タイプ選択用のstate（head/body/leg スロット用）
+  const [selectedArmorType, setSelectedArmorType] = useState<ArmorMaterialType | null>(null);
+
+  // 防具スロットかどうか
+  const isArmorSlot = ['head', 'body', 'leg'].includes(slot);
+
+  // 装備からタイプを取得する関数
+  const getArmorTypeFromEquipment = (eq: Equipment): ArmorMaterialType | null => {
+    if (eq.sourceData?.type === 'armor') {
+      const armorData = eq.sourceData.data as ArmorData;
+      const type = armorData.タイプを選択;
+      if (type === '布' || type === '革' || type === '金属') {
+        return type;
+      }
+    }
+    return null;
+  };
+
+  // 利用可能な防具タイプを取得（防具スロットのみ）
+  const availableArmorTypes = useMemo((): ArmorMaterialType[] => {
+    if (!isArmorSlot) return [];
+
+    const types = new Set<ArmorMaterialType>();
+    availableEquipment.forEach(eq => {
+      const type = getArmorTypeFromEquipment(eq);
+      if (type) {
+        types.add(type);
+      }
+    });
+
+    // 順番を保持するためにARMOR_TYPESの順でフィルタ
+    return ARMOR_TYPES.filter(t => types.has(t));
+  }, [availableEquipment, isArmorSlot]);
+
+  // 選択されたタイプでフィルタされた装備リスト
+  const filteredEquipmentByType = useMemo((): Equipment[] => {
+    if (!isArmorSlot || !selectedArmorType) {
+      return availableEquipment;
+    }
+
+    return availableEquipment.filter(eq => {
+      const type = getArmorTypeFromEquipment(eq);
+      return type === selectedArmorType;
+    });
+  }, [availableEquipment, selectedArmorType, isArmorSlot]);
+
+  // タイプが1つしかない場合は自動選択
+  useEffect(() => {
+    if (isArmorSlot && availableArmorTypes.length === 1 && !selectedArmorType) {
+      setSelectedArmorType(availableArmorTypes[0]);
+    }
+  }, [isArmorSlot, availableArmorTypes, selectedArmorType]);
+
+  // 装備が選択されたとき、その装備のタイプを自動設定
+  useEffect(() => {
+    if (isArmorSlot && equipment) {
+      const type = getArmorTypeFromEquipment(equipment);
+      if (type && type !== selectedArmorType) {
+        setSelectedArmorType(type);
+      }
+    }
+  }, [equipment, isArmorSlot]);
+
+  // タイプ変更時に装備をリセット
+  const handleArmorTypeChange = (type: ArmorMaterialType | null) => {
+    setSelectedArmorType(type);
+    // タイプが変わったら装備選択をリセット（ただし同じタイプの装備が選択中の場合は維持）
+    if (equipment) {
+      const currentType = getArmorTypeFromEquipment(equipment);
+      if (currentType !== type) {
+        onEquipmentChange(null);
+      }
+    }
+  };
 
   // 装備が持つパラメータに対応する叩きパラメータを取得
   const availableSmithingParams = useMemo((): SmithingParamType[] => {
@@ -270,11 +365,12 @@ export const EquipmentSlot: React.FC<EquipmentSlotProps> = ({
       let alchemyBonusValue = 0;
 
       if (slot === 'weapon') {
-        // 武器計算
+        // 武器計算（smithingCountsからパラメータ別に取得）
+        const weaponSmithingCounts = smithingCounts as Record<string, number>;
         if (stat.stat === 'ATK') {
           rankBonus = weaponRankBonus.attackP;
           enhanceBonus = enhancementLevel * 2;
-          smithingBonus = smithingCount * 1;
+          smithingBonus = (weaponSmithingCounts['攻撃力'] || 0) * WEAPON_SMITHING_BONUS;
           // 錬金ボーナス（有効な場合のみ）
           if (hasAlchemy) {
             alchemyBonusValue = alchemyBonus.attackP;
@@ -283,6 +379,7 @@ export const EquipmentSlot: React.FC<EquipmentSlotProps> = ({
           rankBonus = weaponRankBonus.critR;
           // 強化ボーナス: 2lvにつき+1
           enhanceBonus = Math.floor(enhancementLevel / 2);
+          smithingBonus = (weaponSmithingCounts['会心率'] || 0) * WEAPON_SMITHING_BONUS;
           // 錬金ボーナス（有効な場合のみ）
           if (hasAlchemy) {
             alchemyBonusValue = alchemyBonus.critR;
@@ -290,24 +387,33 @@ export const EquipmentSlot: React.FC<EquipmentSlotProps> = ({
         } else if (stat.stat === 'DEX') {
           rankBonus = weaponRankBonus.critD;
           enhanceBonus = enhancementLevel * 1;
+          smithingBonus = (weaponSmithingCounts['会心ダメージ'] || 0) * WEAPON_SMITHING_BONUS;
           // 錬金ボーナス（有効な場合のみ）
           if (hasAlchemy) {
             alchemyBonusValue = alchemyBonus.critD;
           }
         }
       } else if (['head', 'body', 'leg'].includes(slot)) {
-        // 防具計算
+        // 防具計算（equipmentCalculator.tsと同じ計算式を使用）
         const isDefense = stat.stat === 'DEF';
 
-        // ランク補正: base * (1 + base^0.2 * (rank / level))
-        // 簡易計算: base * (1 + rank * 0.1)
-        rankBonus = Math.round(baseValue * rankMultiplier * 0.1);
+        // 叩きボーナス: パラメータ別に計算（先に計算）
+        smithingBonus = getSmithingBonusForStat(stat.stat);
 
-        // 強化ボーナス: +1〜2 per レベル
+        // 強化ボーナス: DEFは+1、その他は+2 per レベル
         enhanceBonus = isDefense ? enhancementLevel * 1 : enhancementLevel * 2;
 
-        // 叩きボーナス: パラメータ別に計算
-        smithingBonus = getSmithingBonusForStat(stat.stat);
+        // ランク補正: round(baseWithTataki * (1 + baseWithTataki^0.2 * (rankValue / availableLv)))
+        // 使用可能Lvを取得（equipment.requiredLevelから）
+        const availableLv = equipment.requiredLevel || 1;
+        const baseWithTataki = baseValue + smithingBonus;
+
+        // ランク計算（叩き込み後の値に対して適用）
+        const calculatedValue = Math.round(
+          baseWithTataki * (1 + Math.pow(baseWithTataki, 0.2) * (rankMultiplier / availableLv))
+        );
+        // ランクボーナス = 計算後の値 - 叩き込み後の基礎値
+        rankBonus = calculatedValue - baseWithTataki;
       } else {
         // アクセサリー
         // ランク補正: base + (level / ランク補正係数)
@@ -362,6 +468,9 @@ export const EquipmentSlot: React.FC<EquipmentSlotProps> = ({
   // 頭・胴・脚防具で叩き機能が使えるかどうか
   const isArmorWithSmithing = ['head', 'body', 'leg'].includes(slot);
 
+  // アクセサリーかどうか（強化機能がない）
+  const isAccessory = ['accessory1', 'accessory2'].includes(slot);
+
   return (
     <div className={`p-6 rounded-xl bg-glass-dark backdrop-blur-md border border-white/20 relative ${isSelectOpen ? 'z-50 overflow-visible' : 'z-auto overflow-hidden'} ${className}`}>
       {/* スロット名とカスタマイズ切替 */}
@@ -377,7 +486,7 @@ export const EquipmentSlot: React.FC<EquipmentSlotProps> = ({
                 onClick={() => setShowAdvancedSettings(!showAdvancedSettings)}
                 className="px-3 py-1 text-sm rounded-lg bg-rpg-accent/20 text-rpg-accent hover:bg-rpg-accent/30 transition-all duration-200"
               >
-                {showAdvancedSettings ? 'シンプル表示' : '詳細設定'}
+                {showAdvancedSettings ? 'ステータス非表示' : 'ステータス表示'}
               </button>
               <Tooltip content="装備を外す">
                 <button
@@ -396,33 +505,77 @@ export const EquipmentSlot: React.FC<EquipmentSlotProps> = ({
         </div>
       </div>
 
-      {/* 装備選択 */}
-      <div className="mb-6">
-        <CustomSelect
-          options={[
-            { value: '', label: '装備なし', description: '装備を外す' },
-            ...availableEquipment.map(eq => ({
-              value: eq.id,
-              label: eq.name,
-              description: eq.baseStats && eq.baseStats.length > 0
-                ? eq.baseStats.map(s => `${s.stat}+${s.value}${s.isPercent ? '%' : ''}`).join(', ')
-                : undefined,
-            }))
-          ]}
-          value={equipment?.id || ''}
-          onChange={(value) => {
-            if (value === '') {
-              onEquipmentChange(null);
-            } else {
-              const selected = availableEquipment.find(eq => eq.id === value);
-              onEquipmentChange(selected || null);
-            }
-          }}
-          placeholder="装備を選択してください"
-          disabled={disabled}
-          showIcon={false}
-          onOpenChange={(open) => setIsSelectOpen(open)}
-        />
+      {/* 装備選択 - 防具の場合は2段階選択 */}
+      <div className="mb-6 space-y-3">
+        {/* 防具タイプ選択（防具スロットかつ複数タイプがある場合） */}
+        {isArmorSlot && availableArmorTypes.length > 1 && (
+          <div>
+            <label className="block text-sm font-medium text-gray-300 mb-2">
+              防具タイプ
+            </label>
+            <div className="flex gap-2">
+              {availableArmorTypes.map((type) => (
+                <button
+                  key={type}
+                  type="button"
+                  onClick={() => handleArmorTypeChange(type)}
+                  disabled={disabled}
+                  className={`flex-1 px-3 py-2 rounded-lg border transition-all duration-200 ${
+                    selectedArmorType === type
+                      ? 'bg-rpg-accent/30 border-rpg-accent text-white'
+                      : 'bg-glass-light border-white/20 text-gray-300 hover:bg-white/10 hover:border-white/40'
+                  }`}
+                >
+                  <div className="text-center">
+                    <div className="text-lg font-bold">{type}</div>
+                    <div className="text-xs text-gray-400">{ARMOR_TYPE_INFO[type].description}</div>
+                  </div>
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* 装備選択 */}
+        <div>
+          {isArmorSlot && availableArmorTypes.length > 1 && (
+            <label className="block text-sm font-medium text-gray-300 mb-2">
+              {selectedArmorType ? `${selectedArmorType}装備` : '装備'}
+            </label>
+          )}
+          <CustomSelect
+            options={[
+              { value: '', label: '装備なし', description: '装備を外す' },
+              ...(isArmorSlot ? filteredEquipmentByType : availableEquipment).map(eq => {
+                const armorType = isArmorSlot ? getArmorTypeFromEquipment(eq) : null;
+                return {
+                  value: eq.id,
+                  label: eq.name,
+                  description: eq.baseStats && eq.baseStats.length > 0
+                    ? (armorType && availableArmorTypes.length <= 1 ? `[${armorType}] ` : '') +
+                      eq.baseStats.map(s => `${s.stat}+${s.value}${s.isPercent ? '%' : ''}`).join(', ')
+                    : armorType && availableArmorTypes.length <= 1 ? `[${armorType}]` : undefined,
+                };
+              })
+            ]}
+            value={equipment?.id || ''}
+            onChange={(value) => {
+              if (value === '') {
+                onEquipmentChange(null);
+              } else {
+                const equipmentList = isArmorSlot ? filteredEquipmentByType : availableEquipment;
+                const selected = equipmentList.find(eq => eq.id === value);
+                onEquipmentChange(selected || null);
+              }
+            }}
+            placeholder={isArmorSlot && !selectedArmorType && availableArmorTypes.length > 1
+              ? 'まず防具タイプを選択してください'
+              : '装備を選択してください'}
+            disabled={disabled || (isArmorSlot && !selectedArmorType && availableArmorTypes.length > 1)}
+            showIcon={false}
+            onOpenChange={(open) => setIsSelectOpen(open)}
+          />
+        </div>
       </div>
 
       {equipment && (
@@ -512,61 +665,113 @@ export const EquipmentSlot: React.FC<EquipmentSlotProps> = ({
               </div>
             )}
 
-            {/* 武器の叩き回数（SS以上のランクの場合のみ） */}
+            {/* 武器の叩き回数（SS以上のランクの場合のみ） - パラメータ別 */}
             {slot === 'weapon' && ['SSS', 'SS'].includes(rank) && (
-              <div>
-                <label className="block text-sm font-medium text-gray-300 mb-2">
-                  叩き回数（SS以上で使用可）
-                </label>
-                <CustomSelect
-                  options={smithingOptions}
-                  value={smithingCount?.toString() || '0'}
-                  onChange={(value) => onSmithingCountChange?.(parseInt(value, 10))}
-                  placeholder="叩き回数を選択"
-                  disabled={disabled}
-                  showIcon={false}
-                  className="w-full"
-                  onOpenChange={(open) => setIsSelectOpen(open)}
-                />
+              <div className="p-4 bg-gradient-to-br from-red-900/30 to-orange-900/30 rounded-lg border border-red-700/50">
+                <div className="flex items-center justify-between mb-3">
+                  <label className="text-sm font-medium text-red-300">
+                    叩き回数（パラメータ別）
+                  </label>
+                  <span className="text-xs text-red-400">
+                    合計: {WEAPON_SMITHING_PARAMS.reduce((sum, param) => sum + ((smithingCounts as Record<string, number>)[param] || 0), 0)}回
+                  </span>
+                </div>
+
+                <div className="space-y-3">
+                  {WEAPON_SMITHING_PARAMS.map((param) => {
+                    const count = (smithingCounts as Record<string, number>)[param] || 0;
+                    const totalBonus = count * WEAPON_SMITHING_BONUS;
+
+                    return (
+                      <div key={param} className="flex items-center gap-3">
+                        <div className="w-24 text-sm text-gray-300">
+                          {param}
+                        </div>
+                        <div className="flex-1">
+                          <input
+                            type="range"
+                            min={0}
+                            max={MAX_SMITHING_COUNT}
+                            value={count}
+                            onChange={(e) => {
+                              const newCounts = { ...smithingCounts, [param]: parseInt(e.target.value, 10) };
+                              onSmithingCountsChange?.(newCounts as SmithingCounts);
+                            }}
+                            disabled={disabled}
+                            className="w-full h-2 bg-glass-light rounded-lg appearance-none cursor-pointer smithing-slider"
+                          />
+                        </div>
+                        <div className="w-12 text-center">
+                          <input
+                            type="number"
+                            value={count}
+                            onChange={(e) => {
+                              const val = parseInt(e.target.value, 10);
+                              if (!isNaN(val) && val >= 0 && val <= MAX_SMITHING_COUNT) {
+                                const newCounts = { ...smithingCounts, [param]: val };
+                                onSmithingCountsChange?.(newCounts as SmithingCounts);
+                              }
+                            }}
+                            min={0}
+                            max={MAX_SMITHING_COUNT}
+                            disabled={disabled}
+                            className="w-full px-1 py-0.5 text-center bg-gray-800 border border-gray-600 rounded text-white text-xs"
+                          />
+                        </div>
+                        <div className="w-12 text-right text-xs">
+                          <span className={totalBonus > 0 ? 'text-green-400' : 'text-gray-500'}>
+                            +{totalBonus}{param === '会心率' ? '%' : ''}
+                          </span>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+
+                <div className="mt-3 pt-3 border-t border-red-700/30 text-xs text-gray-400">
+                  <p>全パラメータ: 1回につき+{WEAPON_SMITHING_BONUS}</p>
+                </div>
               </div>
             )}
 
-            {/* 強化レベル */}
-            <div>
-              <label className="block text-sm font-medium text-gray-300 mb-2">
-                強化レベル（+値）
-              </label>
-              <div className="flex items-center gap-3">
-                <input
-                  type="range"
-                  min={0}
-                  max={getMaxEnhancement()}
-                  value={enhancementLevel}
-                  onChange={(e) => onEnhancementChange?.(parseInt(e.target.value, 10))}
-                  disabled={disabled}
-                  className="flex-1 h-2 bg-glass-light rounded-lg appearance-none cursor-pointer slider"
-                />
-                <div className="w-16 text-center">
+            {/* 強化レベル（アクセサリーには強化機能がないため非表示） */}
+            {!isAccessory && (
+              <div>
+                <label className="block text-sm font-medium text-gray-300 mb-2">
+                  強化レベル（+値）
+                </label>
+                <div className="flex items-center gap-3">
                   <input
-                    type="number"
-                    value={enhancementLevel}
-                    onChange={(e) => {
-                      const val = parseInt(e.target.value, 10);
-                      if (!isNaN(val) && val >= 0 && val <= getMaxEnhancement()) {
-                        onEnhancementChange?.(val);
-                      }
-                    }}
+                    type="range"
                     min={0}
                     max={getMaxEnhancement()}
+                    value={enhancementLevel}
+                    onChange={(e) => onEnhancementChange?.(parseInt(e.target.value, 10))}
                     disabled={disabled}
-                    className="w-full px-2 py-1 text-center bg-gray-800 border border-gray-600 rounded text-white text-sm"
+                    className="flex-1 h-2 bg-glass-light rounded-lg appearance-none cursor-pointer slider"
                   />
+                  <div className="w-16 text-center">
+                    <input
+                      type="number"
+                      value={enhancementLevel}
+                      onChange={(e) => {
+                        const val = parseInt(e.target.value, 10);
+                        if (!isNaN(val) && val >= 0 && val <= getMaxEnhancement()) {
+                          onEnhancementChange?.(val);
+                        }
+                      }}
+                      min={0}
+                      max={getMaxEnhancement()}
+                      disabled={disabled}
+                      className="w-full px-2 py-1 text-center bg-gray-800 border border-gray-600 rounded text-white text-sm"
+                    />
+                  </div>
+                </div>
+                <div className="mt-1 text-xs text-gray-400">
+                  最大: +{getMaxEnhancement()}
                 </div>
               </div>
-              <div className="mt-1 text-xs text-gray-400">
-                最大: +{getMaxEnhancement()}
-              </div>
-            </div>
+            )}
 
             {/* 錬金トグル（武器スロットのみ） */}
             {slot === 'weapon' && (
@@ -606,59 +811,14 @@ export const EquipmentSlot: React.FC<EquipmentSlotProps> = ({
             )}
           </div>
 
-          {/* 詳細設定（拡張設定表示時のみ） */}
-          {showAdvancedSettings && (
-            <div className="mt-6 pt-6 border-t border-white/10 space-y-4">
-              <h4 className="text-sm font-semibold text-gray-300 mb-3">拡張設定</h4>
+          {/* 拡張設定（EX選択など） - 常に表示 */}
+          <div className="mt-6 pt-6 border-t border-white/10 space-y-4">
+            <h4 className="text-sm font-semibold text-gray-300 mb-3">拡張設定</h4>
 
-              {/* 叩き詳細（武器の場合） */}
-              {slot === 'weapon' && (
-                <div>
-                  <div className="flex items-center justify-between mb-2">
-                    <Toggle
-                      label="叩き詳細設定"
-                      checked={hasSmithing}
-                      onChange={(val) => onSmithingChange?.(val)}
-                      disabled={disabled}
-                    />
-                    {hasSmithing && (
-                      <button
-                        type="button"
-                        onClick={() => setShowSmithingDetails(!showSmithingDetails)}
-                        className="text-sm text-rpg-accent hover:text-rpg-accent/80"
-                      >
-                        {showSmithingDetails ? '詳細を隠す' : '詳細を表示'}
-                      </button>
-                    )}
-                  </div>
-
-                  {hasSmithing && showSmithingDetails && (
-                    <div className="mt-3 p-4 bg-glass-light rounded-lg space-y-3">
-                      <NumberInput
-                        label="攻撃力+"
-                        value={smithingDetails.attack || 0}
-                        onChange={(val) => onSmithingDetailsChange?.({ ...smithingDetails, attack: val })}
-                        min={0}
-                        max={999}
-                        disabled={disabled}
-                      />
-                      <NumberInput
-                        label="会心率+"
-                        value={smithingDetails.critical || 0}
-                        onChange={(val) => onSmithingDetailsChange?.({ ...smithingDetails, critical: val })}
-                        min={0}
-                        max={100}
-                        disabled={disabled}
-                      />
-                    </div>
-                  )}
-                </div>
-              )}
-
-              {/* EXステータス選択（防具・アクセサリーのみ） */}
-              {slot !== 'weapon' && equipment && (
+            {/* EXステータス選択（防具のみ: 2つ） */}
+              {isArmorWithSmithing && equipment && (
                 <div className="p-4 bg-gradient-to-br from-cyan-900/30 to-teal-900/30 rounded-lg border border-cyan-700/50">
-                  <h4 className="text-sm font-medium text-cyan-300 mb-3">EXステータス</h4>
+                  <h4 className="text-sm font-medium text-cyan-300 mb-3">EXステータス（防具）</h4>
                   <div className="grid grid-cols-2 gap-3">
                     <div>
                       <label className="block text-xs text-gray-400 mb-1">EX1</label>
@@ -717,11 +877,73 @@ export const EquipmentSlot: React.FC<EquipmentSlotProps> = ({
                   </div>
                 </div>
               )}
-            </div>
-          )}
 
-          {/* 装備ステータス表示 */}
-          {equipment.baseStats && equipment.baseStats.length > 0 && (
+              {/* EXステータス選択（アクセサリーのみ: 2つ） */}
+              {isAccessory && equipment && (
+                <div className="p-4 bg-gradient-to-br from-cyan-900/30 to-teal-900/30 rounded-lg border border-cyan-700/50">
+                  <h4 className="text-sm font-medium text-cyan-300 mb-3">EXステータス（アクセサリー）</h4>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-xs text-gray-400 mb-1">EX1</label>
+                      <CustomSelect
+                        options={[
+                          { value: '', label: '未選択' },
+                          ...EX_STAT_OPTIONS.filter(o => o.value !== 'defense').map(o => ({ value: o.value, label: o.label }))
+                        ]}
+                        value={exStats?.ex1 || ''}
+                        onChange={(v) => onExStatsChange?.({ ...exStats, ex1: v || undefined })}
+                        placeholder="EX1を選択"
+                        disabled={disabled}
+                        showIcon={false}
+                        onOpenChange={(open) => setIsSelectOpen(open)}
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs text-gray-400 mb-1">EX2</label>
+                      <CustomSelect
+                        options={[
+                          { value: '', label: '未選択' },
+                          ...EX_STAT_OPTIONS.filter(o => o.value !== 'defense').map(o => ({ value: o.value, label: o.label }))
+                        ]}
+                        value={exStats?.ex2 || ''}
+                        onChange={(v) => onExStatsChange?.({ ...exStats, ex2: v || undefined })}
+                        placeholder="EX2を選択"
+                        disabled={disabled}
+                        showIcon={false}
+                        onOpenChange={(open) => setIsSelectOpen(open)}
+                      />
+                    </div>
+                  </div>
+                  {/* EX値の表示 */}
+                  {(exStats?.ex1 || exStats?.ex2) && (
+                    <div className="mt-3 pt-3 border-t border-cyan-700/30 flex flex-wrap gap-3 text-xs">
+                      {exStats?.ex1 && (
+                        <div className="px-2 py-1 bg-cyan-900/40 rounded">
+                          <span className="text-cyan-400">EX1 {EX_STAT_OPTIONS.find(o => o.value === exStats.ex1)?.label}: </span>
+                          <span className="text-cyan-200 font-semibold">
+                            +{calculateExValue(equipment.requiredLevel || 1, rank, getExCategory(exStats.ex1))}
+                          </span>
+                        </div>
+                      )}
+                      {exStats?.ex2 && (
+                        <div className="px-2 py-1 bg-cyan-900/40 rounded">
+                          <span className="text-cyan-400">EX2 {EX_STAT_OPTIONS.find(o => o.value === exStats.ex2)?.label}: </span>
+                          <span className="text-cyan-200 font-semibold">
+                            +{calculateExValue(equipment.requiredLevel || 1, rank, getExCategory(exStats.ex2))}
+                          </span>
+                        </div>
+                      )}
+                    </div>
+                  )}
+                  <div className="mt-2 text-xs text-gray-500">
+                    EX値 = ROUND(使用可能Lv x ランク係数 + 1)
+                  </div>
+                </div>
+              )}
+          </div>
+
+          {/* 装備ステータス表示 - showAdvancedSettingsで制御 */}
+          {showAdvancedSettings && equipment.baseStats && equipment.baseStats.length > 0 && (
             <div className="mt-6 p-4 bg-glass-light rounded-lg">
               <h4 className="text-sm font-semibold text-gray-300 mb-3">
                 装備ステータス

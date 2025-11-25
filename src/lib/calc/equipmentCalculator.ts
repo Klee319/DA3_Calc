@@ -442,6 +442,11 @@ export function calculateArmorStats(
     // 基礎値取得（CSVのFランク値）
     const baseValue = armor[stat.csvKey as keyof ArmorData] as number || 0;
 
+    // 基礎値が0の場合はスキップ（防具が持っていないステータスには強化・叩きを適用しない）
+    if (baseValue === 0) {
+      continue;
+    }
+
     // 叩き値計算
     const forgeValue = stat.key === 'defense'
       ? eqConst.Armor.Forge?.Defence || 1
@@ -501,14 +506,8 @@ export function calculateArmorStats(
   }
 
   // EX計算（仕様書§4: 防具には2種類のEXステータスが付与される）
-  // TODO: 将来的にはCSVにEX1/EX2カラムを追加する
-  // 現時点では器用（dexterity）と撃力（critDamage）をデフォルトEXとして計算
-  const ex = calculateArmorEX(armor, rank, 'Dex', 'CritDamage');
-
-  // EXステータスを最終値に加算
-  // 器用（Dex）は実際のステータス名にマッピング
-  result.final.dexterity = (result.final.dexterity || 0) + ex.ex1;
-  result.final.critDamage = (result.final.critDamage || 0) + ex.ex2;
+  // EX値はUIで選択したものをbuildStore経由で計算するため、ここでは自動追加しない
+  // UIからexStatsが渡された場合のみ加算する仕組みに変更
 
   return result;
 }

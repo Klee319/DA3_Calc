@@ -58,10 +58,10 @@ const GRADE_CONFIG: Record<RunestoneGrade, { label: string; color: string; bgCol
 const GRADE_ORDER: RunestoneGrade[] = ['ノーマル', 'グレート', 'バスター', 'レプリカ'];
 
 /**
- * ルーンストーンの名前を取得（CSVカラム名の処理）
+ * ルーンストーンの名前を取得
  */
 const getRunestoneName = (rune: RunestoneData): string => {
-  return rune['アイテム名（・<グレード>）は不要'] || '不明';
+  return rune.name || rune['アイテム名（・<グレード>）は不要'] || '不明';
 };
 
 /**
