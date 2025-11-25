@@ -134,7 +134,6 @@ function getEquipmentCandidates(
         break;
       case 'head':
       case 'body':
-      case 'arm':
       case 'leg':
         equipmentList = (gameData.csv.armors || []).filter((armor: any) => 
           armor.slot === slot

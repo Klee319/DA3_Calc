@@ -1,11 +1,32 @@
 'use client';
 
-import React, { useState } from 'react';
-import { Equipment, EquipSlot } from '@/types';
+import React, { useState, useMemo } from 'react';
+import { Equipment, EquipSlot, SmithingCounts, SmithingParamType, StatType } from '@/types';
 import { Toggle } from '@/components/ui/Toggle';
 import { NumberInput } from '@/components/ui/NumberInput';
 import { Tooltip } from '@/components/ui/Tooltip';
 import { CustomSelect, CustomSelectOption } from '@/components/CustomSelect';
+
+// StatTypeから叩きパラメータ名への変換マッピング
+const STAT_TO_SMITHING_PARAM: Partial<Record<StatType, SmithingParamType>> = {
+  ATK: '力',
+  MATK: '魔力',
+  HP: '体力',
+  MDEF: '精神',
+  AGI: '素早さ',
+  DEX: '器用',
+  CRI: '撃力',
+  DEF: '守備力',
+};
+
+// 最大叩き回数
+const MAX_SMITHING_COUNT = 12;
+
+// 叩きボーナス値（EqConst.yaml Armor.Forge に基づく）
+const SMITHING_BONUS = {
+  Defence: 1,  // 守備力の叩き1回あたり+1
+  Other: 2,    // その他のパラメータの叩き1回あたり+2
+} as const;
 
 interface EquipmentSlotProps {
   slot: EquipSlot;
@@ -16,8 +37,13 @@ interface EquipmentSlotProps {
   onEnhancementChange?: (level: number) => void;
   rank?: string;
   onRankChange?: (rank: string) => void;
-  smithingCount?: number; // 叩き回数
+  /** @deprecated smithingCountsを使用してください */
+  smithingCount?: number;
+  /** @deprecated onSmithingCountsChangeを使用してください */
   onSmithingCountChange?: (count: number) => void;
+  // パラメータ別叩き回数
+  smithingCounts?: SmithingCounts;
+  onSmithingCountsChange?: (counts: SmithingCounts) => void;
   hasSmithing?: boolean;
   onSmithingChange?: (enabled: boolean) => void;
   smithingDetails?: {
@@ -25,7 +51,7 @@ interface EquipmentSlotProps {
     defense?: number;
     critical?: number;
   };
-  onSmithingDetailsChange?: (details: any) => void;
+  onSmithingDetailsChange?: (details: Record<string, number>) => void;
   hasAlchemy?: boolean;
   onAlchemyChange?: (enabled: boolean) => void;
   disabled?: boolean;
@@ -45,6 +71,8 @@ export const EquipmentSlot: React.FC<EquipmentSlotProps> = ({
   onRankChange,
   smithingCount = 0,
   onSmithingCountChange,
+  smithingCounts = {},
+  onSmithingCountsChange,
   hasSmithing = false,
   onSmithingChange,
   smithingDetails = {},
@@ -58,14 +86,29 @@ export const EquipmentSlot: React.FC<EquipmentSlotProps> = ({
   const [showAdvancedSettings, setShowAdvancedSettings] = useState(false);
   const [isSelectOpen, setIsSelectOpen] = useState(false);
 
-  const handleEquipmentSelect = (e: React.ChangeEvent<HTMLSelectElement>) => {
-    const equipmentId = e.target.value;
-    if (equipmentId === '') {
-      onEquipmentChange(null);
-    } else {
-      const selected = availableEquipment.find(eq => eq.id === equipmentId);
-      onEquipmentChange(selected || null);
+  // 装備が持つパラメータに対応する叩きパラメータを取得
+  const availableSmithingParams = useMemo((): SmithingParamType[] => {
+    if (!equipment || !equipment.baseStats) return [];
+
+    const params: SmithingParamType[] = [];
+    for (const stat of equipment.baseStats) {
+      const smithingParam = STAT_TO_SMITHING_PARAM[stat.stat];
+      if (smithingParam && !params.includes(smithingParam)) {
+        params.push(smithingParam);
+      }
     }
+    return params;
+  }, [equipment]);
+
+  // 合計叩き回数を計算
+  const totalSmithingCount = useMemo((): number => {
+    return Object.values(smithingCounts).reduce((sum, count) => sum + (count || 0), 0);
+  }, [smithingCounts]);
+
+  // 叩き回数変更ハンドラ
+  const handleSmithingCountChange = (param: SmithingParamType, value: number) => {
+    const newCounts = { ...smithingCounts, [param]: value };
+    onSmithingCountsChange?.(newCounts);
   };
 
   const getSlotDisplayName = (): string => {
@@ -73,12 +116,30 @@ export const EquipmentSlot: React.FC<EquipmentSlotProps> = ({
       weapon: '武器',
       head: '頭装備',
       body: '胴装備',
-      arm: '腕装備',
       leg: '脚装備',
       accessory1: 'アクセサリー1',
       accessory2: 'アクセサリー2',
     };
     return slotNames[slot] || slot;
+  };
+
+  // ステータス名を日本語に変換
+  const getStatDisplayName = (stat: string): string => {
+    const names: Record<string, string> = {
+      ATK: '攻撃力',
+      DEF: '守備力',
+      MATK: '魔力',
+      MDEF: '精神',
+      AGI: '素早さ',
+      DEX: '器用',
+      CRI: '会心率',
+      HP: '体力',
+      MP: 'MP',
+      HIT: '命中',
+      FLEE: '回避',
+      LUK: '運',
+    };
+    return names[stat] || stat;
   };
 
   const getMaxEnhancement = (): number => {
@@ -94,20 +155,47 @@ export const EquipmentSlot: React.FC<EquipmentSlotProps> = ({
     return multipliers[selectedRank] || 0;
   };
 
-  // ランクボーナスを取得（武器用）
+  // ランクボーナスを取得（武器用）- EqConst.yaml Weapon.Rank.[rank].Bonus の値
   const getWeaponRankBonus = (selectedRank: string): { attackP: number; critR: number; critD: number } => {
     const bonuses: Record<string, { attackP: number; critR: number; critD: number }> = {
-      SSS: { attackP: 50, critR: 10, critD: 50 },
-      SS: { attackP: 40, critR: 8, critD: 40 },
-      S: { attackP: 30, critR: 6, critD: 30 },
-      A: { attackP: 20, critR: 4, critD: 20 },
-      B: { attackP: 15, critR: 3, critD: 15 },
-      C: { attackP: 10, critR: 2, critD: 10 },
-      D: { attackP: 5, critR: 1, critD: 5 },
-      E: { attackP: 2, critR: 0, critD: 2 },
+      SSS: { attackP: 31, critR: 5, critD: 5 },
+      SS: { attackP: 29, critR: 4, critD: 4 },
+      S: { attackP: 27, critR: 3, critD: 3 },
+      A: { attackP: 25, critR: 3, critD: 3 },
+      B: { attackP: 25, critR: 2, critD: 2 },
+      C: { attackP: 21, critR: 2, critD: 2 },
+      D: { attackP: 21, critR: 1, critD: 1 },
+      E: { attackP: 0, critR: 0, critD: 0 },
       F: { attackP: 0, critR: 0, critD: 0 },
     };
     return bonuses[selectedRank] || { attackP: 0, critR: 0, critD: 0 };
+  };
+
+  // 錬金ボーナスを取得（武器用）- EqConst.yaml Weapon.Rank.[rank].Alchemy の値
+  const getAlchemyBonus = (selectedRank: string): { attackP: number; critD: number; critR: number } => {
+    const alchemyData: Record<string, { attackP: number; critD: number; critR: number }> = {
+      SSS: { attackP: 118, critD: 48, critR: 11 },
+      SS: { attackP: 117, critD: 47, critR: 10 },
+      S: { attackP: 117, critD: 47, critR: 10 },
+      A: { attackP: 116, critD: 47, critR: 9 },
+      B: { attackP: 116, critD: 47, critR: 9 },
+      C: { attackP: 114, critD: 47, critR: 8 },
+      D: { attackP: 114, critD: 47, critR: 8 },
+      E: { attackP: 113, critD: 46, critR: 7 },
+      F: { attackP: 113, critD: 46, critR: 7 },
+    };
+    return alchemyData[selectedRank] || { attackP: 0, critD: 0, critR: 0 };
+  };
+
+  // パラメータ別の叩きボーナスを計算
+  const getSmithingBonusForStat = (statType: StatType): number => {
+    const smithingParam = STAT_TO_SMITHING_PARAM[statType];
+    if (!smithingParam) return 0;
+
+    const count = smithingCounts[smithingParam] || 0;
+    // 守備力は+1、その他は+2（EqConst.yaml Armor.Forge の定義）
+    const bonusPerCount = smithingParam === '守備力' ? SMITHING_BONUS.Defence : SMITHING_BONUS.Other;
+    return count * bonusPerCount;
   };
 
   // 計算済みステータスを取得
@@ -116,13 +204,15 @@ export const EquipmentSlot: React.FC<EquipmentSlotProps> = ({
 
     const rankMultiplier = getRankMultiplier(rank);
     const weaponRankBonus = getWeaponRankBonus(rank);
+    const alchemyBonus = getAlchemyBonus(rank);
 
     return equipment.baseStats.map(stat => {
-      let baseValue = stat.value;
+      const baseValue = stat.value;
       let finalValue = baseValue;
       let rankBonus = 0;
       let enhanceBonus = 0;
       let smithingBonus = 0;
+      let alchemyBonusValue = 0;
 
       if (slot === 'weapon') {
         // 武器計算
@@ -130,11 +220,23 @@ export const EquipmentSlot: React.FC<EquipmentSlotProps> = ({
           rankBonus = weaponRankBonus.attackP;
           enhanceBonus = enhancementLevel * 2;
           smithingBonus = smithingCount * 1;
+          // 錬金ボーナス（有効な場合のみ）
+          if (hasAlchemy) {
+            alchemyBonusValue = alchemyBonus.attackP;
+          }
         } else if (stat.stat === 'CRI') {
           rankBonus = weaponRankBonus.critR;
+          // 錬金ボーナス（有効な場合のみ）
+          if (hasAlchemy) {
+            alchemyBonusValue = alchemyBonus.critR;
+          }
         } else if (stat.stat === 'DEX') {
           rankBonus = weaponRankBonus.critD;
           enhanceBonus = enhancementLevel * 1;
+          // 錬金ボーナス（有効な場合のみ）
+          if (hasAlchemy) {
+            alchemyBonusValue = alchemyBonus.critD;
+          }
         }
       } else if (['head', 'body', 'leg'].includes(slot)) {
         // 防具計算
@@ -147,12 +249,8 @@ export const EquipmentSlot: React.FC<EquipmentSlotProps> = ({
         // 強化ボーナス: +1〜2 per レベル
         enhanceBonus = isDefense ? enhancementLevel * 1 : enhancementLevel * 2;
 
-        // 叩きボーナス: 守備力は+1, その他は+2 per 叩き回数
-        smithingBonus = smithingCount * (isDefense ? 1 : 2);
-      } else if (['arm'].includes(slot)) {
-        // 腕防具（叩きなし）
-        rankBonus = Math.round(baseValue * rankMultiplier * 0.1);
-        enhanceBonus = enhancementLevel * 2;
+        // 叩きボーナス: パラメータ別に計算
+        smithingBonus = getSmithingBonusForStat(stat.stat);
       } else {
         // アクセサリー
         // ランク補正: base + (level / ランク補正係数)
@@ -160,7 +258,7 @@ export const EquipmentSlot: React.FC<EquipmentSlotProps> = ({
         rankBonus = rankDivisor > 0 ? Math.round(40 / rankDivisor) : 0; // 仮のレベル40として計算
       }
 
-      finalValue = baseValue + rankBonus + enhanceBonus + smithingBonus;
+      finalValue = baseValue + rankBonus + enhanceBonus + smithingBonus + alchemyBonusValue;
 
       return {
         stat: stat.stat,
@@ -168,6 +266,7 @@ export const EquipmentSlot: React.FC<EquipmentSlotProps> = ({
         rankBonus,
         enhanceBonus,
         smithingBonus,
+        alchemyBonus: alchemyBonusValue,
         finalValue,
         isPercent: stat.isPercent,
       };
@@ -197,11 +296,14 @@ export const EquipmentSlot: React.FC<EquipmentSlotProps> = ({
   }));
 
   // 叩き回数選択用のオプション生成（0〜12）
-  const smithingOptions: CustomSelectOption[] = Array.from({ length: 13 }, (_, i) => ({
+  const smithingOptions: CustomSelectOption[] = Array.from({ length: MAX_SMITHING_COUNT + 1 }, (_, i) => ({
     value: i.toString(),
     label: `${i}回`,
-    description: i === 0 ? '未強化' : i === 12 ? '最大強化' : undefined,
+    description: i === 0 ? '未強化' : i === MAX_SMITHING_COUNT ? '最大強化' : undefined,
   }));
+
+  // 頭・胴・脚防具で叩き機能が使えるかどうか
+  const isArmorWithSmithing = ['head', 'body', 'leg'].includes(slot);
 
   return (
     <div className={`p-6 rounded-xl bg-glass-dark backdrop-blur-md border border-white/20 relative overflow-hidden ${isSelectOpen ? 'z-50' : 'z-auto'} ${className}`}>
@@ -269,7 +371,7 @@ export const EquipmentSlot: React.FC<EquipmentSlotProps> = ({
       {equipment && (
         <>
           {/* 基本カスタマイズ */}
-          <div className={`space-y-4 ${showAdvancedSettings ? '' : ''}`}>
+          <div className="space-y-4">
             {/* ランク選択 */}
             <div>
               <label className="block text-sm font-medium text-gray-300 mb-2">
@@ -287,27 +389,88 @@ export const EquipmentSlot: React.FC<EquipmentSlotProps> = ({
               />
             </div>
 
-            {/* 叩き回数（頭・胴・足防具のみ、または武器でSS以上のランクの場合） */}
-            {(['head', 'body', 'leg'].includes(slot) || (slot === 'weapon' && ['SSS', 'SS'].includes(rank))) && (
+            {/* パラメータ別叩き回数（頭・胴・脚防具のみ） */}
+            {isArmorWithSmithing && availableSmithingParams.length > 0 && (
+              <div className="p-4 bg-gradient-to-br from-orange-900/30 to-amber-900/30 rounded-lg border border-orange-700/50">
+                <div className="flex items-center justify-between mb-3">
+                  <label className="text-sm font-medium text-orange-300">
+                    叩き回数（パラメータ別）
+                  </label>
+                  <span className="text-xs text-orange-400">
+                    合計: {totalSmithingCount}回
+                  </span>
+                </div>
+
+                <div className="space-y-3">
+                  {availableSmithingParams.map((param) => {
+                    const count = smithingCounts[param] || 0;
+                    const bonusPerCount = param === '守備力' ? SMITHING_BONUS.Defence : SMITHING_BONUS.Other;
+                    const totalBonus = count * bonusPerCount;
+
+                    return (
+                      <div key={param} className="flex items-center gap-3">
+                        <div className="w-16 text-sm text-gray-300">
+                          {param}
+                        </div>
+                        <div className="flex-1">
+                          <input
+                            type="range"
+                            min={0}
+                            max={MAX_SMITHING_COUNT}
+                            value={count}
+                            onChange={(e) => handleSmithingCountChange(param, parseInt(e.target.value, 10))}
+                            disabled={disabled}
+                            className="w-full h-2 bg-glass-light rounded-lg appearance-none cursor-pointer smithing-slider"
+                          />
+                        </div>
+                        <div className="w-12 text-center">
+                          <input
+                            type="number"
+                            value={count}
+                            onChange={(e) => {
+                              const val = parseInt(e.target.value, 10);
+                              if (!isNaN(val) && val >= 0 && val <= MAX_SMITHING_COUNT) {
+                                handleSmithingCountChange(param, val);
+                              }
+                            }}
+                            min={0}
+                            max={MAX_SMITHING_COUNT}
+                            disabled={disabled}
+                            className="w-full px-1 py-0.5 text-center bg-gray-800 border border-gray-600 rounded text-white text-xs"
+                          />
+                        </div>
+                        <div className="w-16 text-right text-xs">
+                          <span className={totalBonus > 0 ? 'text-green-400' : 'text-gray-500'}>
+                            +{totalBonus}
+                          </span>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+
+                <div className="mt-3 pt-3 border-t border-orange-700/30 text-xs text-gray-400">
+                  <p>守備力: 1回につき+{SMITHING_BONUS.Defence} / その他: 1回につき+{SMITHING_BONUS.Other}</p>
+                </div>
+              </div>
+            )}
+
+            {/* 武器の叩き回数（SS以上のランクの場合のみ） */}
+            {slot === 'weapon' && ['SSS', 'SS'].includes(rank) && (
               <div>
                 <label className="block text-sm font-medium text-gray-300 mb-2">
-                  叩き回数 {slot === 'weapon' ? '（SS以上で使用可）' : ''}
+                  叩き回数（SS以上で使用可）
                 </label>
                 <CustomSelect
                   options={smithingOptions}
                   value={smithingCount?.toString() || '0'}
                   onChange={(value) => onSmithingCountChange?.(parseInt(value, 10))}
                   placeholder="叩き回数を選択"
-                  disabled={disabled || (slot === 'weapon' && !['SSS', 'SS'].includes(rank))}
+                  disabled={disabled}
                   showIcon={false}
                   className="w-full"
                   onOpenChange={(open) => setIsSelectOpen(open)}
                 />
-                {['head', 'body', 'leg'].includes(slot) && (
-                  <p className="text-xs text-gray-500 mt-1">
-                    ※ SS以上は叩き回数を増やせます
-                  </p>
-                )}
               </div>
             )}
 
@@ -347,6 +510,43 @@ export const EquipmentSlot: React.FC<EquipmentSlotProps> = ({
                 最大: +{getMaxEnhancement()}
               </div>
             </div>
+
+            {/* 錬金トグル（武器スロットのみ） */}
+            {slot === 'weapon' && (
+              <div className="p-4 bg-gradient-to-br from-purple-900/30 to-violet-900/30 rounded-lg border border-purple-700/50">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <Toggle
+                      label="錬金"
+                      checked={hasAlchemy}
+                      onChange={(val) => onAlchemyChange?.(val)}
+                      disabled={disabled}
+                    />
+                  </div>
+                  {hasAlchemy && (
+                    <div className="text-xs text-purple-300">
+                      ランク {rank} の錬金効果
+                    </div>
+                  )}
+                </div>
+                {hasAlchemy && (
+                  <div className="mt-3 grid grid-cols-3 gap-2 text-xs">
+                    <div className="p-2 bg-purple-900/40 rounded text-center">
+                      <div className="text-purple-400">攻撃力</div>
+                      <div className="text-purple-200 font-semibold">+{getAlchemyBonus(rank).attackP}</div>
+                    </div>
+                    <div className="p-2 bg-purple-900/40 rounded text-center">
+                      <div className="text-purple-400">会心率</div>
+                      <div className="text-purple-200 font-semibold">+{getAlchemyBonus(rank).critR}</div>
+                    </div>
+                    <div className="p-2 bg-purple-900/40 rounded text-center">
+                      <div className="text-purple-400">会心ダメージ</div>
+                      <div className="text-purple-200 font-semibold">+{getAlchemyBonus(rank).critD}</div>
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
           </div>
 
           {/* 詳細設定（拡張設定表示時のみ） */}
@@ -397,21 +597,6 @@ export const EquipmentSlot: React.FC<EquipmentSlotProps> = ({
                   )}
                 </div>
               )}
-
-              {/* 錬金 */}
-              <div>
-                <Toggle
-                  label="錬金適用"
-                  checked={hasAlchemy}
-                  onChange={(val) => onAlchemyChange?.(val)}
-                  disabled={disabled}
-                />
-                {hasAlchemy && (
-                  <div className="mt-2 text-xs text-gray-400">
-                    錬金効果が装備に適用されます
-                  </div>
-                )}
-              </div>
             </div>
           )}
 
@@ -427,7 +612,7 @@ export const EquipmentSlot: React.FC<EquipmentSlotProps> = ({
                 {getCalculatedStats().map((calcStat, index) => (
                   <div key={index} className="p-2 bg-glass-dark/50 rounded">
                     <div className="flex justify-between items-center">
-                      <span className="text-gray-400 text-sm">{calcStat.stat}</span>
+                      <span className="text-gray-400 text-sm">{getStatDisplayName(calcStat.stat)}</span>
                       <div className="flex items-center gap-2">
                         {/* 基礎値 */}
                         <span className="text-gray-500 text-xs">
@@ -435,16 +620,16 @@ export const EquipmentSlot: React.FC<EquipmentSlotProps> = ({
                         </span>
                         {/* 最終値 */}
                         <span className={`font-medium ${calcStat.finalValue > calcStat.baseValue ? 'text-green-400' : 'text-white'}`}>
-                          → {calcStat.finalValue}{calcStat.isPercent ? '%' : ''}
+                          {String.fromCharCode(8594)} {calcStat.finalValue}{calcStat.isPercent ? '%' : ''}
                         </span>
                       </div>
                     </div>
 
                     {/* 内訳表示（変更がある場合のみ） */}
-                    {(calcStat.rankBonus > 0 || calcStat.enhanceBonus > 0 || calcStat.smithingBonus > 0) && (
+                    {(calcStat.rankBonus > 0 || calcStat.enhanceBonus > 0 || calcStat.smithingBonus > 0 || calcStat.alchemyBonus > 0) && (
                       <div className="mt-1 flex flex-wrap gap-2 text-xs">
                         {calcStat.rankBonus > 0 && (
-                          <span className="px-1.5 py-0.5 bg-purple-900/50 text-purple-300 rounded">
+                          <span className="px-1.5 py-0.5 bg-yellow-900/50 text-yellow-300 rounded">
                             ランク +{calcStat.rankBonus}
                           </span>
                         )}
@@ -456,6 +641,11 @@ export const EquipmentSlot: React.FC<EquipmentSlotProps> = ({
                         {calcStat.smithingBonus > 0 && (
                           <span className="px-1.5 py-0.5 bg-orange-900/50 text-orange-300 rounded">
                             叩き +{calcStat.smithingBonus}
+                          </span>
+                        )}
+                        {calcStat.alchemyBonus > 0 && (
+                          <span className="px-1.5 py-0.5 bg-purple-900/50 text-purple-300 rounded">
+                            錬金 +{calcStat.alchemyBonus}
                           </span>
                         )}
                       </div>
@@ -475,9 +665,19 @@ export const EquipmentSlot: React.FC<EquipmentSlotProps> = ({
                       +{enhancementLevel}
                     </span>
                   )}
-                  {smithingCount > 0 && (
+                  {totalSmithingCount > 0 && isArmorWithSmithing && (
+                    <span className="px-2 py-1 rounded text-orange-400 bg-orange-900/30">
+                      叩き {totalSmithingCount}回
+                    </span>
+                  )}
+                  {smithingCount > 0 && slot === 'weapon' && (
                     <span className="px-2 py-1 rounded text-orange-400 bg-orange-900/30">
                       叩き {smithingCount}回
+                    </span>
+                  )}
+                  {slot === 'weapon' && hasAlchemy && (
+                    <span className="px-2 py-1 rounded text-purple-400 bg-purple-900/30">
+                      錬金済
                     </span>
                   )}
                 </div>
@@ -529,6 +729,42 @@ if (typeof document !== 'undefined' && !document.getElementById('equipment-slot-
       background: linear-gradient(to right,
         rgba(96, 165, 250, 0.3) 0%,
         rgba(96, 165, 250, 0.1) 100%);
+    }
+
+    .smithing-slider::-webkit-slider-thumb {
+      appearance: none;
+      width: 16px;
+      height: 16px;
+      background: linear-gradient(135deg, #fb923c, #f97316);
+      border-radius: 50%;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+
+    .smithing-slider::-webkit-slider-thumb:hover {
+      transform: scale(1.1);
+      box-shadow: 0 0 10px rgba(251, 146, 60, 0.5);
+    }
+
+    .smithing-slider::-moz-range-thumb {
+      width: 16px;
+      height: 16px;
+      background: linear-gradient(135deg, #fb923c, #f97316);
+      border: none;
+      border-radius: 50%;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+
+    .smithing-slider::-moz-range-thumb:hover {
+      transform: scale(1.1);
+      box-shadow: 0 0 10px rgba(251, 146, 60, 0.5);
+    }
+
+    .smithing-slider {
+      background: linear-gradient(to right,
+        rgba(251, 146, 60, 0.3) 0%,
+        rgba(251, 146, 60, 0.1) 100%);
     }
   `;
   document.head.appendChild(style);

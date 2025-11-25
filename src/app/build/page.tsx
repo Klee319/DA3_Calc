@@ -9,7 +9,7 @@ import { SPSlider } from '@/components/SPSlider';
 import { EquipmentSlot } from '@/components/EquipmentSlot';
 import { StatViewer } from '@/components/StatViewer';
 import { CustomSelect, CustomSelectOption } from '@/components/CustomSelect';
-import { EquipSlot, Job, Equipment, Skill, StatType, WeaponType, ArmorType, StatEffect } from '@/types';
+import { EquipSlot, Job, Equipment, Skill, StatType, WeaponType, ArmorType, StatEffect, SmithingCounts } from '@/types';
 import { FoodData } from '@/types/data';
 import { calculateUnlockedSkills, getReachedTier, getNextSkillInfo, calculateBranchBonus, getMaxSPByBranch } from '@/lib/calc/jobCalculator';
 import {
@@ -309,19 +309,17 @@ export default function BuildPage() {
               stats.push({ stat: 'CRI', value: a['撃力（初期値）'], isPercent: false });
             }
 
-            // 部位のマッピング
+            // 部位のマッピング（腕装備は削除）
             const slotMap: Record<string, EquipSlot> = {
               '頭': 'head',
               '胴': 'body',
-              '腕': 'arm',
               '脚': 'leg',
             };
 
-            // 防具タイプのマッピング
+            // 防具タイプのマッピング（腕装備は削除）
             const armorTypeMap: Record<string, ArmorType> = {
               '頭': 'head',
               '胴': 'body',
-              '腕': 'arm',
               '脚': 'leg',
             };
 
@@ -556,7 +554,7 @@ export default function BuildPage() {
     }
 
     // 4. 職業制限違反チェック（防具）
-    const armorSlots: Array<'head' | 'body' | 'arm' | 'leg'> = ['head', 'body', 'arm', 'leg'];
+    const armorSlots: Array<'head' | 'body' | 'leg'> = ['head', 'body', 'leg'];
     armorSlots.forEach((slot) => {
       const armor = currentBuild.equipment[slot];
       if (armor && currentBuild.job) {
@@ -607,7 +605,6 @@ export default function BuildPage() {
     { slot: 'weapon', name: '武器' },
     { slot: 'head', name: '頭' },
     { slot: 'body', name: '胴' },
-    { slot: 'arm', name: '腕' },
     { slot: 'leg', name: '脚' },
     { slot: 'accessory1', name: 'ネックレス' },
     { slot: 'accessory2', name: 'ブレスレット' },
@@ -860,6 +857,18 @@ export default function BuildPage() {
                     onSmithingCountChange={(count) => {
                       if (currentEquipment) {
                         setEquipment(slot, { ...currentEquipment, smithingCount: count });
+                      }
+                    }}
+                    smithingCounts={currentEquipment?.smithingCounts || {}}
+                    onSmithingCountsChange={(counts: SmithingCounts) => {
+                      if (currentEquipment) {
+                        setEquipment(slot, { ...currentEquipment, smithingCounts: counts });
+                      }
+                    }}
+                    hasAlchemy={slot === 'weapon' ? (currentEquipment?.alchemyEnabled || false) : false}
+                    onAlchemyChange={(enabled) => {
+                      if (currentEquipment && slot === 'weapon') {
+                        setEquipment(slot, { ...currentEquipment, alchemyEnabled: enabled });
                       }
                     }}
                     disabled={!currentBuild.job}

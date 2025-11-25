@@ -27,10 +27,10 @@ export type WeaponType =
   | "fist";
 
 // 防具種別
-export type ArmorType = "head" | "body" | "arm" | "leg" | "accessory";
+export type ArmorType = "head" | "body" | "leg" | "accessory";
 
 // 装備スロット
-export type EquipSlot = "weapon" | "head" | "body" | "arm" | "leg" | "accessory1" | "accessory2";
+export type EquipSlot = "weapon" | "head" | "body" | "leg" | "accessory1" | "accessory2";
 
 // ステータス効果
 export interface StatEffect {
@@ -41,6 +41,12 @@ export interface StatEffect {
 
 // 装備ランク
 export type EquipmentRank = 'SSS' | 'SS' | 'S' | 'A' | 'B' | 'C' | 'D' | 'E' | 'F';
+
+// 叩きパラメータ種別（防具用）
+export type SmithingParamType = '力' | '魔力' | '体力' | '精神' | '素早さ' | '器用' | '撃力' | '守備力';
+
+// 叩き回数（パラメータ別）
+export type SmithingCounts = Partial<Record<SmithingParamType, number>>;
 
 // 装備
 export interface Equipment {
@@ -56,7 +62,10 @@ export interface Equipment {
   // カスタマイズプロパティ
   rank?: EquipmentRank;
   enhancementLevel?: number;
+  /** @deprecated smithingCountsを使用してください */
   smithingCount?: number;
+  // パラメータ別叩き回数
+  smithingCounts?: SmithingCounts;
   alchemyEnabled?: boolean;
 }
 
