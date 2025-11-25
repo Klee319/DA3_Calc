@@ -13,6 +13,17 @@ export {
   clamp
 } from './formulaEvaluator';
 
+// プレースホルダーマッピング
+export {
+  mapUserStatsToVariables,
+  mapWeaponStatsToVariables,
+  createVariableMapping,
+  convertJapaneseWeaponType,
+  getWeaponCalcKey,
+  JAPANESE_WEAPON_TYPE_MAP,
+  WEAPON_TYPE_TO_CALC_KEY
+} from './placeholderMapping';
+
 // 装備ステータス計算
 export {
   calcWeaponStats,

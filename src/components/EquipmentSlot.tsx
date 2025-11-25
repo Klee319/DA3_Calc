@@ -226,9 +226,11 @@ export const EquipmentSlot: React.FC<EquipmentSlotProps> = ({
   }, [equipment]);
 
   // 利用可能なランク一覧を計算
+  // 最低ランク（例: S）= その品質以上（SSS, SS, S）が利用可能
+  // 最高ランク（例: A）= その品質以下（A, B, C, D, E, F）が利用可能
   const availableRanks = useMemo(() => {
-    let minRank: string | null = null;
-    let maxRank: string | null = null;
+    let minRank: string | null = null;  // CSV上の「最低ランク」= 最小品質（これ以上は選べない）
+    let maxRank: string | null = null;  // CSV上の「最高ランク」= 最大品質（これ以下は選べない）
 
     if (slot === 'weapon') {
       minRank = weaponRestrictions.minRank;
@@ -243,13 +245,15 @@ export const EquipmentSlot: React.FC<EquipmentSlotProps> = ({
       return RANKS;
     }
 
-    // 最低ランクのインデックス（指定がなければSSS=0）
-    const minIndex = minRank ? getRankIndex(minRank) : 0;
-    // 最高ランクのインデックス（指定がなければF=8）
-    const maxIndex = maxRank ? getRankIndex(maxRank) : RANKS.length - 1;
+    // CSV解釈:
+    // - 最低ランク（minRank）= 選べる中で最低の品質 → インデックスの上限
+    // - 最高ランク（maxRank）= 選べる中で最高の品質 → インデックスの下限
+    // 例: 最低ランク=S の場合、SSS(0), SS(1), S(2) が選択可能
+    const minQualityIndex = minRank ? getRankIndex(minRank) : RANKS.length - 1;  // 最低品質のインデックス
+    const maxQualityIndex = maxRank ? getRankIndex(maxRank) : 0;  // 最高品質のインデックス
 
-    // 範囲内のランクをフィルタ
-    return RANKS.filter((_, index) => index >= minIndex && index <= maxIndex);
+    // 範囲内のランクをフィルタ（インデックスが小さいほど高品質）
+    return RANKS.filter((_, index) => index >= maxQualityIndex && index <= minQualityIndex);
   }, [slot, weaponRestrictions, equipmentRankRestrictions]);
 
   // 装備からタイプを取得する関数
@@ -473,6 +477,13 @@ export const EquipmentSlot: React.FC<EquipmentSlotProps> = ({
     return count * bonusPerCount;
   };
 
+  // パラメータ別の叩き回数を取得
+  const getSmithingCountForStat = (statType: StatType): number => {
+    const smithingParam = STAT_TO_SMITHING_PARAM[statType];
+    if (!smithingParam) return 0;
+    return smithingCounts[smithingParam] || 0;
+  };
+
   // 計算済みステータスを取得
   const getCalculatedStats = () => {
     if (!equipment || !equipment.baseStats) return [];
@@ -492,6 +503,7 @@ export const EquipmentSlot: React.FC<EquipmentSlotProps> = ({
       let rankBonus = 0;
       let enhanceBonus = 0;
       let smithingBonus = 0;
+      let smithingCount = 0;  // 叩き回数（表示用）
       let alchemyBonusValue = 0;
 
       if (slot === 'weapon') {
@@ -518,7 +530,8 @@ export const EquipmentSlot: React.FC<EquipmentSlotProps> = ({
           // 検証武器でなければ強化と叩きを適用
           if (!isVerificationWeapon) {
             enhanceBonus = enhancementLevel * 2;
-            smithingBonus = weaponRestrictions.canSmith ? (weaponSmithingCounts['攻撃力'] || 0) * WEAPON_SMITHING_BONUS : 0;
+            smithingCount = weaponRestrictions.canSmith ? (weaponSmithingCounts['攻撃力'] || 0) : 0;
+            smithingBonus = smithingCount * WEAPON_SMITHING_BONUS;
           }
           // 錬金ボーナス（有効な場合のみ）- 検証武器でも適用可能
           if (hasAlchemy) {
@@ -530,7 +543,8 @@ export const EquipmentSlot: React.FC<EquipmentSlotProps> = ({
           if (!isVerificationWeapon) {
             // 強化ボーナス: 2lvにつき+1
             enhanceBonus = Math.floor(enhancementLevel / 2);
-            smithingBonus = weaponRestrictions.canSmith ? (weaponSmithingCounts['会心率'] || 0) * WEAPON_SMITHING_BONUS : 0;
+            smithingCount = weaponRestrictions.canSmith ? (weaponSmithingCounts['会心率'] || 0) : 0;
+            smithingBonus = smithingCount * WEAPON_SMITHING_BONUS;
           }
           // 錬金ボーナス（有効な場合のみ）
           if (hasAlchemy) {
@@ -541,7 +555,8 @@ export const EquipmentSlot: React.FC<EquipmentSlotProps> = ({
           rankBonus = weaponRankBonus.critD;
           if (!isVerificationWeapon) {
             enhanceBonus = enhancementLevel * 1;
-            smithingBonus = weaponRestrictions.canSmith ? (weaponSmithingCounts['会心ダメージ'] || 0) * WEAPON_SMITHING_BONUS : 0;
+            smithingCount = weaponRestrictions.canSmith ? (weaponSmithingCounts['会心ダメージ'] || 0) : 0;
+            smithingBonus = smithingCount * WEAPON_SMITHING_BONUS;
           }
           // 錬金ボーナス（有効な場合のみ）
           if (hasAlchemy) {
@@ -553,6 +568,8 @@ export const EquipmentSlot: React.FC<EquipmentSlotProps> = ({
         // 防具計算（equipmentCalculator.tsと同じ計算式を使用）
         const isDefense = stat.stat === 'DEF';
 
+        // 叩き回数を取得
+        smithingCount = getSmithingCountForStat(stat.stat);
         // 叩きボーナス: パラメータ別に計算（先に計算）
         smithingBonus = getSmithingBonusForStat(stat.stat);
 
@@ -588,6 +605,7 @@ export const EquipmentSlot: React.FC<EquipmentSlotProps> = ({
         rankBonus,
         enhanceBonus,
         smithingBonus,
+        smithingCount,  // 叩き回数（表示用）
         alchemyBonus: alchemyBonusValue,
         finalValue,
         isPercent: stat.isPercent,
@@ -745,13 +763,16 @@ export const EquipmentSlot: React.FC<EquipmentSlotProps> = ({
             <div>
               <label className="block text-sm font-medium text-gray-300 mb-2">
                 装備ランク
+                {slot === 'weapon' && weaponRestrictions.isVerification && (
+                  <span className="ml-2 text-xs text-orange-400">（検証武器: F固定）</span>
+                )}
               </label>
               <CustomSelect
                 options={rankOptions}
                 value={rank}
                 onChange={(value) => onRankChange?.(value)}
                 placeholder="ランクを選択"
-                disabled={disabled}
+                disabled={disabled || (slot === 'weapon' && weaponRestrictions.isVerification)}
                 showIcon={false}
                 className="w-full"
                 onOpenChange={(open) => setIsSelectOpen(open)}
@@ -1159,7 +1180,7 @@ export const EquipmentSlot: React.FC<EquipmentSlotProps> = ({
                     </div>
 
                     {/* 内訳表示（変更がある場合のみ） */}
-                    {(calcStat.rankBonus > 0 || calcStat.enhanceBonus > 0 || calcStat.smithingBonus > 0 || calcStat.alchemyBonus > 0) && (
+                    {(calcStat.rankBonus > 0 || calcStat.enhanceBonus > 0 || calcStat.smithingCount > 0 || calcStat.alchemyBonus > 0) && (
                       <div className="mt-1 flex flex-wrap gap-2 text-xs">
                         {calcStat.rankBonus > 0 && (
                           <span className="px-1.5 py-0.5 bg-yellow-900/50 text-yellow-300 rounded">
@@ -1171,9 +1192,9 @@ export const EquipmentSlot: React.FC<EquipmentSlotProps> = ({
                             強化 +{calcStat.enhanceBonus}
                           </span>
                         )}
-                        {calcStat.smithingBonus > 0 && (
+                        {calcStat.smithingCount > 0 && (
                           <span className="px-1.5 py-0.5 bg-orange-900/50 text-orange-300 rounded">
-                            叩き +{calcStat.smithingBonus}
+                            叩き +{calcStat.smithingCount}回
                           </span>
                         )}
                         {calcStat.alchemyBonus > 0 && (

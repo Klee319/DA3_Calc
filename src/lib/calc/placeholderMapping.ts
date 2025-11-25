@@ -5,7 +5,56 @@
  * YAMLの計算式で使用される変数名と内部変数名のマッピング
  */
 
-import { StatBlock } from '@/types/calc';
+import { StatBlock, WeaponType } from '@/types/calc';
+
+/**
+ * 日本語武器種名 → 英語WeaponTypeのマッピング
+ */
+export const JAPANESE_WEAPON_TYPE_MAP: Record<string, WeaponType> = {
+  '剣': 'sword',
+  '大剣': 'greatsword',
+  '短剣': 'dagger',
+  '斧': 'axe',
+  '槍': 'spear',
+  '弓': 'bow',
+  '杖': 'staff',
+  'フライパン': 'mace',  // フライパンはmaceとして扱う
+  'ダイス': 'mace',      // ダイスもmaceとして扱う（ダメージ0）
+};
+
+/**
+ * WeaponType → WeaponCalc.yamlのキーマッピング
+ */
+export const WEAPON_TYPE_TO_CALC_KEY: Record<WeaponType, string> = {
+  'sword': 'Sword',
+  'greatsword': 'GreatSword',
+  'dagger': 'Dagger',
+  'axe': 'Axe',
+  'spear': 'Spear',
+  'bow': 'Bow',
+  'staff': 'Wand',      // 杖はWandとして定義されている
+  'mace': 'Frypan',     // メイス/フライパン
+  'katana': 'Sword',    // 刀は剣と同じ扱い
+  'fist': 'Sword',      // 拳は剣と同じ扱い（仮）
+};
+
+/**
+ * 日本語武器種名からWeaponTypeに変換
+ * @param japaneseType 日本語武器種名（例：「剣」「大剣」）
+ * @returns WeaponType（見つからない場合は'sword'をデフォルトとして返す）
+ */
+export function convertJapaneseWeaponType(japaneseType: string): WeaponType {
+  return JAPANESE_WEAPON_TYPE_MAP[japaneseType] || 'sword';
+}
+
+/**
+ * WeaponTypeからWeaponCalc.yamlで使用されるキーに変換
+ * @param weaponType WeaponType
+ * @returns YAMLキー（例：'Sword', 'GreatSword'）
+ */
+export function getWeaponCalcKey(weaponType: WeaponType): string {
+  return WEAPON_TYPE_TO_CALC_KEY[weaponType] || 'Sword';
+}
 
 /**
  * ユーザーステータスを正規化された変数名にマッピング

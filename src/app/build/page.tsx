@@ -1049,17 +1049,29 @@ export default function BuildPage() {
                     onEquipmentChange={(equipment) => {
                       if (equipment) {
                         // 新しい装備を選択した場合、デフォルト値を設定
-                        // ランク: SSS、強化値: 武器80、防具40、アクセサリー0
+                        let defaultRank = 'SSS';
                         let defaultEnhancement = 0;
+
                         if (slot === 'weapon') {
-                          defaultEnhancement = 80;
+                          // 検証武器かどうかを判定
+                          const isVerificationWeapon = equipment.sourceData?.type === 'weapon' &&
+                            equipment.sourceData.data?.アイテム名?.includes('検証');
+
+                          if (isVerificationWeapon) {
+                            // 検証武器: ランクF固定、強化なし
+                            defaultRank = 'F';
+                            defaultEnhancement = 0;
+                          } else {
+                            // 通常武器: ランクSSS、強化値80
+                            defaultRank = 'SSS';
+                            defaultEnhancement = 80;
+                          }
                         } else if (['head', 'body', 'leg'].includes(slot)) {
                           defaultEnhancement = 40;
                         }
-                        // アクセサリーは強化なし（0）
                         setEquipment(slot, {
                           ...equipment,
-                          rank: equipment.rank || 'SSS',
+                          rank: equipment.rank || defaultRank as Equipment['rank'],
                           enhancementLevel: equipment.enhancementLevel ?? defaultEnhancement,
                         });
                       } else {
@@ -1492,7 +1504,7 @@ export default function BuildPage() {
       </div>
 
       {/* 火力計算セクション */}
-      <DamageCalculationSection defaultEnemyDefense={100} />
+      <DamageCalculationSection />
 
       {/* タブナビゲーションボタン */}
       <div className="flex justify-between mt-6">

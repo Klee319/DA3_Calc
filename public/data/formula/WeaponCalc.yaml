@@ -19,6 +19,6 @@ JobCorrection:
     Spear: "(UserPower*1.8 + WeaponAttackPower) * DamageCorrection * (1 + (WeaponCritDamage/100 + UserCritDamage*0.001)/3)"
 
   SpellRefactor:
-    Bonus: "0.75 - round(0.475 * ln(max(UserPower, UserMagic) / min(UserPower, UserMagic)), 2) * 2"
+    Bonus: "1.75 - round(0.475 * ln(max(UserPower, UserMagic) / min(UserPower, UserMagic)), 2) * 2"
 
 FinalDamage: "(HitDamage-(EnemyDefence/2))*(1-(EnemyTypeResistance/100))*(1-(EnemyAttributeResistance/100))"

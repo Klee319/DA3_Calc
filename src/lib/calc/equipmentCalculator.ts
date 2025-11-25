@@ -145,6 +145,33 @@ function validateRank(rank: EquipmentRank, minRank?: string, maxRank?: string): 
 }
 
 /**
+ * ランクを有効範囲にクランプする
+ * 指定されたランクが範囲外の場合、有効な範囲内のランクを返す
+ */
+function clampRank(rank: EquipmentRank, minRank?: string, maxRank?: string): EquipmentRank {
+  let rankIndex = RANK_ORDER.indexOf(rank);
+  if (rankIndex === -1) rankIndex = 0; // デフォルトはSSS
+
+  // 最高ランクより高い場合、最高ランクにクランプ
+  if (maxRank) {
+    const maxIndex = RANK_ORDER.indexOf(maxRank as EquipmentRank);
+    if (maxIndex !== -1 && rankIndex < maxIndex) {
+      rankIndex = maxIndex;
+    }
+  }
+
+  // 最低ランクより低い場合、最低ランクにクランプ
+  if (minRank) {
+    const minIndex = RANK_ORDER.indexOf(minRank as EquipmentRank);
+    if (minIndex !== -1 && rankIndex > minIndex) {
+      rankIndex = minIndex;
+    }
+  }
+
+  return RANK_ORDER[rankIndex];
+}
+
+/**
  * 武器のF基準値を逆算
  * 仕様書 §2.2.3: 最低ランク指定時のF基準逆算
  * 攻撃力は整数値に丸める
@@ -196,10 +223,12 @@ export function calculateWeaponStats(
   const critRateSmithing = smithingCounts.critRate || 0;
   const critDamageSmithing = smithingCounts.critDamage || 0;
 
-  // バリデーション
-  if (!validateRank(rank, weapon.最低ランク, weapon.最高ランク)) {
-    throw new Error(`Invalid rank ${rank} for weapon ${weapon.アイテム名}`);
+  // ランクを有効範囲にクランプ（無効なランクはエラーではなく自動調整）
+  const validRank = clampRank(rank, weapon.最低ランク, weapon.最高ランク);
+  if (validRank !== rank) {
+    console.warn(`Rank ${rank} clamped to ${validRank} for weapon ${weapon.アイテム名}`);
   }
+  rank = validRank;
 
   if (forgeCount < 0 || forgeCount > 80) {
     throw new Error('Reinforcement must be between 0 and 80');

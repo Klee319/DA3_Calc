@@ -14,12 +14,14 @@ import {
   Job,
   StatType
 } from '@/types';
-import { 
-  calcBaseDamage, 
-  applyJobCorrection, 
-  calcFinalDamage, 
+import {
+  calcBaseDamage,
+  applyJobCorrection,
+  calcFinalDamage,
   calcSkillDamage,
-  calcWeaponDamage
+  calcWeaponDamage,
+  convertJapaneseWeaponType,
+  getWeaponCalcKey
 } from '@/lib/calc';
 import { WeaponType } from '@/types/calc';
 import { WeaponCalcData, SkillCalcData } from '@/types/data';
@@ -37,9 +39,10 @@ interface SelectedSkill extends Skill {
 
 export default function DamagePage() {
   // ビルド情報
-  const { 
-    currentBuild, 
+  const {
+    currentBuild,
     calculatedStats,
+    weaponStats: storeWeaponStats,
     availableJobs,
     setAvailableJobs,
     availableEquipment,
@@ -200,41 +203,131 @@ export default function DamagePage() {
     loadData();
   }, [availableEquipment, setAvailableEquipment, availableJobs, setAvailableJobs]);
 
-  // 現在の武器種を取得
+  // 現在の武器種を取得（sourceDataから正確に取得）
   const currentWeaponType = useMemo((): WeaponType | undefined => {
     const weapon = currentBuild.equipment.weapon;
     if (!weapon) return undefined;
-    
-    // 武器名から武器種を推定（実際は武器データに武器種フィールドが必要）
+
+    // 1. weaponTypeが直接設定されている場合はそれを使用
+    if (weapon.weaponType) {
+      return weapon.weaponType;
+    }
+
+    // 2. sourceDataから武器種を取得（CSV由来）
+    if (weapon.sourceData?.type === 'weapon') {
+      const weaponData = weapon.sourceData.data;
+      const japaneseType = weaponData.武器種;
+      if (japaneseType) {
+        return convertJapaneseWeaponType(japaneseType);
+      }
+    }
+
+    // 3. フォールバック: 武器名から推定
     const name = weapon.name.toLowerCase();
-    if (name.includes('剣') || name.includes('ソード')) return 'sword' as WeaponType;
-    if (name.includes('大剣')) return 'greatsword' as WeaponType;
-    if (name.includes('短剣') || name.includes('ダガー')) return 'dagger' as WeaponType;
-    if (name.includes('斧') || name.includes('アックス')) return 'axe' as WeaponType;
-    if (name.includes('槍') || name.includes('スピア')) return 'spear' as WeaponType;
-    if (name.includes('弓')) return 'bow' as WeaponType;
-    if (name.includes('杖') || name.includes('スタッフ')) return 'staff' as WeaponType;
-    if (name.includes('鎚') || name.includes('メイス')) return 'mace' as WeaponType;
-    
-    return 'sword' as WeaponType; // デフォルト
+    if (name.includes('大剣')) return 'greatsword';
+    if (name.includes('短剣') || name.includes('ダガー')) return 'dagger';
+    if (name.includes('剣') || name.includes('ソード')) return 'sword';
+    if (name.includes('斧') || name.includes('アックス')) return 'axe';
+    if (name.includes('槍') || name.includes('スピア')) return 'spear';
+    if (name.includes('弓') || name.includes('ボウ')) return 'bow';
+    if (name.includes('杖') || name.includes('スタッフ') || name.includes('ワンド')) return 'staff';
+    if (name.includes('鎚') || name.includes('メイス') || name.includes('フライパン')) return 'mace';
+
+    return 'sword'; // デフォルト
   }, [currentBuild.equipment.weapon]);
+
+  // 現在の武器ステータスを取得（計算済みの最終値をストアから取得）
+  const currentWeaponStats = useMemo(() => {
+    // ストアの計算済み武器ステータスを優先使用
+    if (storeWeaponStats) {
+      // damageCorrection はストアでは生のパーセント値(80等)で保存されているため、
+      // 計算式で使用する小数形式(0.8等)に変換する
+      const rawDamageCorrection = storeWeaponStats.damageCorrection || 100;
+      const decimalDamageCorrection = rawDamageCorrection / 100;
+
+      return {
+        attackPower: storeWeaponStats.attackPower,
+        magicPower: storeWeaponStats.attackPower, // 杖の場合は魔法攻撃力として使用
+        critRate: storeWeaponStats.critRate,
+        critDamage: storeWeaponStats.critDamage,
+        damageCorrection: decimalDamageCorrection
+      };
+    }
+
+    // フォールバック: 武器の初期値を使用
+    const weapon = currentBuild.equipment.weapon;
+    if (!weapon) return null;
+
+    let attackPower = 0;
+    let critRate = 0;
+    let critDamage = 0;
+    let damageCorrection = 1;
+
+    if (weapon.sourceData?.type === 'weapon') {
+      const weaponData = weapon.sourceData.data;
+      attackPower = weaponData['攻撃力（初期値）'] || 0;
+      critRate = weaponData['会心率（初期値）'] || 0;
+      critDamage = weaponData['会心ダメージ（初期値）'] || 0;
+      damageCorrection = (weaponData['ダメージ補正（初期値）'] || 100) / 100;
+    } else {
+      const getStatValue = (stats: { stat: StatType; value: number }[] | undefined, statType: StatType) => {
+        const statEffect = stats?.find(s => s.stat === statType);
+        return statEffect?.value || 0;
+      };
+      attackPower = getStatValue(weapon.baseStats, 'ATK');
+      critRate = getStatValue(weapon.baseStats, 'CRI');
+      critDamage = getStatValue(weapon.baseStats, 'CRI');
+      damageCorrection = 1;
+    }
+
+    return {
+      attackPower,
+      magicPower: attackPower,
+      critRate,
+      critDamage,
+      damageCorrection
+    };
+  }, [storeWeaponStats, currentBuild.equipment.weapon]);
+
+  // 武器種の日本語表示名
+  const weaponTypeDisplayName = useMemo(() => {
+    const typeNames: Record<WeaponType, string> = {
+      'sword': '剣',
+      'greatsword': '大剣',
+      'dagger': '短剣',
+      'axe': '斧',
+      'spear': '槍',
+      'bow': '弓',
+      'staff': '杖',
+      'mace': 'メイス',
+      'katana': '刀',
+      'fist': '拳',
+    };
+    return currentWeaponType ? typeNames[currentWeaponType] : '不明';
+  }, [currentWeaponType]);
 
   // ビルドサマリ
   const buildSummary = useMemo(() => {
     const weapon = currentBuild.equipment.weapon;
     const body = currentBuild.equipment.body;
     const accessory1 = currentBuild.equipment.accessory1;
-    
+
     return {
       job: currentBuild.job?.name || '未選択',
       level: currentBuild.level,
       weapon: weapon?.name || '未装備',
+      weaponType: weaponTypeDisplayName,
       armor: body?.name || '未装備',
       accessory: accessory1?.name || '未装備',
       totalATK: calculatedStats.total.ATK,
       totalMATK: calculatedStats.total.MATK,
+      // 武器ステータス表示用
+      weaponAttack: currentWeaponStats?.attackPower || 0,
+      weaponCritRate: currentWeaponStats?.critRate || 0,
+      weaponCritDamage: currentWeaponStats?.critDamage || 0,
+      damageCorrection: Math.round((currentWeaponStats?.damageCorrection || 1) * 100),
     };
-  }, [currentBuild, calculatedStats]);
+  }, [currentBuild, calculatedStats, weaponTypeDisplayName, currentWeaponStats]);
 
   // スキル選択/解除
   const handleSkillToggle = useCallback((skill: Skill | null) => {
@@ -277,27 +370,36 @@ export default function DamagePage() {
     setIsCalculating(true);
 
     try {
-      const results = selectedSkills.map(skill => {
-        // 基礎ダメージ計算（武器ベース）
-        const getStatValue = (stats: { stat: StatType; value: number }[] | undefined, statType: StatType) => {
-          const statEffect = stats?.find(s => s.stat === statType);
-          return statEffect?.value || 0;
-        };
-        
-        const weaponStats = {
-          attackPower: getStatValue(currentBuild.equipment.weapon?.baseStats, 'ATK'),
-          magicPower: getStatValue(currentBuild.equipment.weapon?.baseStats, 'MATK'),
-          critRate: getStatValue(currentBuild.equipment.weapon?.baseStats, 'CRI'),
-          critDamage: getStatValue(currentBuild.equipment.weapon?.baseStats, 'CRI'),
-        };
+      // 武器ステータスを使用（事前に計算済み）
+      const weaponStats = currentWeaponStats || {
+        attackPower: 0,
+        magicPower: 0,
+        critRate: 0,
+        critDamage: 0,
+        damageCorrection: 1
+      };
 
-        // 基礎ダメージ
+      // 武器種を取得
+      const weaponType = currentWeaponType || 'sword';
+
+      console.log('[DamageCalc] 武器種:', weaponType);
+      console.log('[DamageCalc] 武器ステータス:', weaponStats);
+      console.log('[DamageCalc] ユーザーステータス:', calculatedStats.total);
+
+      const results = selectedSkills.map(skill => {
+        // 基礎ダメージ計算（武器ベース + ダメージ補正）
+        // 最大ダメージモード: ダメージ補正を100%（1.0）に固定
+        const maxDamageCorrection = 1.0;
         const baseDamage = calcBaseDamage(
-          currentWeaponType || 'sword',  // デフォルト値を設定
+          weaponType,
           weaponStats,
           calculatedStats.total, // userStatsとして使用
-          weaponCalcData
+          weaponCalcData,
+          maxDamageCorrection,  // ダメージ補正100%（最大ダメージ）
+          1  // コンボ補正（通常は1）
         );
+
+        console.log(`[DamageCalc] ${skill.name} 基礎ダメージ:`, baseDamage);
 
         // 職業補正
         let jobCorrectedDamage = baseDamage;
@@ -305,11 +407,13 @@ export default function DamagePage() {
           jobCorrectedDamage = applyJobCorrection(
             baseDamage,
             currentBuild.job.name,
-            currentWeaponType || 'sword',
+            weaponType,
             weaponStats,
             calculatedStats.total,
-            weaponCalcData
+            weaponCalcData,
+            maxDamageCorrection  // ダメージ補正100%（最大ダメージ）
           );
+          console.log(`[DamageCalc] ${skill.name} 職業補正後:`, jobCorrectedDamage);
         }
 
         // スキルダメージ計算
@@ -330,7 +434,7 @@ export default function DamagePage() {
             weaponStats,
             calculatedStats.total,
             skillCalcData,
-            currentWeaponType || 'sword'
+            weaponType
           );
         }
 
@@ -392,6 +496,7 @@ export default function DamagePage() {
     currentBuild,
     calculatedStats,
     currentWeaponType,
+    currentWeaponStats,
     enemyStats
   ]);
 
@@ -445,29 +550,58 @@ export default function DamagePage() {
                     {buildSummary.level}
                   </span>
                 </div>
-                <div>
+                <div className="col-span-2">
                   <span className="text-gray-500 dark:text-gray-400">武器:</span>
                   <span className="ml-2 font-medium text-gray-900 dark:text-white">
                     {buildSummary.weapon}
+                    <span className="ml-1 text-xs px-1.5 py-0.5 rounded bg-blue-100 dark:bg-blue-900 text-blue-700 dark:text-blue-300">
+                      {buildSummary.weaponType}
+                    </span>
                   </span>
                 </div>
-                <div>
-                  <span className="text-gray-500 dark:text-gray-400">防具:</span>
-                  <span className="ml-2 font-medium text-gray-900 dark:text-white">
-                    {buildSummary.armor}
-                  </span>
+              </div>
+
+              {/* 武器詳細ステータス */}
+              {currentBuild.equipment.weapon && (
+                <div className="mt-4 pt-4 border-t border-gray-200 dark:border-gray-700">
+                  <h4 className="text-xs font-semibold text-gray-500 dark:text-gray-400 mb-2">武器ステータス</h4>
+                  <div className="grid grid-cols-4 gap-2 text-xs">
+                    <div className="text-center p-2 bg-gray-100 dark:bg-gray-700 rounded">
+                      <div className="text-gray-500 dark:text-gray-400">攻撃力</div>
+                      <div className="font-semibold text-orange-600 dark:text-orange-400">{buildSummary.weaponAttack}</div>
+                    </div>
+                    <div className="text-center p-2 bg-gray-100 dark:bg-gray-700 rounded">
+                      <div className="text-gray-500 dark:text-gray-400">会心率</div>
+                      <div className="font-semibold text-yellow-600 dark:text-yellow-400">{buildSummary.weaponCritRate}%</div>
+                    </div>
+                    <div className="text-center p-2 bg-gray-100 dark:bg-gray-700 rounded">
+                      <div className="text-gray-500 dark:text-gray-400">会心ダメ</div>
+                      <div className="font-semibold text-red-600 dark:text-red-400">{buildSummary.weaponCritDamage}</div>
+                    </div>
+                    <div className="text-center p-2 bg-gray-100 dark:bg-gray-700 rounded">
+                      <div className="text-gray-500 dark:text-gray-400">計算モード</div>
+                      <div className="font-semibold text-purple-600 dark:text-purple-400">最大</div>
+                    </div>
+                  </div>
                 </div>
-                <div>
-                  <span className="text-gray-500 dark:text-gray-400">攻撃力:</span>
-                  <span className="ml-2 font-medium text-orange-600 dark:text-orange-400">
-                    {buildSummary.totalATK}
-                  </span>
-                </div>
-                <div>
-                  <span className="text-gray-500 dark:text-gray-400">魔法攻撃:</span>
-                  <span className="ml-2 font-medium text-purple-600 dark:text-purple-400">
-                    {buildSummary.totalMATK}
-                  </span>
+              )}
+
+              {/* キャラクターステータス */}
+              <div className="mt-4 pt-4 border-t border-gray-200 dark:border-gray-700">
+                <h4 className="text-xs font-semibold text-gray-500 dark:text-gray-400 mb-2">キャラクターステータス</h4>
+                <div className="grid grid-cols-2 gap-2 text-sm">
+                  <div>
+                    <span className="text-gray-500 dark:text-gray-400">力:</span>
+                    <span className="ml-2 font-medium text-orange-600 dark:text-orange-400">
+                      {buildSummary.totalATK}
+                    </span>
+                  </div>
+                  <div>
+                    <span className="text-gray-500 dark:text-gray-400">魔力:</span>
+                    <span className="ml-2 font-medium text-purple-600 dark:text-purple-400">
+                      {buildSummary.totalMATK}
+                    </span>
+                  </div>
                 </div>
               </div>
             </div>

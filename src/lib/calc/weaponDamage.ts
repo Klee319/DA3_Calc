@@ -5,6 +5,7 @@ import {
 } from '@/types/calc';
 import { WeaponCalcData } from '@/types/data';
 import { evaluateFormula } from './formulaEvaluator';
+import { getWeaponCalcKey } from './placeholderMapping';
 
 /**
  * 武器基礎ダメージ計算
@@ -24,9 +25,9 @@ export function calcBaseDamage(
   damageCorrection: number = 1,
   comboCorrection: number = 1
 ): number {
-  // 武器種別に対応する計算式を取得
-  const weaponTypeKey = weaponType.charAt(0).toUpperCase() + weaponType.slice(1).toLowerCase();
-  const formula = weaponCalc.BasedDamage?.[weaponTypeKey] || weaponCalc.BasedDamage?.[weaponType];
+  // 武器種別に対応する計算式を取得（getWeaponCalcKeyでYAMLキーに変換）
+  const weaponTypeKey = getWeaponCalcKey(weaponType);
+  const formula = weaponCalc.BasedDamage?.[weaponTypeKey];
 
   if (!formula) {
     console.warn(`No damage formula found for weapon type: ${weaponType}`);
@@ -51,7 +52,7 @@ export function calcBaseDamage(
     UserAgility: userStats.AGI || 0,
     UserDex: userStats.DEX || 0,
     UserLuck: userStats.LUK || 0,
-    UserCritDamage: userStats.CRI || 0,
+    UserCritDamage: userStats.HIT || 0,  // UIではCritDamage(撃力)がHITにマップされている
     UserHit: userStats.HIT || 0,
     UserFlee: userStats.FLEE || 0,
 
@@ -95,23 +96,29 @@ export function applyJobCorrection(
     return baseDamage; // 補正なし
   }
 
-  const weaponTypeKey = weaponType.charAt(0).toUpperCase() + weaponType.slice(1).toLowerCase();
-  const formula = jobCorrection[weaponTypeKey] || jobCorrection[weaponType];
+  const weaponTypeKey = getWeaponCalcKey(weaponType);
+  const formula = jobCorrection[weaponTypeKey];
 
   if (!formula) {
-    // SpellRefactorのような特殊補正をチェック
-    if (job === 'SpellRefactor' && jobCorrection.Bonus) {
+    // Bonus式がある場合は基礎ダメージに係数を掛ける
+    if (jobCorrection.Bonus) {
       const bonusFormula = jobCorrection.Bonus;
-      const variables = {
+      const variables: Record<string, number> = {
         UserPower: userStats.ATK || 1,
-        UserMagic: userStats.MATK || 1
+        UserMagic: userStats.MATK || 1,
+        UserDefense: userStats.DEF || 0,
+        UserMind: userStats.MDEF || 0,
+        UserHP: userStats.HP || 0,
+        UserAgility: userStats.AGI || 0,
+        UserDex: userStats.DEX || 0,
+        UserCritDamage: userStats.HIT || 0,
       };
 
       try {
         const bonusMultiplier = evaluateFormula(bonusFormula, variables);
         return Math.floor(baseDamage * bonusMultiplier);
       } catch (error) {
-        console.error(`Failed to apply SpellRefactor bonus:`, error);
+        console.error(`Failed to apply ${job} bonus:`, error);
       }
     }
 
@@ -136,7 +143,7 @@ export function applyJobCorrection(
     UserAgility: userStats.AGI || 0,
     UserDex: userStats.DEX || 0,
     UserLuck: userStats.LUK || 0,
-    UserCritDamage: userStats.CRI || 0,
+    UserCritDamage: userStats.HIT || 0,  // UIではCritDamage(撃力)がHITにマップされている
     UserHit: userStats.HIT || 0,
     UserFlee: userStats.FLEE || 0,
 

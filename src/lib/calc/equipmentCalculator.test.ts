@@ -232,10 +232,59 @@ describe('equipmentCalculator', () => {
       expect(result.critRate).toBe(10); // 10 - 3 + 3 = 10
     });
 
-    it('無効なランクの場合、エラーがスローされる', () => {
-      expect(() => {
-        calculateWeaponStats(testWeapon, 'INVALID' as any, 0, 0, false, testEqConst);
-      }).toThrow();
+    it('無効なランク文字列の場合、デフォルトランク(SSS)にクランプされる', () => {
+      // INVALIDはRANK_ORDERに含まれないため、rankIndex=-1となりindex=0(SSS)にクランプ
+      const result = calculateWeaponStats(testWeapon, 'INVALID' as any, 0, 0, false, testEqConst);
+
+      // SSSランクで計算される
+      expect(result.attackPower).toBeGreaterThan(testWeapon['攻撃力（初期値）']);
+    });
+
+    it('最高ランク制限を超えるランクを指定した場合、自動的にクランプされる', () => {
+      // 最高ランクがFの検証武器
+      const testWeaponWithMaxRank: WeaponData = {
+        アイテム名: '検証剣',
+        制作: 'false',
+        武器種: '剣',
+        使用可能Lv: 100,
+        '攻撃力（初期値）': 10,
+        '会心率（初期値）': 100,
+        '会心ダメージ（初期値）': -90,
+        'ダメージ補正（初期値）': 100,
+        'ct(初期値)': 1,
+        最高ランク: 'F',
+      };
+
+      // SSS指定してもエラーにならず、Fにクランプされる
+      const result = calculateWeaponStats(testWeaponWithMaxRank, 'SSS', 0, 0, false, testEqConst);
+
+      // Fランクで計算されているため、ランクボーナスが0
+      expect(result.attackPower).toBe(10); // 基礎値のみ
+      expect(result.critRate).toBe(100);
+      expect(result.critDamage).toBe(-90);
+    });
+
+    it('最低ランク制限を下回るランクを指定した場合、自動的にクランプされる', () => {
+      const testWeaponWithMinRank: WeaponData = {
+        アイテム名: 'テスト武器',
+        制作: 'true',
+        武器種: '剣',
+        使用可能Lv: 10,
+        '攻撃力（初期値）': 100, // Aランク時の値
+        '会心率（初期値）': 10,
+        '会心ダメージ（初期値）': 23,
+        'ダメージ補正（初期値）': 80,
+        'ct(初期値)': 1.5,
+        最低ランク: 'A',
+      };
+
+      // F指定してもエラーにならず、Aにクランプされる
+      const result = calculateWeaponStats(testWeaponWithMinRank, 'F', 0, 0, false, testEqConst);
+
+      // Aランクで計算される（最低ランクにクランプ）
+      // F基準値の逆算後にAランクボーナスが適用される
+      expect(result.attackPower).toBeGreaterThan(0);
+      expect(result.critRate).toBeGreaterThan(0);
     });
 
     it('強化値が範囲外の場合、エラーがスローされる', () => {
