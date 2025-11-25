@@ -48,6 +48,12 @@ export type SmithingParamType = '力' | '魔力' | '体力' | '精神' | '素早
 // 叩き回数（パラメータ別）
 export type SmithingCounts = Partial<Record<SmithingParamType, number>>;
 
+// 装備の元データ参照（CSVデータへの参照）
+export type EquipmentSourceData =
+  | { type: 'weapon'; data: import('@/types/data').WeaponData }
+  | { type: 'armor'; data: import('@/types/data').ArmorData }
+  | { type: 'accessory'; data: import('@/types/data').AccessoryData };
+
 // 装備
 export interface Equipment {
   id: string;
@@ -67,6 +73,8 @@ export interface Equipment {
   // パラメータ別叩き回数
   smithingCounts?: SmithingCounts;
   alchemyEnabled?: boolean;
+  // 元データへの参照（計算システム用）
+  sourceData?: EquipmentSourceData;
 }
 
 // スキル

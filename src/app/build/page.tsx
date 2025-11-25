@@ -9,6 +9,7 @@ import { SPSlider } from '@/components/SPSlider';
 import { EquipmentSlot } from '@/components/EquipmentSlot';
 import { StatViewer } from '@/components/StatViewer';
 import { CustomSelect, CustomSelectOption } from '@/components/CustomSelect';
+import { DamageCalculationSection } from '@/components/DamageCalculationSection';
 import { EquipSlot, Job, Equipment, Skill, StatType, WeaponType, ArmorType, StatEffect, SmithingCounts } from '@/types';
 import { FoodData } from '@/types/data';
 import { calculateUnlockedSkills, getReachedTier, getNextSkillInfo, calculateBranchBonus, getMaxSPByBranch } from '@/lib/calc/jobCalculator';
@@ -1236,6 +1237,9 @@ export default function BuildPage() {
           </div>
         )}
       </div>
+
+      {/* 火力計算セクション */}
+      <DamageCalculationSection defaultEnemyDefense={100} />
 
       {/* タブナビゲーションボタン */}
       <div className="flex justify-between mt-6">

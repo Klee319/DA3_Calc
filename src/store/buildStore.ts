@@ -11,11 +11,11 @@ import type {
 } from "@/types";
 
 // 計算システムのインポート
-import { calculateAllEquipmentStats } from "@/lib/calc/equipmentCalculator";
+import { calculateAllEquipmentStats, calculateWeaponStats } from "@/lib/calc/equipmentCalculator";
 import { calculateAllJobStats } from "@/lib/calc/jobCalculator";
 import { calculateStatus } from "@/lib/calc/statusCalculator";
 import { convertJobNameToYAML } from "@/constants/jobMappings";
-import type { 
+import type {
   EqConstData,
   JobSPData as CalcJobSPData,
   SelectedEquipment,
@@ -23,11 +23,12 @@ import type {
   CalculatedStats as CalcSystemStats,
   StatBlock
 } from "@/types/calc";
-import type { 
-  EmblemData, 
+import type {
+  EmblemData,
   RunestoneData,
   JobConstData,
-  JobSPData 
+  JobSPData,
+  UserStatusCalcData
 } from "@/types/data";
 
 // 型変換ヘルパー関数
@@ -118,6 +119,16 @@ export interface RingOption {
   }>;
 }
 
+// WeaponStats の型定義（計算済み武器ステータス）
+export interface WeaponStats {
+  attackPower: number;      // 攻撃力
+  critRate: number;         // 会心率
+  critDamage: number;       // 会心ダメージ
+  damageCorrection: number; // ダメージ補正
+  coolTime: number;         // クールタイム
+  weaponType: string;       // 武器種
+}
+
 // Food の型定義
 export interface Food {
   id: string;
@@ -135,6 +146,8 @@ interface BuildState {
   currentBuild: CharacterBuild;
   // 計算済みステータス
   calculatedStats: CalculatedStats;
+  // 計算済み武器ステータス
+  weaponStats: WeaponStats | null;
   // 利用可能な職業リスト
   availableJobs: Job[];
   // 利用可能な装備リスト
@@ -143,14 +156,15 @@ interface BuildState {
   availableBuffs: Buff[];
   // 利用可能な食べ物リスト
   availableFoods: Food[];
-  
+
   // 計算用データ
   gameData: {
     eqConst?: EqConstData;
     jobConst?: JobConstData;
     jobSPData?: Map<string, JobSPData[]>;
+    userStatusCalc?: UserStatusCalcData;
   };
-  
+
   // 追加の設定
   userOption: UserOption;
   ringOption: RingOption;
@@ -185,6 +199,7 @@ interface BuildState {
     eqConst?: EqConstData;
     jobConst?: JobConstData;
     jobSPData?: Map<string, JobSPData[]>;
+    userStatusCalc?: UserStatusCalcData;
   }) => void;
 
   recalculateStats: () => void;
@@ -193,6 +208,7 @@ interface BuildState {
 export const useBuildStore = create<BuildState>((set, get) => ({
   currentBuild: initialBuild(),
   calculatedStats: initialCalculatedStats(),
+  weaponStats: null,
   availableJobs: [],
   availableEquipment: [],
   availableBuffs: [],
@@ -278,7 +294,7 @@ export const useBuildStore = create<BuildState>((set, get) => ({
   },
 
   resetBuild: () => {
-    set({ currentBuild: initialBuild(), calculatedStats: initialCalculatedStats() });
+    set({ currentBuild: initialBuild(), calculatedStats: initialCalculatedStats(), weaponStats: null });
   },
 
   loadBuild: (build) => {
@@ -321,30 +337,67 @@ export const useBuildStore = create<BuildState>((set, get) => ({
   recalculateStats: () => {
     const state = get();
     const { currentBuild, userOption, ringOption, selectedFood, foodEnabled, gameData, weaponSkillEnabled } = state;
-    
+
     // 必要なゲームデータがない場合は計算をスキップ
     if (!gameData.eqConst || !gameData.jobConst) {
       console.warn('計算に必要なゲームデータが不足しています');
       return;
     }
-    
+
     // 職業が選択されていない場合は初期値を設定
     if (!currentBuild.job) {
-      set({ calculatedStats: initialCalculatedStats() });
+      set({ calculatedStats: initialCalculatedStats(), weaponStats: null });
       return;
     }
 
     try {
+      // 0. 武器ステータスを計算
+      let calculatedWeaponStats: WeaponStats | null = null;
+      let weaponCritRateValue = 0;
+
+      const weaponEquipment = currentBuild.equipment.weapon;
+      if (weaponEquipment && weaponEquipment.sourceData?.type === 'weapon') {
+        const weaponData = weaponEquipment.sourceData.data;
+        const rank = (weaponEquipment.rank || 'F') as import('@/lib/calc/equipmentCalculator').WeaponRank;
+        const reinforcement = weaponEquipment.enhancementLevel || 0;
+        // 武器の叩き回数は攻撃力用として取得（武器は通常攻撃力叩きのみ）
+        const hammerCount = weaponEquipment.smithingCount || 0;
+        const alchemyEnabled = weaponEquipment.alchemyEnabled || false;
+
+        // 武器ステータスを計算
+        const weaponStatsResult = calculateWeaponStats(
+          weaponData,
+          rank,
+          reinforcement,
+          hammerCount,
+          alchemyEnabled,
+          gameData.eqConst as import('@/types/data').EqConstData,
+          gameData.userStatusCalc
+        );
+
+        // WeaponStats型に変換
+        calculatedWeaponStats = {
+          attackPower: weaponStatsResult.attackPower || 0,
+          critRate: weaponStatsResult.critRate || 0,
+          critDamage: weaponStatsResult.critDamage || 0,
+          damageCorrection: weaponStatsResult.damageCorrection || 0,
+          coolTime: weaponStatsResult.coolTime || 0,
+          weaponType: weaponData.武器種
+        };
+
+        weaponCritRateValue = calculatedWeaponStats.critRate;
+      }
+
       // 1. 装備ステータスを計算（新計算システム使用）
       const selectedEquipment: SelectedEquipment = {};
-      
+
       // 装備データを新しい計算システム用に変換
       // 注: 現在の装備データ構造と新システムの要求する構造が異なるため、
       // 簡易的な変換を行います。実際の実装では詳細な変換が必要です。
-      
+
       // 装備のステータス効果を直接StatBlockに変換
-      let equipmentTotal: StatBlock = {};
-      
+      const equipmentTotal: StatBlock = {};
+
       for (const [slot, equipment] of Object.entries(currentBuild.equipment)) {
         if (equipment) {
           for (const effect of equipment.baseStats) {
@@ -361,7 +414,7 @@ export const useBuildStore = create<BuildState>((set, get) => ({
               case 'CRI': statKey = 'CritRate'; break;
               default: statKey = effect.stat;
             }
-            
+
             if (effect.isPercent) {
               // パーセント補正は後で適用
               continue;
@@ -371,7 +424,7 @@ export const useBuildStore = create<BuildState>((set, get) => ({
           }
         }
       }
-      
+
       // 2. 職業ステータスを計算（新計算システム使用）
       // SPAllocationの形式に変換（branch, tier, spCostを持つ形式）
       // TODO: 現在のspAllocationはnodeId/levelの簡易形式だが、
@@ -392,7 +445,7 @@ export const useBuildStore = create<BuildState>((set, get) => ({
         gameData.jobConst,
         currentJobSPData
       );
-      
+
       // 3. 最終ステータスを計算（新計算システム使用）
       const statusInput: StatusCalcInput = {
         equipmentTotal: equipmentTotal,
@@ -401,7 +454,7 @@ export const useBuildStore = create<BuildState>((set, get) => ({
           sp: {},  // SPボーナスは既にjobStatsに含まれている
           bonusPercent: {}  // 職業のパーセントボーナス（必要に応じて追加）
         },
-        food: foodEnabled && selectedFood ? 
+        food: foodEnabled && selectedFood ?
           selectedFood.effects.reduce((acc, effect) => {
             let statKey = '';
             switch(effect.stat) {
@@ -414,7 +467,7 @@ export const useBuildStore = create<BuildState>((set, get) => ({
               case 'AGI': statKey = 'Agility'; break;
               default: statKey = effect.stat;
             }
-            
+
             if (!effect.isPercent) {
               acc[statKey as keyof StatBlock] = (acc[statKey as keyof StatBlock] || 0) + effect.value;
             }
@@ -441,19 +494,19 @@ export const useBuildStore = create<BuildState>((set, get) => ({
           enabled: true,
           bonusPercent: {} // リングデータから計算（実装が必要）
         } : undefined,
-        weaponCritRate: 0, // 武器から取得（実装が必要）
+        weaponCritRate: weaponCritRateValue,
         emblemBonusPercent: {} // 紋章ボーナス（実装が必要）
       };
-      
+
       const result = calculateStatus(statusInput);
-      
+
       if (result.success && result.data) {
         // CalcSystemStats型からCalculatedStats型への変換
         const convertedStats = convertToUIStats(result.data);
-        set({ calculatedStats: convertedStats });
+        set({ calculatedStats: convertedStats, weaponStats: calculatedWeaponStats });
       } else {
         console.error('ステータス計算エラー: result.success is false');
-        set({ calculatedStats: initialCalculatedStats() });
+        set({ calculatedStats: initialCalculatedStats(), weaponStats: null });
       }
     } catch (error) {
       console.error('計算中にエラーが発生しました:', error);
@@ -470,7 +523,7 @@ export const useBuildStore = create<BuildState>((set, get) => ({
           hasJobSPData: !!gameData.jobSPData
         }
       });
-      set({ calculatedStats: initialCalculatedStats() });
+      set({ calculatedStats: initialCalculatedStats(), weaponStats: null });
     }
   },
 }));
