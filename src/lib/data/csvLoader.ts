@@ -437,11 +437,20 @@ export async function loadAllEquipmentData(eqConst?: EqConstData) {
  */
 export async function loadAllJobData(): Promise<Map<string, JobSPData[]>> {
   const jobNames = [
+    // 4次職
     'ガーディアン',
     'ステラシャフト',
     'スペルリファクター',
+    'プリースト',
+    // 3次職
+    'ウィザード',
+    'ウォーリアー',
+    'クレリック',
+    'ナイト',
+    'ハンター',
+    'レンジャー',
+    // ベース職
     'ノービス',
-    'プリースト'
   ];
 
   const jobDataMap = new Map<string, JobSPData[]>();
