@@ -226,6 +226,8 @@ export const EquipmentSlot: React.FC<EquipmentSlotProps> = ({
           }
         } else if (stat.stat === 'CRI') {
           rankBonus = weaponRankBonus.critR;
+          // 強化ボーナス: 2lvにつき+1
+          enhanceBonus = Math.floor(enhancementLevel / 2);
           // 錬金ボーナス（有効な場合のみ）
           if (hasAlchemy) {
             alchemyBonusValue = alchemyBonus.critR;

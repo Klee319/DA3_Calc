@@ -75,7 +75,7 @@ Weapon:
     MAX: 80
     AttackP: 2
     CritD: 1
-    CritR: 0
+    CritR: 0.5  # 2lvにつき+1
   Rank:
       SSS:
         Bonus:        
