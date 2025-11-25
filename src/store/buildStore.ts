@@ -770,18 +770,18 @@ export const useBuildStore = create<BuildState>((set, get) => ({
         // SPツリーデータを変換して職業補正を取得
         const spTree = convertToSPTree(currentJobSPData);
 
-        // 職業補正(%)を取得（CSVの値は小数なので100倍してパーセント値に変換）
+        // 職業補正(%)を取得（CSVの値は整数パーセント値）
         if (spTree.jobCorrection) {
           const correction = spTree.jobCorrection;
-          // 小数値をパーセント値に変換（0.04 → 4%）
-          if (correction.HP !== undefined) jobBonusPercent['HP'] = correction.HP * 100;
-          if (correction.Power !== undefined) jobBonusPercent['Power'] = correction.Power * 100;
-          if (correction.Magic !== undefined) jobBonusPercent['Magic'] = correction.Magic * 100;
-          if (correction.Mind !== undefined) jobBonusPercent['Mind'] = correction.Mind * 100;
-          if (correction.Agility !== undefined) jobBonusPercent['Agility'] = correction.Agility * 100;
-          if (correction.Dex !== undefined) jobBonusPercent['Dex'] = correction.Dex * 100;
-          if (correction.CritDamage !== undefined) jobBonusPercent['CritDamage'] = correction.CritDamage * 100;
-          if (correction.Defense !== undefined) jobBonusPercent['Defense'] = correction.Defense * 100;
+          // CSVの値をそのまま使用（4 → 4%）
+          if (correction.HP !== undefined) jobBonusPercent['HP'] = correction.HP;
+          if (correction.Power !== undefined) jobBonusPercent['Power'] = correction.Power;
+          if (correction.Magic !== undefined) jobBonusPercent['Magic'] = correction.Magic;
+          if (correction.Mind !== undefined) jobBonusPercent['Mind'] = correction.Mind;
+          if (correction.Agility !== undefined) jobBonusPercent['Agility'] = correction.Agility;
+          if (correction.Dex !== undefined) jobBonusPercent['Dex'] = correction.Dex;
+          if (correction.CritDamage !== undefined) jobBonusPercent['CritDamage'] = correction.CritDamage;
+          if (correction.Defense !== undefined) jobBonusPercent['Defense'] = correction.Defense;
         }
 
         if (currentBuild.spAllocation) {
