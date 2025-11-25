@@ -41,6 +41,12 @@ const SMITHING_BONUS = {
   Other: 2,    // その他のパラメータの叩き1回あたり+2
 } as const;
 
+// 強化ボーナス値（EqConst.yaml Armor.Reinforcement に基づく）
+const REINFORCEMENT_BONUS = {
+  Defence: 2,  // 守備力の強化1回あたり+2
+  Other: 2,    // その他のパラメータの強化1回あたり+2
+} as const;
+
 // 武器の叩きボーナス値（EqConst.yaml Weapon.Forge.Other: 1 に基づく）
 const WEAPON_SMITHING_BONUS = 1;  // すべてのパラメータで1回あたり+1
 
@@ -265,31 +271,45 @@ export const EquipmentSlot: React.FC<EquipmentSlotProps> = ({
   const getStatDisplayName = (stat: string): string => {
     // 武器の場合の特殊マッピング
     if (slot === 'weapon') {
-      if (stat === 'DEX') return '会心ダメージ';
-      if (stat === 'CRI') return '会心率';
+      const weaponNames: Record<string, string> = {
+        ATK: '攻撃力',
+        CRI: '会心率',
+        DEX: '会心ダメージ',  // 武器のDEXは会心ダメージ
+      };
+      return weaponNames[stat] || stat;
     }
 
-    // 防具・アクセサリーの場合の特殊マッピング
-    if (slot !== 'weapon') {
-      if (stat === 'CRI') return '撃力';  // 防具のCRIは撃力
+    // 防具の場合のマッピング（力、魔力、体力など）
+    if (['head', 'body', 'leg'].includes(slot)) {
+      const armorNames: Record<string, string> = {
+        ATK: '力',
+        MATK: '魔力',
+        HP: '体力',
+        MDEF: '精神',
+        AGI: '素早さ',
+        DEX: '器用',
+        HIT: '撃力',  // HITは撃力
+        DEF: '守備力',
+      };
+      return armorNames[stat] || stat;
     }
 
-    const names: Record<string, string> = {
-      ATK: '攻撃力',
-      DEF: '守備力',
-      MATK: '魔力',
-      MDEF: '精神',
-      AGI: '素早さ',
-      DEX: '器用',
-      CRI: '会心率',
-      CRITD: '撃力',
-      HP: '体力',
-      MP: 'MP',
-      HIT: '命中',
-      FLEE: '回避',
-      LUK: '運',
-    };
-    return names[stat] || stat;
+    // アクセサリーの場合のマッピング
+    if (['accessory1', 'accessory2'].includes(slot)) {
+      const accessoryNames: Record<string, string> = {
+        ATK: '力',
+        MATK: '魔力',
+        HP: '体力',
+        MDEF: '精神',
+        AGI: '素早さ',
+        DEX: '器用',
+        HIT: '撃力',  // HITは撃力
+      };
+      return accessoryNames[stat] || stat;
+    }
+
+    // デフォルト
+    return stat;
   };
 
   const getMaxEnhancement = (): number => {
@@ -400,8 +420,9 @@ export const EquipmentSlot: React.FC<EquipmentSlotProps> = ({
         // 叩きボーナス: パラメータ別に計算（先に計算）
         smithingBonus = getSmithingBonusForStat(stat.stat);
 
-        // 強化ボーナス: DEFは+1、その他は+2 per レベル
-        enhanceBonus = isDefense ? enhancementLevel * 1 : enhancementLevel * 2;
+        // 強化ボーナス: EqConst.yaml Armor.Reinforcement に基づく
+        const reinforceBonus = isDefense ? REINFORCEMENT_BONUS.Defence : REINFORCEMENT_BONUS.Other;
+        enhanceBonus = enhancementLevel * reinforceBonus;
 
         // ランク補正: round(baseWithTataki * (1 + baseWithTataki^0.2 * (rankValue / availableLv)))
         // 使用可能Lvを取得（equipment.requiredLevelから）
@@ -416,9 +437,11 @@ export const EquipmentSlot: React.FC<EquipmentSlotProps> = ({
         rankBonus = calculatedValue - baseWithTataki;
       } else {
         // アクセサリー
-        // ランク補正: base + (level / ランク補正係数)
-        const rankDivisor = { SSS: 10, SS: 11, S: 12, A: 13, B: 13, C: 15, D: 15, E: 0, F: 0 }[rank] || 0;
-        rankBonus = rankDivisor > 0 ? Math.round(40 / rankDivisor) : 0; // 仮のレベル40として計算
+        // 計算式: ROUNDUP( 基礎値 + (使用可能Lv × ランク係数 / 550) )
+        // ランク係数はEqConst.yaml Accessory.Rank の値
+        const accessoryLevel = equipment.requiredLevel || 1;
+        const rankCoeff = { SSS: 55, SS: 50, S: 45, A: 44, B: 44, C: 35, D: 35, E: 0, F: 0 }[rank] || 0;
+        rankBonus = rankCoeff > 0 ? Math.ceil(accessoryLevel * rankCoeff / 550) : 0;
       }
 
       finalValue = baseValue + rankBonus + enhanceBonus + smithingBonus + alchemyBonusValue;

@@ -168,7 +168,8 @@ export function calculateStatus(
         jobInitial,
         jobSP,
         food,
-        userOption
+        userOption,
+        runestone: runestoneBonus
       },
       base: baseBeforePercent,
       bonusPercent: {

@@ -164,7 +164,8 @@ export interface DamageCalculationDetails {
 export interface CalculatedStats {
   base: Record<StatType, number>;
   fromEquipment: Record<StatType, number>;
-  fromSkills: Record<StatType, number>;
+  fromSkills: Record<StatType, number>;  // SP割り当てによる増分
   fromBuffs: Record<StatType, number>;
+  fromPercent: Record<StatType, number>; // %補正（紋章・職業）による増分
   total: Record<StatType, number>;
 }

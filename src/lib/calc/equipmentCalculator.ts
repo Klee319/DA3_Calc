@@ -617,18 +617,9 @@ export function calculateAccessoryStats(
     throw new Error(`Invalid rank ${rank} for accessory ${accessory.アイテム名}`);
   }
 
-  // ランク補正テーブル（仕様書 §5.2より）
-  const rankCorrection: Record<EquipmentRank, number | null> = {
-    'SSS': 10,
-    'SS': 11,
-    'S': 12,
-    'A': 13,
-    'B': 13,
-    'C': 15,
-    'D': 15,
-    'E': null, // 基礎値そのまま(補正なし)
-    'F': null, // 基礎値そのまま(補正なし)
-  };
+  // ランク補正係数をYAMLから取得（EqConst.yaml Accessory.Rank）
+  // 計算式: 実数値 = ROUNDUP( 基礎値 + (使用可能Lv × ランク係数 / 550) )
+  const rankBonus = eqConst.Accessory?.Rank?.[rank] || 0;
 
   // アクセサリーが持つ6つのステータス（仕様書 §5.1より）
   const statsMapping = [
@@ -659,15 +650,14 @@ export function calculateAccessoryStats(
     if (baseValue === 0) continue;
 
     let finalValue: number;
-    const correction = rankCorrection[rank];
 
-    if (correction === null) {
-      // E/Fランクは基礎値そのまま
+    if (rankBonus === 0) {
+      // E/Fランク（係数0）は基礎値そのまま
       finalValue = baseValue;
     } else {
       // その他のランクは補正式を適用
-      // 実数値 = ROUND( 基礎値 + (Lv / ランク補正) )
-      finalValue = round(baseValue + (accessory.使用可能Lv / correction));
+      // 実数値 = ROUNDUP( 基礎値 + (使用可能Lv × ランク係数 / 550) )
+      finalValue = Math.ceil(baseValue + (accessory.使用可能Lv * rankBonus / 550));
     }
 
     // 結果に格納
@@ -676,13 +666,8 @@ export function calculateAccessoryStats(
     result.final[stat.key] = finalValue;
   }
 
-  // アクセサリEX計算（仕様書§5.3）
-  // TODO: CSVにEXカラムを追加する
-  // 現時点では撃力をデフォルトEXとして計算
-  const ex = calculateAccessoryEX(accessory, rank, 'CritDamage');
-
-  // EXステータスを最終値に加算
-  result.final.CritDamage = (result.final.CritDamage || 0) + ex.exValue;
+  // アクセサリEXはUIで選択するため、ここでは自動追加しない
+  // buildStore.tsで選択されたEXステータスが加算される
 
   return result;
 }

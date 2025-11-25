@@ -190,14 +190,10 @@ describe('damageCalculator', () => {
 
       expect(damage).toBeGreaterThan(0);
     });
-  });
 
-  describe('applyJobCorrection', () => {
-    it('ノービスの職業補正を適用できる', () => {
-      const baseDamage = 500;
-      const correctedDamage = applyJobCorrection(
-        baseDamage,
-        'Novice',
+    it('ノービス職業指定時は専用計算式を使用する', () => {
+      // 通常計算（職業指定なし）
+      const normalDamage = calculateBaseDamage(
         'sword',
         100,
         10,
@@ -208,7 +204,75 @@ describe('damageCalculator', () => {
         'avg'
       );
 
-      expect(correctedDamage).toBeGreaterThan(0);
+      // ノービス指定
+      const noviceDamage = calculateBaseDamage(
+        'sword',
+        100,
+        10,
+        50,
+        80,
+        mockUserStats,
+        weaponCalc,
+        'avg',
+        'Novice'
+      );
+
+      // ノービスの計算式は通常と異なるため、結果が異なることを確認
+      // BasedDamage.Sword: (WeaponAttackPower+UserPower*1.6)*...
+      // JobCorrection.Novice.Sword: (UserPower*1.6 + WeaponAttackPower)*...
+      // どちらも同じ結果になるはず（足し算の順序が違うだけ）
+      expect(noviceDamage).toBeGreaterThan(0);
+      // 計算式が等価なため、結果は同じになる
+      expect(noviceDamage).toBe(normalDamage);
+    });
+
+    it('ノービス職業の弓は専用係数を使用する', () => {
+      // 通常計算（職業指定なし）
+      const normalDamage = calculateBaseDamage(
+        'bow',
+        100,
+        10,
+        50,
+        80,
+        mockUserStats,
+        weaponCalc,
+        'avg'
+      );
+
+      // ノービス指定
+      const noviceDamage = calculateBaseDamage(
+        'bow',
+        100,
+        10,
+        50,
+        80,
+        mockUserStats,
+        weaponCalc,
+        'avg',
+        'Novice'
+      );
+
+      // ノービスの弓は係数が異なる（1.75 vs 1.3）
+      // BasedDamage.Bow: UserPower*1.75
+      // JobCorrection.Novice.Bow: UserPower*1.3
+      expect(noviceDamage).toBeLessThan(normalDamage);
+    });
+  });
+
+  describe('applyJobCorrection', () => {
+    it('ノービスの武器種指定補正がある場合はBonusを適用しない', () => {
+      const baseDamage = 500;
+      // Noviceは武器種指定の補正があるため、Bonusは適用されずbaseDamageがそのまま返る
+      const correctedDamage = applyJobCorrection(
+        baseDamage,
+        'Novice',
+        'sword',
+        mockUserStats,
+        weaponCalc
+      );
+
+      // 武器種指定の補正がある場合はbaseDamageがそのまま返る
+      expect(correctedDamage).toBe(baseDamage);
     });
 
     it('職業補正がない場合は基礎ダメージをそのまま返す', () => {
@@ -217,16 +281,59 @@ describe('damageCalculator', () => {
         baseDamage,
         'NonExistentJob',
         'sword',
-        100,
-        10,
-        50,
-        80,
         mockUserStats,
-        weaponCalc,
-        'avg'
+        weaponCalc
       );
 
       expect(correctedDamage).toBe(baseDamage);
+    });
+
+    it('SpellRefactorのBonus補正を適用できる', () => {
+      const baseDamage = 1000;
+      // SpellRefactorは武器種指定の補正がなく、Bonus補正のみ
+      const correctedDamage = applyJobCorrection(
+        baseDamage,
+        'SpellRefactor',
+        'sword',
+        mockUserStats, // Power: 100, Magic: 80
+        weaponCalc
+      );
+
+      // Bonus計算式: 0.75 - round(0.475 * ln(max(UserPower, UserMagic) / min(UserPower, UserMagic)), 2) * 2
+      // = 0.75 - round(0.475 * ln(100 / 80), 2) * 2
+      // = 0.75 - round(0.475 * ln(1.25), 2) * 2
+      // = 0.75 - round(0.475 * 0.2231, 2) * 2
+      // = 0.75 - round(0.106, 2) * 2
+      // = 0.75 - 0.11 * 2
+      // = 0.75 - 0.22
+      // = 0.53
+      // baseDamage * 0.53 = 1000 * 0.53 = 530
+      expect(correctedDamage).toBeLessThan(baseDamage);
+      expect(correctedDamage).toBeGreaterThan(0);
+    });
+
+    it('SpellRefactorのBonus補正でPower=Magicの場合は最大値になる', () => {
+      const baseDamage = 1000;
+      const balancedUserStats: StatBlock = {
+        ...mockUserStats,
+        Power: 100,
+        Magic: 100
+      };
+      const correctedDamage = applyJobCorrection(
+        baseDamage,
+        'SpellRefactor',
+        'sword',
+        balancedUserStats,
+        weaponCalc
+      );
+
+      // Bonus計算式: 0.75 - round(0.475 * ln(100 / 100), 2) * 2
+      // = 0.75 - round(0.475 * ln(1), 2) * 2
+      // = 0.75 - round(0.475 * 0, 2) * 2
+      // = 0.75 - 0
+      // = 0.75
+      // baseDamage * 0.75 = 1000 * 0.75 = 750
+      expect(correctedDamage).toBe(750);
     });
   });
 
@@ -343,16 +450,17 @@ describe('damageCalculator', () => {
     it('スキルダメージを計算できる', () => {
       const result = calculateSkillDamage(
         'Nagihara_i',
-        5,
-        500,
-        'sword',
+        500, // baseDamage
         mockUserStats,
-        weaponCalc,
+        'sword',
         skillCalc,
-        100, // weaponAttackPower
-        10,  // weaponCritRate
-        50,  // weaponCritDamage
-        80   // damageCorrection
+        weaponCalc,
+        {
+          weaponAttackPower: 100,
+          weaponCritRate: 10,
+          weaponCritDamage: 50,
+          damageCorrection: 0.8
+        }
       );
 
       if (result.success) {
@@ -369,16 +477,17 @@ describe('damageCalculator', () => {
     it('多段ヒットスキルを計算できる', () => {
       const result = calculateSkillDamage(
         'Retsujin_Enzangeki',
-        5,
-        500,
-        'sword',
+        500, // baseDamage
         mockUserStats,
-        weaponCalc,
+        'sword',
         skillCalc,
-        100, // weaponAttackPower
-        10,  // weaponCritRate
-        50,  // weaponCritDamage
-        80   // damageCorrection
+        weaponCalc,
+        {
+          weaponAttackPower: 100,
+          weaponCritRate: 10,
+          weaponCritDamage: 50,
+          damageCorrection: 0.8
+        }
       );
 
       if (result.success) {
@@ -389,16 +498,17 @@ describe('damageCalculator', () => {
     it('存在しないスキルでエラーを返す', () => {
       const result = calculateSkillDamage(
         'NonExistentSkill',
-        5,
-        500,
-        'sword',
+        500, // baseDamage
         mockUserStats,
-        weaponCalc,
+        'sword',
         skillCalc,
-        100,
-        10,
-        50,
-        80
+        weaponCalc,
+        {
+          weaponAttackPower: 100,
+          weaponCritRate: 10,
+          weaponCritDamage: 50,
+          damageCorrection: 0.8
+        }
       );
 
       expect(result.success).toBe(false);
@@ -497,6 +607,86 @@ describe('damageCalculator', () => {
       expect(result.success).toBe(false);
       if (!result.success) {
         expect(result.error.code).toBe('DAMAGE_CALC_ERROR');
+      }
+    });
+
+    it('SpellRefactorのBonus補正が適用される', () => {
+      // SpellRefactorなし
+      const inputWithoutSpellRefactor: DamageCalcInput = {
+        userStats: mockCalculatedStats,
+        weaponType: 'sword',
+        weaponAttackPower: 100,
+        weaponCritRate: 10,
+        weaponCritDamage: 50,
+        damageCorrection: 80,
+        enemy: {
+          defense: 0
+        },
+        options: {
+          critMode: 'never',
+          damageCorrectionMode: 'avg'
+        }
+      };
+
+      // SpellRefactorあり
+      const inputWithSpellRefactor: DamageCalcInput = {
+        ...inputWithoutSpellRefactor,
+        jobName: 'SpellRefactor'
+      };
+
+      const resultWithout = calculateDamage(inputWithoutSpellRefactor, weaponCalc, skillCalc);
+      const resultWith = calculateDamage(inputWithSpellRefactor, weaponCalc, skillCalc);
+
+      expect(resultWithout.success).toBe(true);
+      expect(resultWith.success).toBe(true);
+      if (resultWithout.success && resultWith.success) {
+        // SpellRefactorのBonus補正により、ダメージが減少する
+        // （Power: 100, Magic: 80 の場合、Bonusは0.75より小さくなる）
+        expect(resultWith.data.finalDamage).toBeLessThan(resultWithout.data.finalDamage);
+      }
+    });
+
+    it('SpellRefactorでPower=Magicの場合、Bonus=0.75が適用される', () => {
+      const balancedStats: CalculatedStats = {
+        ...mockCalculatedStats,
+        final: {
+          ...mockUserStats,
+          Power: 100,
+          Magic: 100
+        }
+      };
+
+      const inputWithoutSpellRefactor: DamageCalcInput = {
+        userStats: balancedStats,
+        weaponType: 'sword',
+        weaponAttackPower: 100,
+        weaponCritRate: 10,
+        weaponCritDamage: 50,
+        damageCorrection: 80,
+        enemy: {
+          defense: 0
+        },
+        options: {
+          critMode: 'never',
+          damageCorrectionMode: 'avg'
+        }
+      };
+
+      const inputWithSpellRefactor: DamageCalcInput = {
+        ...inputWithoutSpellRefactor,
+        jobName: 'SpellRefactor'
+      };
+
+      const resultWithout = calculateDamage(inputWithoutSpellRefactor, weaponCalc, skillCalc);
+      const resultWith = calculateDamage(inputWithSpellRefactor, weaponCalc, skillCalc);
+
+      expect(resultWithout.success).toBe(true);
+      expect(resultWith.success).toBe(true);
+      if (resultWithout.success && resultWith.success) {
+        // Power=Magicの場合、Bonus=0.75
+        // finalDamage = baseDamage * 0.75
+        const expectedFinalDamage = Math.floor(resultWithout.data.baseDamage * 0.75);
+        expect(resultWith.data.finalDamage).toBe(expectedFinalDamage);
       }
     });
   });

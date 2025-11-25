@@ -211,12 +211,14 @@ export function calculateJobBaseStats(
   }
 
   // 基礎ステータスの計算
-  // 力、魔力、体力、精神はレベルごとに+1
+  // 新計算式:
+  //   - 体力・精神: 初期値 + (レベル × 1) - 1
+  //   - 力・魔力: 初期値 + (レベル × 2) - 2
   const baseStats: JobStats = {
-    HP: (jobDef.HP || 0) + level,  // 体力: 初期値 + レベル
-    Power: (jobDef.STR || 0) + level,  // 力: 初期値 + レベル
-    Magic: (jobDef.INT || 0) + level,  // 魔力: 初期値 + レベル
-    Mind: (jobDef.MND || 0) + level,   // 精神: 初期値 + レベル
+    HP: (jobDef.HP || 0) + (level * 1) - 1,     // 体力: 初期値 + (レベル × 1) - 1
+    Power: (jobDef.STR || 0) + (level * 2) - 2, // 力: 初期値 + (レベル × 2) - 2
+    Magic: (jobDef.INT || 0) + (level * 2) - 2, // 魔力: 初期値 + (レベル × 2) - 2
+    Mind: (jobDef.MND || 0) + (level * 1) - 1,  // 精神: 初期値 + (レベル × 1) - 1
     Agility: jobDef.AGI || 0,  // 素早さ: 初期値のまま（レベルアップしない）
     Dex: jobDef.DEX || 0,       // 器用さ: 初期値のまま（レベルアップしない）
     // Defense, CritDamageは職業定数に含まれない場合は0
@@ -620,11 +622,14 @@ export function calculateAllJobStats(
   } catch (error) {
     console.error('基礎ステータス計算エラー:', error);
     // フォールバック: デフォルト値を返す
+    // 新計算式:
+    //   - 体力・精神: (レベル × 1) - 1
+    //   - 力・魔力: (レベル × 2) - 2
     stats = {
-      HP: level,
-      Power: level,
-      Magic: level,
-      Mind: level,
+      HP: (level * 1) - 1,
+      Power: (level * 2) - 2,
+      Magic: (level * 2) - 2,
+      Mind: (level * 1) - 1,
       Agility: 10,
       Dex: 10,
       Defense: 0,
@@ -639,17 +644,20 @@ export function calculateAllJobStats(
     // SPツリーから初期値を適用
     // CSVに初期値がある項目（値が0でない場合）のみ上書き
     // レベル成長するステータス
+    // 新計算式:
+    //   - 体力・精神: 初期値 + (レベル × 1) - 1
+    //   - 力・魔力: 初期値 + (レベル × 2) - 2
     if (spTree.initialStats.HP !== undefined && spTree.initialStats.HP !== 0) {
-      stats.HP = spTree.initialStats.HP + level;
+      stats.HP = spTree.initialStats.HP + (level * 1) - 1;
     }
     if (spTree.initialStats.Power !== undefined && spTree.initialStats.Power !== 0) {
-      stats.Power = spTree.initialStats.Power + level;
+      stats.Power = spTree.initialStats.Power + (level * 2) - 2;
     }
     if (spTree.initialStats.Magic !== undefined && spTree.initialStats.Magic !== 0) {
-      stats.Magic = spTree.initialStats.Magic + level;
+      stats.Magic = spTree.initialStats.Magic + (level * 2) - 2;
     }
     if (spTree.initialStats.Mind !== undefined && spTree.initialStats.Mind !== 0) {
-      stats.Mind = spTree.initialStats.Mind + level;
+      stats.Mind = spTree.initialStats.Mind + (level * 1) - 1;
     }
     
     // レベル成長しないステータス（値が明示的に設定されている場合のみ上書き）

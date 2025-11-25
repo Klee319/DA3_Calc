@@ -17,7 +17,7 @@ const PRESETS_STORAGE_KEY = 'da_calc_build_presets';
 import { calculateAllEquipmentStats, calculateWeaponStats, calculateArmorStats, calculateAccessoryStats } from "@/lib/calc/equipmentCalculator";
 import type { EquipmentRank } from "@/lib/calc/equipmentCalculator";
 import type { ArmorData, AccessoryData } from "@/types/data";
-import { calculateAllJobStats, calculateBranchBonus } from "@/lib/calc/jobCalculator";
+import { calculateAllJobStats, calculateBranchBonus, convertToSPTree } from "@/lib/calc/jobCalculator";
 import { calculateStatus } from "@/lib/calc/statusCalculator";
 import { convertJobNameToYAML } from "@/constants/jobMappings";
 import type {
@@ -73,10 +73,15 @@ const convertToUIStats = (calcStats: CalcSystemStats): CalculatedStats => {
   // breakdown.jobSPは現在空（SPは既にjobInitialに含まれている）
   const baseStats = convertStatBlock(calcStats.breakdown?.jobInitial || {});
 
-  // 装備ステータス
+  // 装備ステータス（ルーンストーンを含む）
   const equipmentStats = convertStatBlock(calcStats.breakdown?.equipment || {});
+  // ルーンストーンのステータスを装備ステータスに加算
+  const runestoneStats = convertStatBlock(calcStats.breakdown?.runestone || {});
+  for (const key of Object.keys(runestoneStats) as StatType[]) {
+    equipmentStats[key] = (equipmentStats[key] || 0) + (runestoneStats[key] || 0);
+  }
 
-  // SPボーナス（現在は空、将来の拡張用）
+  // SPボーナス（SP割り振りによるステータス増加）
   const skillStats = convertStatBlock(calcStats.breakdown?.jobSP || {});
 
   // バフ（食べ物 + ユーザー手動補正）
@@ -85,11 +90,28 @@ const convertToUIStats = (calcStats: CalcSystemStats): CalculatedStats => {
     ...(calcStats.breakdown?.userOption || {})
   });
 
+  // %補正による増分を計算
+  // base（%補正前）と bonusPercent.total から計算
+  const percentStats = initialStats();
+  if (calcStats.bonusPercent?.total && calcStats.base) {
+    for (const [key, percentValue] of Object.entries(calcStats.bonusPercent.total)) {
+      const mappedKey = statMapping[key];
+      if (mappedKey && percentValue) {
+        // base値（%補正前）を取得
+        const baseValue = (calcStats.base as any)[key] || 0;
+        // %補正による増分 = base値 × (補正%) / 100
+        const increase = Math.floor(baseValue * (percentValue as number) / 100);
+        percentStats[mappedKey] = increase;
+      }
+    }
+  }
+
   return {
     base: baseStats,
     fromEquipment: equipmentStats,
     fromSkills: skillStats,
     fromBuffs: buffStats,
+    fromPercent: percentStats,
     total: totalStats
   };
 };
@@ -116,6 +138,7 @@ const initialCalculatedStats = (): CalculatedStats => ({
   fromEquipment: initialStats(),
   fromSkills: initialStats(),
   fromBuffs: initialStats(),
+  fromPercent: initialStats(),
   total: initialStats(),
 });
 
@@ -527,36 +550,62 @@ export const useBuildStore = create<BuildState>((set, get) => ({
             // 武器攻撃力は独立したステータスで、weaponStatsとして別途管理される
             // 武器会心率（critRate）はweaponCritRateとしてcalculateStatusに渡されるため、
             // equipmentTotalには追加しない（会心率 = 武器会心率 + 器用さ * 0.3 で計算される）
-            // 撃力（critDamage）はCritDamageとして追加
-            if (calculatedWeaponStats) {
-              equipmentTotal['CritDamage'] = (equipmentTotal['CritDamage'] || 0) + calculatedWeaponStats.critDamage;
-            }
+            // 武器の会心ダメージ（critDamage）もキャラクターの「撃力」には加算しない
+            // 武器会心ダメージは独立したステータスで、weaponStatsとして別途管理される
+            // （ダメージ計算時に参照される）
           }
           // 防具（頭、胴、脚）
           else if (['head', 'body', 'leg'].includes(slotType) && equipment.sourceData.type === 'armor') {
             try {
               const armorData = equipment.sourceData.data as ArmorData;
-              // 叩き回数を取得（各パラメータの合計）
+              // パラメータ別叩き回数を取得
               const smithingCounts = equipment.smithingCounts || {};
-              const totalTatakiCount = Object.values(smithingCounts).reduce((sum: number, count) => sum + (count || 0), 0);
 
-              const armorStats = calculateArmorStats(
-                armorData,
-                rank,
-                reinforcementCount,
-                totalTatakiCount,
-                gameData.eqConst as EqConstData,
-                gameData.userStatusCalc
-              );
+              // ランク値をEqConst.yamlから取得
+              const eqConstArmor = gameData.eqConst?.Armor;
+              const rankValue = eqConstArmor?.Rank?.[rank as keyof typeof eqConstArmor.Rank] || 0;
+              const availableLv = armorData.使用可能Lv || 1;
 
-              // 計算済みステータスをequipmentTotalに追加
-              if (armorStats.final) {
-                for (const [statKey, value] of Object.entries(armorStats.final)) {
-                  if (value && typeof value === 'number') {
-                    const mappedKey = mapCalcOutputKey(statKey);
-                    equipmentTotal[mappedKey] = (equipmentTotal[mappedKey] || 0) + value;
-                  }
-                }
+              // 叩き・強化係数をEqConst.yamlから取得
+              const forgeDefence = eqConstArmor?.Forge?.Defence ?? 1;
+              const forgeOther = eqConstArmor?.Forge?.Other ?? 2;
+              const reinforceDefence = eqConstArmor?.Reinforcement?.Defence ?? 2;
+              const reinforceOther = eqConstArmor?.Reinforcement?.Other ?? 2;
+
+              // ステータス定義（YAMLから取得した係数を使用）
+              const armorStatDefs = [
+                { csvKey: '守備力（初期値）', outputKey: 'Defense', smithingParam: '守備力', forgeMultiplier: forgeDefence, reinforceMultiplier: reinforceDefence },
+                { csvKey: '体力（初期値）', outputKey: 'HP', smithingParam: '体力', forgeMultiplier: forgeOther, reinforceMultiplier: reinforceOther },
+                { csvKey: '力（初期値）', outputKey: 'Power', smithingParam: '力', forgeMultiplier: forgeOther, reinforceMultiplier: reinforceOther },
+                { csvKey: '魔力（初期値）', outputKey: 'Magic', smithingParam: '魔力', forgeMultiplier: forgeOther, reinforceMultiplier: reinforceOther },
+                { csvKey: '精神（初期値）', outputKey: 'Mind', smithingParam: '精神', forgeMultiplier: forgeOther, reinforceMultiplier: reinforceOther },
+                { csvKey: '素早さ（初期値）', outputKey: 'Agility', smithingParam: '素早さ', forgeMultiplier: forgeOther, reinforceMultiplier: reinforceOther },
+                { csvKey: '器用（初期値）', outputKey: 'Dex', smithingParam: '器用', forgeMultiplier: forgeOther, reinforceMultiplier: reinforceOther },
+                { csvKey: '撃力（初期値）', outputKey: 'CritDamage', smithingParam: '撃力', forgeMultiplier: forgeOther, reinforceMultiplier: reinforceOther },
+              ];
+
+              // 各ステータスを個別に計算（フロントエンドと同じ計算式）
+              for (const statDef of armorStatDefs) {
+                const baseValue = (armorData as any)[statDef.csvKey] || 0;
+                if (baseValue === 0) continue; // 基礎値0のステータスはスキップ
+
+                // パラメータ別叩き回数を取得
+                const paramSmithingCount = (smithingCounts as any)[statDef.smithingParam] || 0;
+                const smithingBonus = paramSmithingCount * statDef.forgeMultiplier;
+
+                // 強化ボーナス
+                const enhanceBonus = reinforcementCount * statDef.reinforceMultiplier;
+
+                // ランク計算: round(baseWithTataki * (1 + baseWithTataki^0.2 * (rankValue / availableLv)))
+                const baseWithTataki = baseValue + smithingBonus;
+                const calculatedValue = Math.round(
+                  baseWithTataki * (1 + Math.pow(baseWithTataki, 0.2) * (rankValue / availableLv))
+                );
+
+                // 最終値 = ランク計算後の値 + 強化ボーナス
+                const finalValue = calculatedValue + enhanceBonus;
+
+                equipmentTotal[statDef.outputKey] = (equipmentTotal[statDef.outputKey] || 0) + finalValue;
               }
 
               // EXステータスを加算（防具は2つまで）
@@ -572,17 +621,18 @@ export const useBuildStore = create<BuildState>((set, get) => ({
                   'critDamage': 'CritDamage',
                   'defense': 'Defense',
                 };
-                // EX係数テーブル
-                const exCoeffTable: Record<string, Record<string, number>> = {
-                  'dex': { SSS: 0.15, SS: 0.13, S: 0.11, A: 0.09, B: 0.09, C: 0.07, D: 0.07, E: 0.05, F: 0.05 },
-                  'critDamage': { SSS: 0.6, SS: 0.5, S: 0.4, A: 0.3, B: 0.3, C: 0.2, D: 0.2, E: 0.1, F: 0.1 },
-                  'speed': { SSS: 0.6, SS: 0.5, S: 0.4, A: 0.3, B: 0.3, C: 0.2, D: 0.2, E: 0.1, F: 0.1 },
-                  'other': { SSS: 0.7, SS: 0.6, S: 0.5, A: 0.4, B: 0.4, C: 0.3, D: 0.3, E: 0.2, F: 0.2 },
-                };
+                // EX係数をEqConst.yamlから取得
+                const eqConstEX = gameData.eqConst?.Equipment_EX?.Rank;
                 const calculateExValue = (exType: string): number => {
                   const level = armorData.使用可能Lv || 1;
-                  const category = ['dex', 'critDamage', 'speed'].includes(exType) ? exType : 'other';
-                  const coeff = exCoeffTable[category][rank] || 0;
+                  let coeff = 0;
+                  if (exType === 'dex' && eqConstEX?.CritR) {
+                    coeff = eqConstEX.CritR[rank as keyof typeof eqConstEX.CritR] || 0;
+                  } else if ((exType === 'critDamage' || exType === 'speed') && eqConstEX?.Speed_CritD) {
+                    coeff = eqConstEX.Speed_CritD[rank as keyof typeof eqConstEX.Speed_CritD] || 0;
+                  } else if (eqConstEX?.Other) {
+                    coeff = eqConstEX.Other[rank as keyof typeof eqConstEX.Other] || 0;
+                  }
                   return Math.round(level * coeff + 1);
                 };
                 if (exStats.ex1) {
@@ -643,17 +693,18 @@ export const useBuildStore = create<BuildState>((set, get) => ({
                   'critDamage': 'CritDamage',
                   // アクセサリーには守備力EXはない
                 };
-                // EX係数テーブル（防具と同じ）
-                const exCoeffTable: Record<string, Record<string, number>> = {
-                  'dex': { SSS: 0.15, SS: 0.13, S: 0.11, A: 0.09, B: 0.09, C: 0.07, D: 0.07, E: 0.05, F: 0.05 },
-                  'critDamage': { SSS: 0.6, SS: 0.5, S: 0.4, A: 0.3, B: 0.3, C: 0.2, D: 0.2, E: 0.1, F: 0.1 },
-                  'speed': { SSS: 0.6, SS: 0.5, S: 0.4, A: 0.3, B: 0.3, C: 0.2, D: 0.2, E: 0.1, F: 0.1 },
-                  'other': { SSS: 0.7, SS: 0.6, S: 0.5, A: 0.4, B: 0.4, C: 0.3, D: 0.3, E: 0.2, F: 0.2 },
-                };
+                // EX係数をEqConst.yamlから取得
+                const eqConstEX = gameData.eqConst?.Equipment_EX?.Rank;
                 const calculateExValue = (exType: string): number => {
                   const level = accessoryData.使用可能Lv || 1;
-                  const category = ['dex', 'critDamage', 'speed'].includes(exType) ? exType : 'other';
-                  const coeff = exCoeffTable[category][rank] || 0;
+                  let coeff = 0;
+                  if (exType === 'dex' && eqConstEX?.CritR) {
+                    coeff = eqConstEX.CritR[rank as keyof typeof eqConstEX.CritR] || 0;
+                  } else if ((exType === 'critDamage' || exType === 'speed') && eqConstEX?.Speed_CritD) {
+                    coeff = eqConstEX.Speed_CritD[rank as keyof typeof eqConstEX.Speed_CritD] || 0;
+                  } else if (eqConstEX?.Other) {
+                    coeff = eqConstEX.Other[rank as keyof typeof eqConstEX.Other] || 0;
+                  }
                   return Math.round(level * coeff + 1);
                 };
                 // EX1を加算
@@ -712,39 +763,61 @@ export const useBuildStore = create<BuildState>((set, get) => ({
 
       // SP割り振りからのステータスボーナスを計算
       let spBonusStats: StatBlock = {};
-      if (currentJobSPData && currentBuild.spAllocation) {
-        const spAllocation = {
-          A: currentBuild.spAllocation.A || 0,
-          B: currentBuild.spAllocation.B || 0,
-          C: currentBuild.spAllocation.C || 0,
-        };
+      // 職業%補正を取得（CSVから）
+      let jobBonusPercent: StatBlock = {};
 
-        // 各ブランチのボーナスを計算
-        const branchBonus = calculateBranchBonus(spAllocation, currentJobSPData);
+      if (currentJobSPData && currentJobSPData.length > 0) {
+        // SPツリーデータを変換して職業補正を取得
+        const spTree = convertToSPTree(currentJobSPData);
 
-        // 日本語キーを内部キーにマッピングして合算
-        const jpToInternal: Record<string, string> = {
-          '体力': 'HP',
-          '力': 'Power',
-          '魔力': 'Magic',
-          '精神': 'Mind',
-          '素早さ': 'Agility',
-          '器用さ': 'Dex',
-          '撃力': 'CritDamage',
-          '守備力': 'Defense',
-        };
+        // 職業補正(%)を取得（CSVの値は小数なので100倍してパーセント値に変換）
+        if (spTree.jobCorrection) {
+          const correction = spTree.jobCorrection;
+          // 小数値をパーセント値に変換（0.04 → 4%）
+          if (correction.HP !== undefined) jobBonusPercent['HP'] = correction.HP * 100;
+          if (correction.Power !== undefined) jobBonusPercent['Power'] = correction.Power * 100;
+          if (correction.Magic !== undefined) jobBonusPercent['Magic'] = correction.Magic * 100;
+          if (correction.Mind !== undefined) jobBonusPercent['Mind'] = correction.Mind * 100;
+          if (correction.Agility !== undefined) jobBonusPercent['Agility'] = correction.Agility * 100;
+          if (correction.Dex !== undefined) jobBonusPercent['Dex'] = correction.Dex * 100;
+          if (correction.CritDamage !== undefined) jobBonusPercent['CritDamage'] = correction.CritDamage * 100;
+          if (correction.Defense !== undefined) jobBonusPercent['Defense'] = correction.Defense * 100;
+        }
 
-        // 全ブランチのボーナスを合算
-        (['A', 'B', 'C'] as const).forEach(branch => {
-          const bonus = branchBonus[branch];
-          Object.entries(bonus).forEach(([jpKey, value]) => {
-            const internalKey = jpToInternal[jpKey];
-            if (internalKey && value) {
-              spBonusStats[internalKey as keyof StatBlock] =
-                ((spBonusStats[internalKey as keyof StatBlock] as number) || 0) + value;
-            }
+        if (currentBuild.spAllocation) {
+          const spAllocation = {
+            A: currentBuild.spAllocation.A || 0,
+            B: currentBuild.spAllocation.B || 0,
+            C: currentBuild.spAllocation.C || 0,
+          };
+
+          // 各ブランチのボーナスを計算
+          const branchBonus = calculateBranchBonus(spAllocation, currentJobSPData);
+
+          // 日本語キーを内部キーにマッピングして合算
+          const jpToInternal: Record<string, string> = {
+            '体力': 'HP',
+            '力': 'Power',
+            '魔力': 'Magic',
+            '精神': 'Mind',
+            '素早さ': 'Agility',
+            '器用さ': 'Dex',
+            '撃力': 'CritDamage',
+            '守備力': 'Defense',
+          };
+
+          // 全ブランチのボーナスを合算
+          (['A', 'B', 'C'] as const).forEach(branch => {
+            const bonus = branchBonus[branch];
+            Object.entries(bonus).forEach(([jpKey, value]) => {
+              const internalKey = jpToInternal[jpKey];
+              if (internalKey && value) {
+                spBonusStats[internalKey as keyof StatBlock] =
+                  ((spBonusStats[internalKey as keyof StatBlock] as number) || 0) + value;
+              }
+            });
           });
-        });
+        }
       }
 
       // 3. 最終ステータスを計算（新計算システム使用）
@@ -753,7 +826,7 @@ export const useBuildStore = create<BuildState>((set, get) => ({
         jobStats: {
           initial: jobStats,
           sp: spBonusStats,  // SP割り振りによるボーナス
-          bonusPercent: {}  // 職業のパーセントボーナス（必要に応じて追加）
+          bonusPercent: jobBonusPercent  // 職業のパーセントボーナス（CSVから取得）
         },
         food: foodEnabled && selectedFood ?
           selectedFood.effects.reduce((acc, effect) => {

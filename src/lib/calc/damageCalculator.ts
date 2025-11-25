@@ -50,7 +50,7 @@ export function calculateDamage(
                                 : input.options.damageCorrectionMode === 'max' ? 1.2
                                 : 1.0; // avg
 
-    // 基礎ダメージ計算
+    // 基礎ダメージ計算（職業補正による計算式上書きも考慮）
     const baseDamage = calculateBaseDamage(
       input.weaponType,
       input.weaponAttackPower,
@@ -59,10 +59,12 @@ export function calculateDamage(
       input.damageCorrection,
       input.userStats.final,
       weaponCalc,
-      input.options.damageCorrectionMode
+      input.options.damageCorrectionMode,
+      input.jobName
     );
 
-    // 職業補正の適用
+    // 職業補正（武器種指定の場合は基礎ダメージ計算で既に適用済み）
+    // ここではBonusパターンのみ処理される
     let correctedDamage = baseDamage;
     if (input.jobName) {
       correctedDamage = applyJobCorrection(
@@ -198,6 +200,7 @@ export function calculateDamage(
 /**
  * 基礎ダメージ計算
  * 武器種別ごとの計算式を適用
+ * 職業補正（武器種指定）がある場合はそちらの計算式を使用
  */
 export function calculateBaseDamage(
   weaponType: WeaponType,
@@ -207,23 +210,34 @@ export function calculateBaseDamage(
   damageCorrection: number,
   userStats: StatBlock,
   weaponCalc: WeaponCalcData,
-  damageCorrectionMode: 'min' | 'max' | 'avg'
+  damageCorrectionMode: 'min' | 'max' | 'avg',
+  jobName?: string
 ): number {
   // 武器種別を正規化（小文字に変換、最初を大文字に）
   const normalizedType = weaponType.toLowerCase();
   const formulaKey = normalizedType.charAt(0).toUpperCase() + normalizedType.slice(1);
-  
-  // 武器種別に対応する計算式を取得
-  const baseDamageFormula = weaponCalc.BasedDamage?.[formulaKey];
+
+  // 職業補正（武器種指定）がある場合はそちらの計算式を使用
+  // JobCorrection.職業名.武器種 が存在する場合、BasedDamageの計算式の代わりに使用
+  let baseDamageFormula: string | undefined;
+
+  if (jobName && weaponCalc.JobCorrection?.[jobName]?.[formulaKey]) {
+    // 職業補正の武器種指定計算式がある場合
+    baseDamageFormula = weaponCalc.JobCorrection[jobName][formulaKey];
+  } else {
+    // デフォルトの基礎ダメージ計算式を使用
+    baseDamageFormula = weaponCalc.BasedDamage?.[formulaKey];
+  }
+
   if (!baseDamageFormula) {
     throw new Error(`武器種別 '${weaponType}' の計算式が見つかりません`);
   }
-  
+
   // ダメージ補正の実際の値を計算
-  const actualDamageCorrection = damageCorrectionMode === 'min' ? 0.8 
+  const actualDamageCorrection = damageCorrectionMode === 'min' ? 0.8
                                : damageCorrectionMode === 'max' ? 1.2
                                : 1.0; // avg
-  
+
   // 計算式の変数を準備（仕様書に従ったプレースホルダー名）
   const userVars = mapUserStatsToVariables(userStats);
   const variables: Record<string, number> = {
@@ -239,7 +253,7 @@ export function calculateBaseDamage(
     // 特殊変数
     ComboCorrection: 1 // フライパンのコンボ補正（現時点では1として扱う）
   };
-  
+
   // 計算式の評価
   const result = evaluateFormulaString(baseDamageFormula, variables);
 
@@ -248,6 +262,8 @@ export function calculateBaseDamage(
 
 /**
  * 職業補正の適用
+ * 武器種指定パターンはcalculateBaseDamageで処理済み
+ * この関数はBonusパターン（最終ダメージに掛け算）を処理する
  */
 export function applyJobCorrection(
   baseDamage: number,
@@ -256,14 +272,26 @@ export function applyJobCorrection(
   userStats: StatBlock,
   weaponCalc: WeaponCalcData
 ): number {
-  // 職業補正の取得
-  const jobCorrectionFormula = weaponCalc.JobCorrection?.[jobName]?.[weaponType];
-  
-  if (!jobCorrectionFormula) {
-    // 職業補正がない場合は基礎ダメージをそのまま返す
+  // 武器種指定の職業補正は calculateBaseDamage で既に処理済み
+  // ここではBonusパターンのみを処理する
+  // 注: 武器種指定の職業補正がある場合、Bonusは適用しない
+  const normalizedType = weaponType.toLowerCase();
+  const formulaKey = normalizedType.charAt(0).toUpperCase() + normalizedType.slice(1);
+  const hasWeaponTypeCorrection = weaponCalc.JobCorrection?.[jobName]?.[formulaKey];
+
+  if (hasWeaponTypeCorrection) {
+    // 武器種指定の職業補正がある場合はBonusは適用しない
     return baseDamage;
   }
-  
+
+  // Bonusパターンの取得
+  const bonusFormula = weaponCalc.JobCorrection?.[jobName]?.['Bonus'];
+
+  if (!bonusFormula) {
+    // Bonus補正がない場合は基礎ダメージをそのまま返す
+    return baseDamage;
+  }
+
   // 計算式の変数を準備（仕様書に従ったプレースホルダー名）
   const userVars = mapUserStatsToVariables(userStats);
   const variables: Record<string, number> = {
@@ -272,11 +300,12 @@ export function applyJobCorrection(
     // ユーザーステータス（マッピング関数から取得）
     ...userVars
   };
-  
-  // 計算式の評価
-  const result = evaluateFormulaString(jobCorrectionFormula, variables);
 
-  return roundDown(result);
+  // Bonus計算式の評価（結果を基礎ダメージに掛け算）
+  const bonusMultiplier = evaluateFormulaString(bonusFormula, variables);
+
+  // Bonusは最終ダメージに掛け算
+  return roundDown(baseDamage * bonusMultiplier);
 }
 
 /**
@@ -635,13 +664,16 @@ export function evaluateFormulaString(
   try {
     // 変数名を置換
     let evaluableFormula = formula;
-    
+
+    // ln関数をlog関数に変換（mathjsではlogが自然対数）
+    evaluableFormula = evaluableFormula.replace(/\bln\(/g, 'log(');
+
     // <Level> などのパラメータを置換
     evaluableFormula = evaluableFormula.replace(/<Level>/g, (context.SkillLevel || context.Level || 1).toString());
     evaluableFormula = evaluableFormula.replace(/<AgilityFactor>/g, (context.Agility || 0).toString());
     evaluableFormula = evaluableFormula.replace(/<PowerFactor>/g, (context.Power || 0).toString());
     evaluableFormula = evaluableFormula.replace(/<MagicFactor>/g, (context.Magic || 0).toString());
-    
+
     // 変数名を実際の値に置換
     Object.entries(context).forEach(([key, value]) => {
       const regex = new RegExp(`\\b${key}\\b`, 'g');

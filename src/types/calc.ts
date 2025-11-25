@@ -252,6 +252,7 @@ export interface CalculatedStats {
     jobSP: StatBlock;          // SP由来
     food: StatBlock;           // 食べ物
     userOption: StatBlock;     // 高度設定
+    runestone?: StatBlock;     // ルーンストーン
   };
 
   // 基礎ステータス（%補正前）

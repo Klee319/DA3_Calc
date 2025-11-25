@@ -19,6 +19,7 @@ interface StatCardProps {
     equipment: number;
     skills: number;
     buffs: number;
+    percent: number;
   };
   icon?: React.ReactNode;
   color?: string;
@@ -77,8 +78,14 @@ const StatCard: React.FC<StatCardProps> = ({
       )}
       {breakdown.skills !== 0 && (
         <div className="flex justify-between">
-          <span>スキル:</span>
+          <span>SP割り当て:</span>
           <span className="ml-4">{breakdown.skills > 0 ? '+' : ''}{breakdown.skills}</span>
+        </div>
+      )}
+      {breakdown.percent !== 0 && (
+        <div className="flex justify-between">
+          <span>%補正:</span>
+          <span className="ml-4">{breakdown.percent > 0 ? '+' : ''}{breakdown.percent}</span>
         </div>
       )}
       {breakdown.buffs !== 0 && (
@@ -124,13 +131,13 @@ const StatCard: React.FC<StatCardProps> = ({
         </div>
 
         {/* 変化量インジケーター */}
-        {(breakdown.equipment !== 0 || breakdown.skills !== 0 || breakdown.buffs !== 0) && (
+        {(breakdown.equipment !== 0 || breakdown.skills !== 0 || breakdown.buffs !== 0 || breakdown.percent !== 0) && (
           <div className="mt-2 text-xs text-gray-600 dark:text-gray-400">
             {breakdown.base > 0 && `基本: ${breakdown.base}`}
-            {(breakdown.equipment + breakdown.skills + breakdown.buffs) !== 0 && (
-              <span className={`ml-1 ${(breakdown.equipment + breakdown.skills + breakdown.buffs) > 0 ? 'text-green-600' : 'text-red-600'}`}>
-                {(breakdown.equipment + breakdown.skills + breakdown.buffs) > 0 ? '+' : ''}
-                {breakdown.equipment + breakdown.skills + breakdown.buffs}
+            {(breakdown.equipment + breakdown.skills + breakdown.buffs + breakdown.percent) !== 0 && (
+              <span className={`ml-1 ${(breakdown.equipment + breakdown.skills + breakdown.buffs + breakdown.percent) > 0 ? 'text-green-600' : 'text-red-600'}`}>
+                {(breakdown.equipment + breakdown.skills + breakdown.buffs + breakdown.percent) > 0 ? '+' : ''}
+                {breakdown.equipment + breakdown.skills + breakdown.buffs + breakdown.percent}
               </span>
             )}
           </div>
@@ -267,6 +274,7 @@ export const StatViewer: React.FC<StatViewerProps> = ({
               equipment: stats.fromEquipment[config.key] || 0,
               skills: stats.fromSkills[config.key] || 0,
               buffs: stats.fromBuffs[config.key] || 0,
+              percent: stats.fromPercent?.[config.key] || 0,
             }}
             icon={config.icon}
             color={config.color}
@@ -294,9 +302,15 @@ export const StatViewer: React.FC<StatViewerProps> = ({
             </span>
           </div>
           <div>
-            <span className="text-gray-600 dark:text-gray-400">スキル補正:</span>
+            <span className="text-gray-600 dark:text-gray-400">SP割り当て:</span>
             <span className="ml-2 font-semibold text-blue-600 dark:text-blue-400">
               +{Object.values(stats.fromSkills).reduce((sum, val) => sum + (val || 0), 0).toLocaleString()}
+            </span>
+          </div>
+          <div>
+            <span className="text-gray-600 dark:text-gray-400">%補正:</span>
+            <span className="ml-2 font-semibold text-orange-600 dark:text-orange-400">
+              +{Object.values(stats.fromPercent || {}).reduce((sum, val) => sum + (val || 0), 0).toLocaleString()}
             </span>
           </div>
           <div>
