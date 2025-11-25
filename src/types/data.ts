@@ -125,21 +125,59 @@ export interface AccessoryData {
   最高ランク?: string;
 }
 
+/**
+ * 紋章データ型定義
+ * CSVカラム: アイテム名,使用可能Lv,力（%不要）,魔力（%不要）,体力（%不要）,精神（%不要）,素早さ（%不要）,器用（%不要）,撃力（%不要）,守備力（%不要）
+ * 注: 各ステータスは%補正として扱う（CSVには%記号なしで記載されているが実際は%補正）
+ */
 export interface EmblemData {
   アイテム名: string;
-  タイプ: string;
-  効果: string;
-  数値: number;
-  入手方法?: string;
+  使用可能Lv: number;
+  '力（%不要）'?: number;
+  '魔力（%不要）'?: number;
+  '体力（%不要）'?: number;
+  '精神（%不要）'?: number;
+  '素早さ（%不要）'?: number;
+  '器用（%不要）'?: number;
+  '撃力（%不要）'?: number;
+  '守備力（%不要）'?: number;
 }
 
+/**
+ * ルーンストーン耐性データ型定義
+ */
+export interface RunestoneResistance {
+  type: string;
+  value: number;
+}
+
+/**
+ * ルーンストーンのグレード型定義
+ */
+export type RunestoneGrade = 'ノーマル' | 'グレート' | 'バスター' | 'レプリカ';
+
+/**
+ * ルーンストーンデータ型定義
+ * CSVカラム: アイテム名（・<グレード>）は不要,グレード,力,魔力,体力,精神,素早さ,器用,撃力,守備力,耐性１,値(%除く),耐性２,値,耐性３,値,耐性４,値,耐性５,値,耐性６,値
+ * 注: 同グレードは1つまで装備可能
+ */
 export interface RunestoneData {
-  アイテム名: string;
-  タイプ: string;
-  効果: string;
-  数値: number;
-  セット効果?: string;
-  セット数値?: number;
+  'アイテム名（・<グレード>）は不要': string;
+  グレード: RunestoneGrade;
+  力?: number;
+  魔力?: number;
+  体力?: number;
+  精神?: number;
+  素早さ?: number;
+  器用?: number;
+  撃力?: number;
+  守備力?: number;
+  耐性1?: RunestoneResistance;
+  耐性2?: RunestoneResistance;
+  耐性3?: RunestoneResistance;
+  耐性4?: RunestoneResistance;
+  耐性5?: RunestoneResistance;
+  耐性6?: RunestoneResistance;
 }
 
 export interface FoodData {

@@ -209,6 +209,9 @@ export interface StatusCalcInput {
   // 紋章%補正
   emblemBonusPercent: StatBlock;
 
+  // ルーンストーンボーナス（固定値加算）
+  runestoneBonus?: StatBlock;
+
   // 食べ物
   food?: StatBlock;
 

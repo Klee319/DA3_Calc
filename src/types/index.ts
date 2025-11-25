@@ -54,6 +54,12 @@ export type EquipmentSourceData =
   | { type: 'armor'; data: import('@/types/data').ArmorData }
   | { type: 'accessory'; data: import('@/types/data').AccessoryData };
 
+// EXステータス設定（防具・アクセサリー用）
+export interface ExStats {
+  ex1?: string;  // EXステータス1の種類
+  ex2?: string;  // EXステータス2の種類
+}
+
 // 装備
 export interface Equipment {
   id: string;
@@ -73,6 +79,8 @@ export interface Equipment {
   // パラメータ別叩き回数
   smithingCounts?: SmithingCounts;
   alchemyEnabled?: boolean;
+  // EXステータス（防具・アクセサリー用）
+  exStats?: ExStats;
   // 元データへの参照（計算システム用）
   sourceData?: EquipmentSourceData;
 }

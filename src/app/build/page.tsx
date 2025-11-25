@@ -7,11 +7,13 @@ import { JobSelector } from '@/components/JobSelector';
 import { LevelInput } from '@/components/LevelInput';
 import { SPSlider } from '@/components/SPSlider';
 import { EquipmentSlot } from '@/components/EquipmentSlot';
+import { EmblemSlot } from '@/components/EmblemSlot';
+import { RunestoneSlot } from '@/components/RunestoneSlot';
 import { StatViewer } from '@/components/StatViewer';
 import { CustomSelect, CustomSelectOption } from '@/components/CustomSelect';
 import { DamageCalculationSection } from '@/components/DamageCalculationSection';
-import { EquipSlot, Job, Equipment, Skill, StatType, WeaponType, ArmorType, StatEffect, SmithingCounts } from '@/types';
-import { FoodData } from '@/types/data';
+import { EquipSlot, Job, Equipment, Skill, StatType, WeaponType, ArmorType, StatEffect, SmithingCounts, ExStats } from '@/types';
+import { FoodData, EmblemData, RunestoneData } from '@/types/data';
 import { calculateUnlockedSkills, getReachedTier, getNextSkillInfo, calculateBranchBonus, getMaxSPByBranch } from '@/lib/calc/jobCalculator';
 import {
   convertJobNameToYAML,
@@ -57,10 +59,11 @@ export default function BuildPage() {
     { id: 0, label: '職業', icon: '👤' },
     { id: 1, label: 'SP割り振り', icon: '📊' },
     { id: 2, label: '装備', icon: '⚔️' },
-    { id: 3, label: '食事・指輪', icon: '🍖' },
-    { id: 4, label: '最終ステータス', icon: '📈' },
-    { id: 5, label: 'スキル/通常攻撃', icon: '✨' },
-    { id: 6, label: '結果', icon: '🎯' },
+    { id: 3, label: '紋章・ルーンストーン', icon: '💎' },
+    { id: 4, label: '食事・指輪', icon: '🍖' },
+    { id: 5, label: '最終ステータス', icon: '📈' },
+    { id: 6, label: 'スキル/通常攻撃', icon: '✨' },
+    { id: 7, label: '結果', icon: '🎯' },
   ];
 
   const {
@@ -69,11 +72,15 @@ export default function BuildPage() {
     availableJobs,
     availableEquipment,
     availableFoods,
+    availableEmblems,
+    availableRunestones,
     userOption,
     ringOption,
     selectedFood,
     foodEnabled,
     weaponSkillEnabled,
+    selectedEmblem,
+    selectedRunestones,
     gameData,
     setJob,
     setLevel,
@@ -84,9 +91,13 @@ export default function BuildPage() {
     setFood,
     toggleFood,
     toggleWeaponSkill,
+    setEmblem,
+    setRunestones,
     setAvailableJobs,
     setAvailableEquipment,
     setAvailableFoods,
+    setAvailableEmblems,
+    setAvailableRunestones,
     setGameData,
   } = useBuildStore();
 
@@ -464,6 +475,11 @@ export default function BuildPage() {
         setAvailableJobs(jobs);
         setAvailableEquipment(equipments);
         setAvailableFoods(foods);
+
+        // 紋章とルーンストーンデータを設定
+        setAvailableEmblems(gameData.csv.emblems);
+        setAvailableRunestones(gameData.csv.runestones);
+
         setIsLoading(false);
       } catch (error) {
         console.error('Failed to load game data:', error);
@@ -472,7 +488,7 @@ export default function BuildPage() {
     };
 
     loadGameData();
-  }, [setAvailableJobs, setAvailableEquipment, setAvailableFoods, setGameData]);
+  }, [setAvailableJobs, setAvailableEquipment, setAvailableFoods, setAvailableEmblems, setAvailableRunestones, setGameData]);
 
   // SP割り振りが変更されたら解放スキルを再計算
   useEffect(() => {
@@ -872,6 +888,12 @@ export default function BuildPage() {
                         setEquipment(slot, { ...currentEquipment, alchemyEnabled: enabled });
                       }
                     }}
+                    exStats={currentEquipment?.exStats || {}}
+                    onExStatsChange={(exStats) => {
+                      if (currentEquipment) {
+                        setEquipment(slot, { ...currentEquipment, exStats });
+                      }
+                    }}
                     disabled={!currentBuild.job}
                   />
                 );
@@ -880,8 +902,30 @@ export default function BuildPage() {
           </div>
         )}
 
-        {/* タブ3: 食事・指輪 */}
+        {/* タブ3: 紋章・ルーンストーン */}
         {activeTab === 3 && (
+          <div className="space-y-6">
+            {/* 紋章セクション */}
+            <EmblemSlot
+              emblem={selectedEmblem}
+              availableEmblems={availableEmblems}
+              onEmblemChange={setEmblem}
+              disabled={!currentBuild.job}
+              characterLevel={currentBuild.level}
+            />
+
+            {/* ルーンストーンセクション */}
+            <RunestoneSlot
+              selectedRunes={selectedRunestones}
+              availableRunes={availableRunestones}
+              onRunesChange={setRunestones}
+              disabled={!currentBuild.job}
+            />
+          </div>
+        )}
+
+        {/* タブ4: 食事・指輪 */}
+        {activeTab === 4 && (
           <div className="glass-card p-8">
             <h2 className="text-2xl font-semibold mb-6 flex items-center gap-2">
               <span className="text-3xl">🍖</span>
@@ -969,8 +1013,8 @@ export default function BuildPage() {
           </div>
         )}
 
-        {/* タブ4: 最終ステータス */}
-        {activeTab === 4 && (
+        {/* タブ5: 最終ステータス */}
+        {activeTab === 5 && (
           <div className="space-y-6">
             {/* 最終ステータス表示 */}
             <div className="glass-card p-8">
@@ -1052,8 +1096,8 @@ export default function BuildPage() {
           </div>
         )}
 
-        {/* タブ5: スキル/通常攻撃 */}
-        {activeTab === 5 && (
+        {/* タブ6: スキル/通常攻撃 */}
+        {activeTab === 6 && (
           <div className="space-y-6">
             {/* 通常攻撃設定 */}
             <div className="glass-card p-8">
@@ -1218,8 +1262,8 @@ export default function BuildPage() {
           </div>
         )}
 
-        {/* タブ6: 結果 */}
-        {activeTab === 6 && (
+        {/* タブ7: 結果 */}
+        {activeTab === 7 && (
           <div className="glass-card p-8">
             <h2 className="text-2xl font-semibold mb-6 flex items-center gap-2">
               <span className="text-3xl">🎯</span>

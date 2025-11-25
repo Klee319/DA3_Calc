@@ -156,6 +156,10 @@ interface BuildState {
   availableBuffs: Buff[];
   // 利用可能な食べ物リスト
   availableFoods: Food[];
+  // 利用可能な紋章リスト
+  availableEmblems: EmblemData[];
+  // 利用可能なルーンストーンリスト
+  availableRunestones: RunestoneData[];
 
   // 計算用データ
   gameData: {
@@ -171,6 +175,10 @@ interface BuildState {
   selectedFood: Food | null;
   foodEnabled: boolean;
   weaponSkillEnabled: boolean;
+
+  // 紋章・ルーンストーン選択
+  selectedEmblem: EmblemData | null;
+  selectedRunestones: RunestoneData[];
 
   // アクション
   setJob: (job: Job | null) => void;
@@ -193,7 +201,13 @@ interface BuildState {
   setAvailableEquipment: (equipment: Equipment[]) => void;
   setAvailableBuffs: (buffs: Buff[]) => void;
   setAvailableFoods: (foods: Food[]) => void;
-  
+  setAvailableEmblems: (emblems: EmblemData[]) => void;
+  setAvailableRunestones: (runestones: RunestoneData[]) => void;
+
+  // 紋章・ルーンストーン設定
+  setEmblem: (emblem: EmblemData | null) => void;
+  setRunestones: (runestones: RunestoneData[]) => void;
+
   // ゲームデータ設定
   setGameData: (data: {
     eqConst?: EqConstData;
@@ -213,6 +227,8 @@ export const useBuildStore = create<BuildState>((set, get) => ({
   availableEquipment: [],
   availableBuffs: [],
   availableFoods: [],
+  availableEmblems: [],
+  availableRunestones: [],
   gameData: {},
   userOption: {
     manualStats: {},
@@ -224,6 +240,8 @@ export const useBuildStore = create<BuildState>((set, get) => ({
   selectedFood: null,
   foodEnabled: false,
   weaponSkillEnabled: false,
+  selectedEmblem: null,
+  selectedRunestones: [],
 
   setJob: (job) => {
     const state = get();
@@ -331,12 +349,24 @@ export const useBuildStore = create<BuildState>((set, get) => ({
   setAvailableEquipment: (equipment) => set({ availableEquipment: equipment }),
   setAvailableBuffs: (buffs) => set({ availableBuffs: buffs }),
   setAvailableFoods: (foods) => set({ availableFoods: foods }),
-  
+  setAvailableEmblems: (emblems) => set({ availableEmblems: emblems }),
+  setAvailableRunestones: (runestones) => set({ availableRunestones: runestones }),
+
+  setEmblem: (emblem) => {
+    set({ selectedEmblem: emblem });
+    get().recalculateStats();
+  },
+
+  setRunestones: (runestones) => {
+    set({ selectedRunestones: runestones });
+    get().recalculateStats();
+  },
+
   setGameData: (data) => set({ gameData: data }),
 
   recalculateStats: () => {
     const state = get();
-    const { currentBuild, userOption, ringOption, selectedFood, foodEnabled, gameData, weaponSkillEnabled } = state;
+    const { currentBuild, userOption, ringOption, selectedFood, foodEnabled, gameData, weaponSkillEnabled, selectedEmblem, selectedRunestones } = state;
 
     // 必要なゲームデータがない場合は計算をスキップ
     if (!gameData.eqConst || !gameData.jobConst) {
@@ -495,7 +525,31 @@ export const useBuildStore = create<BuildState>((set, get) => ({
           bonusPercent: {} // リングデータから計算（実装が必要）
         } : undefined,
         weaponCritRate: weaponCritRateValue,
-        emblemBonusPercent: {} // 紋章ボーナス（実装が必要）
+        // 紋章ボーナスを計算（%補正として適用）
+        // StatTypeに対応するキー（ATK, MATK, HP, MDEF, AGI, DEX, CRI, DEF）を使用
+        emblemBonusPercent: selectedEmblem ? {
+          ATK: selectedEmblem['力（%不要）'] || 0,
+          MATK: selectedEmblem['魔力（%不要）'] || 0,
+          HP: selectedEmblem['体力（%不要）'] || 0,
+          MDEF: selectedEmblem['精神（%不要）'] || 0,
+          AGI: selectedEmblem['素早さ（%不要）'] || 0,
+          DEX: selectedEmblem['器用（%不要）'] || 0,
+          CRI: selectedEmblem['撃力（%不要）'] || 0,
+          DEF: selectedEmblem['守備力（%不要）'] || 0,
+        } : {},
+        // ルーンストーンボーナスを計算（固定値加算）
+        // StatTypeに対応するキーを使用
+        runestoneBonus: selectedRunestones.reduce((acc, rune) => {
+          if (rune.力) acc['ATK'] = (acc['ATK'] || 0) + rune.力;
+          if (rune.魔力) acc['MATK'] = (acc['MATK'] || 0) + rune.魔力;
+          if (rune.体力) acc['HP'] = (acc['HP'] || 0) + rune.体力;
+          if (rune.精神) acc['MDEF'] = (acc['MDEF'] || 0) + rune.精神;
+          if (rune.素早さ) acc['AGI'] = (acc['AGI'] || 0) + rune.素早さ;
+          if (rune.器用) acc['DEX'] = (acc['DEX'] || 0) + rune.器用;
+          if (rune.撃力) acc['CRI'] = (acc['CRI'] || 0) + rune.撃力;
+          if (rune.守備力) acc['DEF'] = (acc['DEF'] || 0) + rune.守備力;
+          return acc;
+        }, {} as Record<string, number>),
       };
 
       const result = calculateStatus(statusInput);

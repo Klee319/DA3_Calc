@@ -693,12 +693,31 @@ export function calculateAccessoryStats(
 /**
  * 紋章ステータス計算
  * 仕様書 §3.5, §5.2 に基づく
+ * CSVカラム: アイテム名,使用可能Lv,力（%不要）,魔力（%不要）,体力（%不要）,精神（%不要）,素早さ（%不要）,器用（%不要）,撃力（%不要）,守備力（%不要）
  */
 export function calculateEmblemStats(emblem: EmblemData): EquipmentStats {
-  // 紋章は%ボーナスとして扱う
-  // CSVの「効果」フィールドがステータスタイプ
-  const statType = emblem.効果;
-  const bonusValue = emblem.数値;
+  // 紋章は%ボーナスとして扱う（CSVには%記号なしで記載）
+  const finalStats: StatBlock = {};
+
+  // 各ステータスフィールドをマッピング
+  const statMapping: { [key: string]: string } = {
+    '力（%不要）': 'power_percent',
+    '魔力（%不要）': 'magic_percent',
+    '体力（%不要）': 'health_percent',
+    '精神（%不要）': 'spirit_percent',
+    '素早さ（%不要）': 'speed_percent',
+    '器用（%不要）': 'dex_percent',
+    '撃力（%不要）': 'critDamage_percent',
+    '守備力（%不要）': 'defence_percent',
+  };
+
+  // 各ステータス値を%ボーナスとして追加
+  for (const [csvKey, statKey] of Object.entries(statMapping)) {
+    const value = emblem[csvKey as keyof EmblemData] as number | undefined;
+    if (value && value > 0) {
+      finalStats[statKey] = value;
+    }
+  }
 
   // 結果構築（%ボーナスとして保存）
   const result: EquipmentStats = {
@@ -707,9 +726,7 @@ export function calculateEmblemStats(emblem: EmblemData): EquipmentStats {
     reinforcement: {},
     forge: {},
     alchemy: {},
-    final: {
-      [`${statType}_percent`]: bonusValue, // %補正として保存
-    },
+    final: finalStats,
   };
 
   return result;
@@ -720,44 +737,48 @@ export function calculateEmblemStats(emblem: EmblemData): EquipmentStats {
 /**
  * ルーンストーンステータス計算
  * 仕様書 §3.6, §6.2 に基づく
+ * CSVカラム: アイテム名（・<グレード>）は不要,グレード,力,魔力,体力,精神,素早さ,器用,撃力,守備力,耐性１,値(%除く),耐性２,値,...
  */
 export function calculateRuneStats(runes: RunestoneData[]): EquipmentStats {
   // グレード重複チェック
   const grades = new Set<string>();
   for (const rune of runes) {
-    if (grades.has(rune.タイプ)) {
-      throw new Error(`Duplicate rune grade: ${rune.タイプ}`);
+    if (grades.has(rune.グレード)) {
+      throw new Error(`Duplicate rune grade: ${rune.グレード}`);
     }
-    grades.add(rune.タイプ);
+    grades.add(rune.グレード);
   }
 
-  // 各グレードから1個ずつまで
-  const validGrades = ['ノーマル', 'グレート', 'バスター', 'レプリカ'];
+  // 各グレードから1個ずつまで（最大4種）
   if (runes.length > 4) {
     throw new Error('Maximum 4 runes allowed');
   }
 
   // ステータス合算
   const finalStats: StatBlock = {};
-  for (const rune of runes) {
-    // 効果フィールドがステータスタイプ
-    const statType = rune.効果;
-    const statValue = rune.数値;
-    
-    if (!finalStats[statType]) {
-      finalStats[statType] = 0;
-    }
-    finalStats[statType] += statValue;
 
-    // セット効果があれば追加
-    if (rune.セット効果 && rune.セット数値) {
-      const setStatType = rune.セット効果;
-      const setStatValue = rune.セット数値;
-      
-      if (!finalStats[setStatType]) {
-        finalStats[setStatType] = 0;
+  // ステータスフィールドのマッピング
+  const statMapping: { [key: string]: string } = {
+    '力': 'power',
+    '魔力': 'magic',
+    '体力': 'health',
+    '精神': 'spirit',
+    '素早さ': 'speed',
+    '器用': 'dex',
+    '撃力': 'critDamage',
+    '守備力': 'defence',
+  };
+
+  for (const rune of runes) {
+    // 各ステータス値を合算
+    for (const [csvKey, statKey] of Object.entries(statMapping)) {
+      const value = rune[csvKey as keyof RunestoneData] as number | undefined;
+      if (value && value > 0) {
+        if (!finalStats[statKey]) {
+          finalStats[statKey] = 0;
+        }
+        finalStats[statKey] += value;
       }
-      finalStats[setStatType] += setStatValue;
     }
   }
 

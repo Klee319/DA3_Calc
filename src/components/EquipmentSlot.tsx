@@ -28,6 +28,44 @@ const SMITHING_BONUS = {
   Other: 2,    // その他のパラメータの叩き1回あたり+2
 } as const;
 
+// EXステータスのオプション定義
+const EX_STAT_OPTIONS = [
+  { value: 'power', label: '力', category: 'Other' as const },
+  { value: 'magic', label: '魔力', category: 'Other' as const },
+  { value: 'hp', label: '体力', category: 'Other' as const },
+  { value: 'mind', label: '精神', category: 'Other' as const },
+  { value: 'speed', label: '素早さ', category: 'Speed_CritD' as const },
+  { value: 'dex', label: '器用', category: 'CritR' as const },
+  { value: 'critDamage', label: '撃力', category: 'Speed_CritD' as const },
+  { value: 'defense', label: '守備力', category: 'Other' as const },
+];
+
+// EX値計算のカテゴリ型
+type ExCategory = 'CritR' | 'Speed_CritD' | 'Other';
+
+// EX値計算関数（EqConst.yaml準拠）
+const calculateExValue = (level: number, rank: string, category: ExCategory): number => {
+  const coefficients = {
+    CritR: { SSS: 0.15, SS: 0.13, S: 0.11, A: 0.09, B: 0.09, C: 0.07, D: 0.07, E: 0.05, F: 0.05 },
+    Speed_CritD: { SSS: 0.6, SS: 0.5, S: 0.4, A: 0.3, B: 0.3, C: 0.2, D: 0.2, E: 0.1, F: 0.1 },
+    Other: { SSS: 0.7, SS: 0.6, S: 0.5, A: 0.4, B: 0.4, C: 0.3, D: 0.3, E: 0.2, F: 0.2 },
+  };
+  const coeff = coefficients[category][rank as keyof typeof coefficients.CritR] || 0;
+  return Math.round(level * coeff + 1);
+};
+
+// EXステータス値からカテゴリを取得する関数
+const getExCategory = (exStatValue: string): ExCategory => {
+  const option = EX_STAT_OPTIONS.find(o => o.value === exStatValue);
+  return option?.category || 'Other';
+};
+
+// EXステータスの型定義
+interface ExStats {
+  ex1?: string;
+  ex2?: string;
+}
+
 interface EquipmentSlotProps {
   slot: EquipSlot;
   equipment: Equipment | null;
@@ -54,6 +92,9 @@ interface EquipmentSlotProps {
   onSmithingDetailsChange?: (details: Record<string, number>) => void;
   hasAlchemy?: boolean;
   onAlchemyChange?: (enabled: boolean) => void;
+  // EXステータス関連（防具・アクセサリー用）
+  exStats?: ExStats;
+  onExStatsChange?: (exStats: ExStats) => void;
   disabled?: boolean;
   className?: string;
 }
@@ -79,6 +120,8 @@ export const EquipmentSlot: React.FC<EquipmentSlotProps> = ({
   onSmithingDetailsChange,
   hasAlchemy = false,
   onAlchemyChange,
+  exStats = {},
+  onExStatsChange,
   disabled = false,
   className = '',
 }) => {
@@ -117,8 +160,8 @@ export const EquipmentSlot: React.FC<EquipmentSlotProps> = ({
       head: '頭装備',
       body: '胴装備',
       leg: '脚装備',
-      accessory1: 'アクセサリー1',
-      accessory2: 'アクセサリー2',
+      accessory1: 'ネックレス',
+      accessory2: 'ブレスレット',
     };
     return slotNames[slot] || slot;
   };
@@ -609,6 +652,69 @@ export const EquipmentSlot: React.FC<EquipmentSlotProps> = ({
                       />
                     </div>
                   )}
+                </div>
+              )}
+
+              {/* EXステータス選択（防具・アクセサリーのみ） */}
+              {slot !== 'weapon' && equipment && (
+                <div className="p-4 bg-gradient-to-br from-cyan-900/30 to-teal-900/30 rounded-lg border border-cyan-700/50">
+                  <h4 className="text-sm font-medium text-cyan-300 mb-3">EXステータス</h4>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-xs text-gray-400 mb-1">EX1</label>
+                      <CustomSelect
+                        options={[
+                          { value: '', label: '未選択' },
+                          ...EX_STAT_OPTIONS.map(o => ({ value: o.value, label: o.label }))
+                        ]}
+                        value={exStats?.ex1 || ''}
+                        onChange={(v) => onExStatsChange?.({ ...exStats, ex1: v || undefined })}
+                        placeholder="EX1を選択"
+                        disabled={disabled}
+                        showIcon={false}
+                        onOpenChange={(open) => setIsSelectOpen(open)}
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs text-gray-400 mb-1">EX2</label>
+                      <CustomSelect
+                        options={[
+                          { value: '', label: '未選択' },
+                          ...EX_STAT_OPTIONS.map(o => ({ value: o.value, label: o.label }))
+                        ]}
+                        value={exStats?.ex2 || ''}
+                        onChange={(v) => onExStatsChange?.({ ...exStats, ex2: v || undefined })}
+                        placeholder="EX2を選択"
+                        disabled={disabled}
+                        showIcon={false}
+                        onOpenChange={(open) => setIsSelectOpen(open)}
+                      />
+                    </div>
+                  </div>
+                  {/* EX値の表示 */}
+                  {(exStats?.ex1 || exStats?.ex2) && (
+                    <div className="mt-3 pt-3 border-t border-cyan-700/30 flex flex-wrap gap-3 text-xs">
+                      {exStats?.ex1 && (
+                        <div className="px-2 py-1 bg-cyan-900/40 rounded">
+                          <span className="text-cyan-400">EX1 {EX_STAT_OPTIONS.find(o => o.value === exStats.ex1)?.label}: </span>
+                          <span className="text-cyan-200 font-semibold">
+                            +{calculateExValue(equipment.requiredLevel || 1, rank, getExCategory(exStats.ex1))}
+                          </span>
+                        </div>
+                      )}
+                      {exStats?.ex2 && (
+                        <div className="px-2 py-1 bg-cyan-900/40 rounded">
+                          <span className="text-cyan-400">EX2 {EX_STAT_OPTIONS.find(o => o.value === exStats.ex2)?.label}: </span>
+                          <span className="text-cyan-200 font-semibold">
+                            +{calculateExValue(equipment.requiredLevel || 1, rank, getExCategory(exStats.ex2))}
+                          </span>
+                        </div>
+                      )}
+                    </div>
+                  )}
+                  <div className="mt-2 text-xs text-gray-500">
+                    EX値 = ROUND(使用可能Lv x ランク係数 + 1)
+                  </div>
                 </div>
               )}
             </div>
