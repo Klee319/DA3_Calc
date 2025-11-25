@@ -2,7 +2,7 @@
 
 import React, { useState, useMemo, useEffect } from 'react';
 import { Equipment, EquipSlot, SmithingCounts, SmithingParamType, StatType } from '@/types';
-import { ArmorData } from '@/types/data';
+import { ArmorData, EqConstData } from '@/types/data';
 import { Toggle } from '@/components/ui/Toggle';
 import { NumberInput } from '@/components/ui/NumberInput';
 import { Tooltip } from '@/components/ui/Tooltip';
@@ -35,20 +35,18 @@ const STAT_TO_SMITHING_PARAM: Partial<Record<StatType, SmithingParamType>> = {
 // 最大叩き回数
 const MAX_SMITHING_COUNT = 12;
 
-// 叩きボーナス値（EqConst.yaml Armor.Forge に基づく）
-const SMITHING_BONUS = {
+// デフォルト値（YAMLがロードされていない場合のフォールバック）
+const DEFAULT_SMITHING_BONUS = {
   Defence: 1,  // 守備力の叩き1回あたり+1
   Other: 2,    // その他のパラメータの叩き1回あたり+2
 } as const;
 
-// 強化ボーナス値（EqConst.yaml Armor.Reinforcement に基づく）
-const REINFORCEMENT_BONUS = {
-  Defence: 2,  // 守備力の強化1回あたり+2
+const DEFAULT_REINFORCEMENT_BONUS = {
+  Defence: 2,  // 守備力の強化1回あたり+2（EqConst.yaml準拠）
   Other: 2,    // その他のパラメータの強化1回あたり+2
 } as const;
 
-// 武器の叩きボーナス値（EqConst.yaml Weapon.Forge.Other: 1 に基づく）
-const WEAPON_SMITHING_BONUS = 1;  // すべてのパラメータで1回あたり+1
+const DEFAULT_WEAPON_SMITHING_BONUS = 1;  // すべてのパラメータで1回あたり+1
 
 // 武器用叩きパラメータ
 type WeaponSmithingParamType = '攻撃力' | '会心率' | '会心ダメージ';
@@ -121,6 +119,8 @@ interface EquipmentSlotProps {
   // EXステータス関連（防具・アクセサリー用）
   exStats?: ExStats;
   onExStatsChange?: (exStats: ExStats) => void;
+  // YAML設定データ（計算用）
+  eqConst?: EqConstData;
   disabled?: boolean;
   className?: string;
 }
@@ -148,9 +148,24 @@ export const EquipmentSlot: React.FC<EquipmentSlotProps> = ({
   onAlchemyChange,
   exStats = {},
   onExStatsChange,
+  eqConst,
   disabled = false,
   className = '',
 }) => {
+  // YAMLから係数を取得（フォールバック付き）
+  const SMITHING_BONUS = useMemo(() => ({
+    Defence: eqConst?.Armor?.Forge?.Defence ?? DEFAULT_SMITHING_BONUS.Defence,
+    Other: eqConst?.Armor?.Forge?.Other ?? DEFAULT_SMITHING_BONUS.Other,
+  }), [eqConst]);
+
+  const REINFORCEMENT_BONUS = useMemo(() => ({
+    Defence: eqConst?.Armor?.Reinforcement?.Defence ?? DEFAULT_REINFORCEMENT_BONUS.Defence,
+    Other: eqConst?.Armor?.Reinforcement?.Other ?? DEFAULT_REINFORCEMENT_BONUS.Other,
+  }), [eqConst]);
+
+  const WEAPON_SMITHING_BONUS = useMemo(() =>
+    eqConst?.Weapon?.Forge?.Other ?? DEFAULT_WEAPON_SMITHING_BONUS
+  , [eqConst]);
   const [showSmithingDetails, setShowSmithingDetails] = useState(false);
   const [showAdvancedSettings, setShowAdvancedSettings] = useState(true);
   const [isSelectOpen, setIsSelectOpen] = useState(false);

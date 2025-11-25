@@ -1102,6 +1102,7 @@ export default function BuildPage() {
                         setEquipment(slot, { ...currentEquipment, exStats });
                       }
                     }}
+                    eqConst={gameData?.eqConst}
                     disabled={!currentBuild.job}
                   />
                 );

@@ -45,6 +45,9 @@ const StatCard: React.FC<StatCardProps> = ({
       purple: 'bg-purple-50 dark:bg-purple-900/20 border-purple-200 dark:border-purple-800',
       yellow: 'bg-yellow-50 dark:bg-yellow-900/20 border-yellow-200 dark:border-yellow-800',
       gray: 'bg-gray-50 dark:bg-gray-900/20 border-gray-200 dark:border-gray-800',
+      cyan: 'bg-cyan-50 dark:bg-cyan-900/20 border-cyan-200 dark:border-cyan-800',
+      emerald: 'bg-emerald-50 dark:bg-emerald-900/20 border-emerald-200 dark:border-emerald-800',
+      white: 'bg-white dark:bg-gray-700/30 border-gray-300 dark:border-gray-500',
     };
     return colors[color as keyof typeof colors] || colors.blue;
   };
@@ -57,6 +60,9 @@ const StatCard: React.FC<StatCardProps> = ({
       purple: 'text-purple-600 dark:text-purple-400',
       yellow: 'text-yellow-600 dark:text-yellow-400',
       gray: 'text-gray-600 dark:text-gray-400',
+      cyan: 'text-cyan-600 dark:text-cyan-400',
+      emerald: 'text-emerald-600 dark:text-emerald-400',
+      white: 'text-gray-800 dark:text-white',
     };
     return colors[color as keyof typeof colors] || colors.blue;
   };
@@ -109,6 +115,7 @@ const StatCard: React.FC<StatCardProps> = ({
         className={`
           relative p-4 rounded-lg border-2 cursor-pointer transition-all
           hover:shadow-lg hover:scale-105 ${getColorClasses()}
+          min-h-[110px] flex flex-col justify-between
         `}
         onMouseEnter={() => setShowDetails(true)}
         onMouseLeave={() => setShowDetails(false)}
@@ -130,18 +137,22 @@ const StatCard: React.FC<StatCardProps> = ({
           {value.toLocaleString()}
         </div>
 
-        {/* 変化量インジケーター */}
-        {(breakdown.equipment !== 0 || breakdown.skills !== 0 || breakdown.buffs !== 0 || breakdown.percent !== 0) && (
-          <div className="mt-2 text-xs text-gray-600 dark:text-gray-400">
-            {breakdown.base > 0 && `基本: ${breakdown.base}`}
-            {(breakdown.equipment + breakdown.skills + breakdown.buffs + breakdown.percent) !== 0 && (
-              <span className={`ml-1 ${(breakdown.equipment + breakdown.skills + breakdown.buffs + breakdown.percent) > 0 ? 'text-green-600' : 'text-red-600'}`}>
-                {(breakdown.equipment + breakdown.skills + breakdown.buffs + breakdown.percent) > 0 ? '+' : ''}
-                {breakdown.equipment + breakdown.skills + breakdown.buffs + breakdown.percent}
-              </span>
-            )}
-          </div>
-        )}
+        {/* 変化量インジケーター - 常に高さを確保 */}
+        <div className="mt-2 text-xs text-gray-600 dark:text-gray-400 min-h-[16px]">
+          {(breakdown.equipment !== 0 || breakdown.skills !== 0 || breakdown.buffs !== 0 || breakdown.percent !== 0) ? (
+            <>
+              {breakdown.base > 0 && `基本: ${breakdown.base}`}
+              {(breakdown.equipment + breakdown.skills + breakdown.buffs + breakdown.percent) !== 0 && (
+                <span className={`ml-1 ${(breakdown.equipment + breakdown.skills + breakdown.buffs + breakdown.percent) > 0 ? 'text-green-600' : 'text-red-600'}`}>
+                  {(breakdown.equipment + breakdown.skills + breakdown.buffs + breakdown.percent) > 0 ? '+' : ''}
+                  {breakdown.equipment + breakdown.skills + breakdown.buffs + breakdown.percent}
+                </span>
+              )}
+            </>
+          ) : (
+            <span>&nbsp;</span>
+          )}
+        </div>
       </div>
     </Tooltip>
   );
@@ -152,11 +163,14 @@ export const StatViewer: React.FC<StatViewerProps> = ({
   className = '',
   showBreakdown = false,
 }) => {
+  // MP = 精神 × 2 で計算
+  const mpValue = (stats.total['MDEF'] || 0) * 2;
+
   const statConfigs = [
     {
       key: 'HP' as StatType,
-      name: 'HP',
-      color: 'red',
+      name: '体力',
+      color: 'green',
       icon: (
         <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 20 20">
           <path fillRule="evenodd" d="M3.172 5.172a4 4 0 015.656 0L10 6.343l1.172-1.171a4 4 0 115.656 5.656L10 17.657l-6.828-6.829a4 4 0 010-5.656z" clipRule="evenodd" />
@@ -167,6 +181,7 @@ export const StatViewer: React.FC<StatViewerProps> = ({
       key: 'MP' as StatType,
       name: 'MP',
       color: 'blue',
+      customValue: mpValue,  // 精神×2の値を使用
       icon: (
         <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 20 20">
           <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM7 9H5v2h2V9zm8 0h-2v2h2V9zM9 9h2v2H9V9z" clipRule="evenodd" />
@@ -206,7 +221,7 @@ export const StatViewer: React.FC<StatViewerProps> = ({
     {
       key: 'MDEF' as StatType,
       name: '精神',
-      color: 'purple',
+      color: 'emerald',
       icon: (
         <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 20 20">
           <path fillRule="evenodd" d="M5 2a1 1 0 011 1v1h1a1 1 0 010 2H6v1a1 1 0 01-2 0V6H3a1 1 0 010-2h1V3a1 1 0 011-1zm0 10a1 1 0 011 1v1h1a1 1 0 110 2H6v1a1 1 0 11-2 0v-1H3a1 1 0 110-2h1v-1a1 1 0 011-1zM12 2a1 1 0 01.967.744L14.146 7.2 17.5 9.134a1 1 0 010 1.732l-3.354 1.935-1.18 4.455a1 1 0 01-1.933 0L9.854 12.8 6.5 10.866a1 1 0 010-1.732l3.354-1.935 1.18-4.455A1 1 0 0112 2z" clipRule="evenodd" />
@@ -216,7 +231,7 @@ export const StatViewer: React.FC<StatViewerProps> = ({
     {
       key: 'AGI' as StatType,
       name: '素早さ',
-      color: 'green',
+      color: 'cyan',
       icon: (
         <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6" />
@@ -236,7 +251,7 @@ export const StatViewer: React.FC<StatViewerProps> = ({
     {
       key: 'HIT' as StatType,
       name: '撃力',
-      color: 'red',
+      color: 'green',
       icon: (
         <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
@@ -247,7 +262,7 @@ export const StatViewer: React.FC<StatViewerProps> = ({
     {
       key: 'CRI' as StatType,
       name: '会心率',
-      color: 'yellow',
+      color: 'white',
       icon: (
         <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 20 20">
           <path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z" />
@@ -263,24 +278,31 @@ export const StatViewer: React.FC<StatViewerProps> = ({
       </h3>
 
       <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4">
-        {statConfigs.map(config => (
-          <StatCard
-            key={config.key}
-            statName={config.name}
-            statKey={config.key}
-            value={stats.total[config.key] || 0}
-            breakdown={{
-              base: stats.base[config.key] || 0,
-              equipment: stats.fromEquipment[config.key] || 0,
-              skills: stats.fromSkills[config.key] || 0,
-              buffs: stats.fromBuffs[config.key] || 0,
-              percent: stats.fromPercent?.[config.key] || 0,
-            }}
-            icon={config.icon}
-            color={config.color}
-            showBreakdown={showBreakdown}
-          />
-        ))}
+        {statConfigs.map(config => {
+          // customValueがある場合はそれを使用（MP = 精神×2など）
+          const displayValue = 'customValue' in config && config.customValue !== undefined
+            ? config.customValue
+            : (stats.total[config.key] || 0);
+
+          return (
+            <StatCard
+              key={config.key}
+              statName={config.name}
+              statKey={config.key}
+              value={displayValue}
+              breakdown={{
+                base: stats.base[config.key] || 0,
+                equipment: stats.fromEquipment[config.key] || 0,
+                skills: stats.fromSkills[config.key] || 0,
+                buffs: stats.fromBuffs[config.key] || 0,
+                percent: stats.fromPercent?.[config.key] || 0,
+              }}
+              icon={config.icon}
+              color={config.color}
+              showBreakdown={showBreakdown}
+            />
+          );
+        })}
       </div>
 
       {/* サマリー表示 */}
