@@ -1,0 +1,185 @@
+
+# ------------------------
+# ファイター
+# ------------------------
+Fighter:
+
+  烈刃の円斬撃:
+    BaseDamageType: ["Sword"]
+    MP: 12
+    CT: 9
+    Hits: 5
+    Damage: "BaseDamage.Sword * 0.4"
+
+  常闇斬撃:
+    BaseDamageType: ["Sword"]
+    MP: 24
+    CT: 10
+    Hits: [5,6]
+    Damage: "BaseDamage.Sword * 0.6"
+
+  ファイアインパクト:
+    BaseDamageType: ["Sword"]
+    MP: null
+    CT: null
+    Hits: 1
+    Damage: "BaseDamage.Sword * 3.0"
+
+  フックリターン:
+    BaseDamageType: []
+    MP: 10
+    CT: 9
+
+  鉄壁の心:
+    BaseDamageType: []
+    MP: 30
+    CT: 44
+    Duration: 30
+    Buff:
+      HP: "UserHP * 0.15"
+  
+  リミット・ブレイク:
+    BaseDamageType: []
+    Duration: 15
+    Buff:
+      Power: "UserPower * 0.15"
+      Dex: "UserDex * 0.15"
+      Defense: "UserDefense * 0.15"
+
+  守護の鎧:
+    BaseDamageType: []
+    Duration: 50
+    Buff:
+      Defense: "UserDefense * 0.41"
+
+# ------------------------
+# メイジ
+# ------------------------
+Mage:
+
+  イグナ:
+    BaseDamageType: ["Wand"]
+    # ヒット数: 敵依存（対サンドバッグ2回想定）
+    Hits: 2
+    Damage: "(BaseDamage.Wand + UserCritDamage * 5) * 0.5"
+    Dot:
+      Count: "Hits * 4"
+      Damage: "Damage * 0.05"
+
+  イグナム:
+    BaseDamageType: ["Wand"]
+    Hits: 2
+    Damage: "(BaseDamage.Wand + UserCritDamage * 5) * 0.4"
+    Dot:
+      Count: "Hits * 4"
+      Damage: "Damage * 0.05"
+
+  イグナイト:
+    BaseDamageType: ["Wand"]
+    Hits: 1
+    Damage: "(BaseDamage.Wand + UserCritDamage * 5) * 1.0"
+
+  イグナイト2:
+    BaseDamageType: ["Wand"]
+    Hits: 1
+    Damage: "(BaseDamage.Wand + UserCritDamage * 5) * 1.25"
+
+  ウィンド:
+    BaseDamageType: ["Wand"]
+    Hits: 3
+    Damage: "(BaseDamage.Wand + UserMind * 0.2) * 0.5"
+
+  ウィンドラ:
+    BaseDamageType: ["Wand"]
+    Hits: 5
+    Damage: "(BaseDamage.Wand + UserMind * 0.2) * 0.4"
+
+  ウィンドバースト:
+    BaseDamageType: ["Wand"]
+    Hits: 8
+    Damage: "(BaseDamage.Wand + UserMind * 0.2) * 0.4"
+
+  ウィンドバースト2:
+    BaseDamageType: ["Wand"]
+    Hits: 8
+    Damage: "(BaseDamage.Wand + UserMind * 0.2) * 0.65"
+
+  アディショナル・スピリット:
+    BaseDamageType: []
+    Buff:
+      Mind: "UserMind * 0.2 + 1"
+
+# ------------------------
+# アーチャー
+# ------------------------
+Archer:
+
+  アローレイン:
+    BaseDamageType: ["Bow"]
+    Hits: "variable"   # 敵サイズ依存
+    Damage: "BaseDamage.Bow * 0.5"
+
+  迅雷射:
+    BaseDamageType: ["Bow"]
+    Hits: 12
+    Damage: "BaseDamage.Bow * 0.4"
+
+  迅雷射2:
+    BaseDamageType: ["Bow"]
+    Hits: 14
+    Damage: "BaseDamage.Bow * 0.4"
+
+  剛腕の射手:
+    BaseDamageType: []
+    Buff:
+      CritPower: "UserCritDamage * 0.4 + 1"
+
+  バレット・レーン:
+    BaseDamageType: ["Bow"]
+    Hits: 5
+    Damage: "BaseDamage.Bow * 0.6"
+
+  足すくい:
+    BaseDamageType: []
+    # ダメージ・バフなし
+
+  鎧崩し:
+    BaseDamageType: []
+    Debuff:
+      Defense: "TargetDefense * 0.2 + 1"
+
+# ------------------------
+# アコライト
+# ------------------------
+Acolyte:
+
+  エリアヒール:
+    BaseDamageType: ["Wand"]
+    Hits: 1
+    # (基礎ダメージ(杖) × 0.0675) + (魔力 × 0.114) + (体力 × 0.250)
+    Heal: "BaseDamage.Wand * 0.0675 + UserMagic*0.114 + UserHP*0.25"
+
+  エリアヒール2:
+    BaseDamageType: ["Wand"]
+    Hits: 1
+    Heal: "(BaseDamage.Wand * 0.0675 + UserMagic*0.114 + UserHP*0.25) * 1.2"
+
+  守備の構え:
+    BaseDamageType: []
+    Buff:
+      PhysicalResist: "20"
+
+  守備の構え2:
+    BaseDamageType: []
+    Buff:
+      PhysicalResist: "20"
+
+  叡智の羽衣:
+    BaseDamageType: []
+    Buff:
+      Mind: "UserMind * 0.2"
+
+  ホーリーディメンション:
+    BaseDamageType: ["Wand"]
+    Hits: 1
+    Damage: "BaseDamage.Wand * 3 + UserHP*3 + UserMind*2 + UserMagic*1"

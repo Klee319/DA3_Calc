@@ -1,0 +1,290 @@
+
+# ------------------------
+# ウォーリア
+# ------------------------
+Warrior:
+
+  烈刃の円斬撃3:
+    BaseDamageType: ["GreatSword","Axe"]
+    Hits: 5
+    Damage: "BaseDamage.GreatSword * 0.7"  # 斧時も同係数で評価
+
+  常闇斬撃2:
+    BaseDamageType: ["GreatSword","Axe"]
+    Hits: 6
+    Damage: "BaseDamage.GreatSword * 0.8"
+
+  常闇斬撃4:
+    BaseDamageType: ["GreatSword","Axe"]
+    Hits: 6
+    Damage: "BaseDamage.GreatSword * 1.2"
+
+  鎧崩し:
+    BaseDamageType: []
+    Debuff:
+      Defense: "TargetDefense * 0.2 + 1"
+
+  鎧崩し2:
+    BaseDamageType: []
+    Debuff:
+      Defense: "TargetDefense * 0.22 + 1"
+
+  鎧崩し4:
+    BaseDamageType: []
+    Debuff:
+      Defense: "TargetDefense * 0.26 + 1"
+
+  フックリターン:
+    BaseDamageType: []
+
+  烈刃の円斬撃6:
+    BaseDamageType: ["GreatSword","Axe"]
+    Hits: 5
+    Damage: "BaseDamage.GreatSword * 1.15"
+
+  アディショナル・スピリット8:
+    BaseDamageType: []
+    Buff:
+      Mind: "UserMind * 0.55 + 1"
+
+  リミット・ブレイク2:
+    BaseDamageType: []
+    Duration: 17
+    Buff:
+      Power: "UserPower * 0.18"
+      Dex: "UserDex * 0.18"
+      Defense: "UserDefense * 0.18"
+
+  覇王の獄炎斬:
+    BaseDamageType: ["GreatSword","Axe"]
+    Duration: 30
+    Buff:
+      Power: "UserPower * 0.157"
+      Dex: "UserDex * 0.157"
+    Damage: null 
+
+# ------------------------
+# ナイト
+# ------------------------
+Knight:
+
+  鉄壁の心3:
+    BaseDamageType: []
+    Hits: 1
+    Buff:
+      HP: "UserHP * 0.19"
+
+  ナイトガード:
+    BaseDamageType: []
+
+  烈刃の円斬撃2:
+    BaseDamageType: ["Sword"]
+    Hits: 5
+    Damage: "BaseDamage.Sword * 0.55"
+
+  セルフヒール2:
+    BaseDamageType: ["Bow"]   # 力×1.75+武器攻撃力ベース
+    Hits: 1
+    Heal: "BaseDamage.Bow * 0.048 + UserHP*0.12 + UserMagic*0.08"
+
+  烈刃の円斬撃3:
+    BaseDamageType: ["Sword"]
+    Hits: 5
+    Damage: "BaseDamage.Sword * 0.7"
+
+  聖なる鉄槌:
+    BaseDamageType: ["Sword"]
+    Hits: 5   # 対サンドバッグ想定
+    Damage: "BaseDamage.Sword * 0.5 + UserDefense*1.75 + UserPower*0.5 + UserHP*0.25"
+
+  セルフヒール4:
+    BaseDamageType: ["Bow"]
+    Hits: 1
+    Heal: "(BaseDamage.Bow * 0.048 + UserHP*0.12 + UserMagic*0.08) * 1.333"
+
+  聖なる鉄槌2:
+    BaseDamageType: ["Sword"]
+    Hits: 5
+    Damage: "(BaseDamage.Sword * 0.5 + UserDefense*1.75 + UserPower*0.5 + UserHP*0.25) * 1.1"
+
+# ------------------------
+# ウィザード（上位）
+# ------------------------
+Wizard:
+
+  イグナ2:
+    BaseDamageType: ["Wand"]
+    Hits: 2
+    Damage: "(BaseDamage.Wand + UserCritDamage * 5) * 0.65"
+    Dot:
+      Count: "Hits * 4"
+      Damage: "Damage * 0.05"
+
+  イグナム2:
+    BaseDamageType: ["Wand"]
+    Hits: 2
+    Damage: "(BaseDamage.Wand + UserCritDamage * 5) * 0.6"
+    Dot:
+      Count: "Hits * 4"
+      Damage: "Damage * 0.05"
+
+  イグナイト2:
+    BaseDamageType: ["Wand"]
+    Hits: 1
+    Damage: "(BaseDamage.Wand + UserCritDamage * 5) * 1.25"
+
+  イグナイト3:
+    BaseDamageType: ["Wand"]
+    Hits: 1
+    Damage: "(BaseDamage.Wand + UserCritDamage * 5) * 1.5"
+
+  イグナイト・改:
+    BaseDamageType: ["Wand"]
+    Hits: 1
+    Damage: "(BaseDamage.Wand + UserCritDamage * 5) * 2.5"
+
+  ウィンド2:
+    BaseDamageType: ["Wand"]
+    MP: 19
+    CT: 8
+    Hits: 3
+    Damage: "(BaseDamage.Wand + UserMind * 0.2) * 0.65"
+
+  ウィンドラ2:
+    BaseDamageType: ["Wand"]
+    MP: 33
+    CT: 10
+    Hits: 5
+    Damage: "(BaseDamage.Wand + UserMind * 0.2) * 0.6"
+
+  ウィンドバースト2:
+    BaseDamageType: ["Wand"]
+    Hits: 8
+    Damage: "(BaseDamage.Wand + UserMind * 0.2) * 0.65"
+
+  ウィンドバースト3:
+    BaseDamageType: ["Wand"]
+    Hits: 8
+    Damage: "(BaseDamage.Wand + UserMind * 0.2) * 0.9"
+
+  ウィンドバースト・改:
+    BaseDamageType: ["Wand"]
+    Hits: 8
+    Damage: "(BaseDamage.Wand + UserMind * 0.2) * 0.5"
+
+  アディショナル・スピリット2:
+    BaseDamageType: []
+    Buff:
+      Mind: "UserMind * 0.25 + 1"
+
+  アディショナル・スピリット3:
+    BaseDamageType: []
+    Buff:
+      Mind: "UserMind * 0.3 + 1"
+
+  ノンエレメント・エクスプロード1:
+    BaseDamageType: ["Wand"]
+    Hits: 1
+    Damage: "BaseDamage.Wand * UserMP * 0.03115"
+
+  ノンエレメント・エクスプロード2:
+    BaseDamageType: ["Wand"]
+    Hits: 1
+    Damage: "BaseDamage.Wand * UserMP * 0.03185"
+
+  ノンエレメント・エクスプロード・烈:
+    BaseDamageType: ["Wand"]
+    Hits: 1
+    Damage: "(BaseDamage.Wand + UserMind*2 * 5) * 3.2"
+
+# ------------------------
+# レンジャー（上位）
+# ------------------------
+Ranger:
+
+  アローレイン2:
+    BaseDamageType: ["Bow"]
+    Hits: "variable"
+    Damage: "BaseDamage.Bow * 0.5"
+
+  迅雷射3:
+    BaseDamageType: ["Bow"]
+    Hits: 16
+    Damage: "BaseDamage.Bow * 0.4"
+
+  風神射:
+    BaseDamageType: ["Bow"]
+    Hits: 12
+    Damage: "BaseDamage.Bow * 0.45"
+
+  風神射2:
+    BaseDamageType: ["Bow"]
+    Hits: 14
+    Damage: "BaseDamage.Bow * 0.45"
+
+  剛腕の射手2:
+    BaseDamageType: []
+    Buff:
+      CritPower: "UserCritDamage * 0.45 + 1"
+
+  バレット・レーン2:
+    BaseDamageType: ["Bow"]
+    Hits: 7
+    Damage: "BaseDamage.Bow * 0.6"
+
+  マリーナ・レーン:
+    BaseDamageType: ["Bow"]
+    Hits: "6 + floor(UserSpeed/50)"
+    Damage: "BaseDamage.Bow * 0.6"
+
+  マリーナ・レーン2:
+    BaseDamageType: ["Bow"]
+    Hits: "8 + floor(UserSpeed/50)"
+    Damage: "BaseDamage.Bow * 0.6"
+
+# ------------------------
+# ハンター
+# ------------------------
+Hunter:
+
+  疾風連撃:
+    BaseDamageType: ["Dagger"]
+    Hits: 4
+    Damage: "(BaseDamage.Dagger + UserSpeed * 0.5) * 0.6"
+
+  水流連撃:
+    BaseDamageType: ["Dagger"]
+    Hits: 4
+    Damage: "(BaseDamage.Dagger + UserSpeed * 0.5) * 0.6"
+
+  水流連撃2:
+    BaseDamageType: ["Dagger"]
+    Hits: 4
+    Damage: "(BaseDamage.Dagger + UserSpeed * 0.5) * 0.65"
+
+  サンライトスラッシュ:
+    BaseDamageType: ["Dagger"]
+    Hits: 6
+    Damage: "(BaseDamage.Dagger + UserSpeed * 0.5) * 0.65"
+
+  鎧崩し:
+    BaseDamageType: []
+    Debuff:
+      Defense: "TargetDefense * 0.2 + 1"
+
+  鎧崩し2:
+    BaseDamageType: []
+    Debuff:
+      Defense: "TargetDefense * 0.22 + 1"
+
+  鎧崩し4:
+    BaseDamageType: []
+    Debuff:
+      Defense: "TargetDefense * 0.26 + 1"
+
+  疾風の舞3:
+    BaseDamageType: []
+    Buff:
+      Power: "UserPower * 0.499 + 1"
+      Speed: "UserSpeed * 0.499 + 1"
+      CritPower: "UserCritDamage * 0.499 + 1"
