@@ -524,9 +524,14 @@ export const EquipmentSlot: React.FC<EquipmentSlotProps> = ({
 
         // 武器計算（smithingCountsからパラメータ別に取得）
         const weaponSmithingCounts = smithingCounts as Record<string, number>;
+        // 武器ランク補正の分母（EqConst.yaml: Weapon.Reinforcement.Denominator = 320）
+        const WEAPON_RANK_DENOMINATOR = 320;
+        // 使用可能Lvを取得
+        const weaponAvailableLv = equipment.requiredLevel || 100;
+
         if (stat.stat === 'ATK') {
-          // 選択されたランクのボーナスを適用
-          rankBonus = weaponRankBonus.attackP;
+          // ランク補正: ROUNDUP(AvailableLv * (Rank.Bonus.AttackP / Denominator))
+          rankBonus = Math.ceil(weaponAvailableLv * (weaponRankBonus.attackP / WEAPON_RANK_DENOMINATOR));
           // 検証武器でなければ強化と叩きを適用
           if (!isVerificationWeapon) {
             enhanceBonus = enhancementLevel * 2;
@@ -539,6 +544,7 @@ export const EquipmentSlot: React.FC<EquipmentSlotProps> = ({
           }
           baseValue = fBaseValue;  // 表示用のベース値をF値に更新
         } else if (stat.stat === 'CRI') {
+          // 会心率はランクボーナスをそのまま適用
           rankBonus = weaponRankBonus.critR;
           if (!isVerificationWeapon) {
             // 強化ボーナス: 2lvにつき+1
@@ -552,6 +558,7 @@ export const EquipmentSlot: React.FC<EquipmentSlotProps> = ({
           }
           baseValue = fBaseValue;
         } else if (stat.stat === 'DEX') {
+          // 会心ダメージはランクボーナスをそのまま適用
           rankBonus = weaponRankBonus.critD;
           if (!isVerificationWeapon) {
             enhanceBonus = enhancementLevel * 1;

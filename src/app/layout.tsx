@@ -38,7 +38,6 @@ export default function RootLayout({
               <div className="flex gap-2">
                 {[
                   { href: '/build', label: 'ビルド', icon: '🛠️' },
-                  { href: '/damage', label: '火力計算', icon: '⚡' },
                   { href: '/optimize', label: '最適化', icon: '🎯' },
                 ].map((item) => (
                   <Link

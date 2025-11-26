@@ -180,9 +180,14 @@ function calculateWeaponFRankValues(weapon: WeaponData, eqConst?: EqConstData): 
  */
 export async function loadWeapons(eqConst?: EqConstData): Promise<WeaponData[]> {
   const weapons = await loadCsvFile<WeaponData>('/data/csv/Equipment/DA_EqCalc_Data - 武器.csv');
-  
+
+  // 空のエントリをフィルタリング（アイテム名が空の行を除外）
+  const validWeapons = weapons.filter(weapon =>
+    weapon.アイテム名 && weapon.アイテム名.toString().trim() !== ''
+  );
+
   // 最低ランク指定がある武器のF値を逆算
-  return weapons.map(weapon => calculateWeaponFRankValues(weapon, eqConst));
+  return validWeapons.map(weapon => calculateWeaponFRankValues(weapon, eqConst));
 }
 
 /**
@@ -190,9 +195,15 @@ export async function loadWeapons(eqConst?: EqConstData): Promise<WeaponData[]> 
  */
 export async function loadArmors(): Promise<ArmorData[]> {
   const rawData = await loadCsvFile<any>('/data/csv/Equipment/DA_EqCalc_Data - 防具.csv');
-  
+
+  // 空のエントリをフィルタリング（アイテム名が空の行を除外）
+  const validData = rawData.filter(item => {
+    const name = item['アイテム名(種類でOK)'] || item['アイテム名'];
+    return name && name.toString().trim() !== '';
+  });
+
   // ヘッダー名の変換
-  return rawData.map(item => ({
+  return validData.map(item => ({
     アイテム名: item['アイテム名(種類でOK)'] || item['アイテム名'],
     使用可能Lv: item['使用可能Lv'],
     部位を選択: item['部位を選択'],
@@ -213,9 +224,14 @@ export async function loadArmors(): Promise<ArmorData[]> {
  */
 export async function loadAccessories(): Promise<AccessoryData[]> {
   const rawData = await loadCsvFile<any>('/data/csv/Equipment/DA_EqCalc_Data - アクセサリー .csv');
-  
+
+  // 空のエントリをフィルタリング（アイテム名が空の行を除外）
+  const validData = rawData.filter(item =>
+    item['アイテム名'] && item['アイテム名'].toString().trim() !== ''
+  );
+
   // 明示的なマッピングで型安全性を確保
-  return rawData.map(item => ({
+  return validData.map(item => ({
     アイテム名: item['アイテム名'],
     使用可能Lv: item['使用可能Lv'],
     タイプを選択: item['タイプを選択'],

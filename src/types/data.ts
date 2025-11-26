@@ -62,10 +62,19 @@ export interface JobConstData {
   }>;
 }
 
+export interface AdditionalAttackDefinition {
+  type: 'percentage' | 'mp-based' | 'resistance-based' | 'speed-based';
+  multiplier: number;
+  baseCount?: number;
+  pvpCount?: number;
+  ignoreDefense?: boolean;
+}
+
 export interface WeaponCalcData {
   BasedDamage?: Record<string, string>;
   JobCorrection?: Record<string, Record<string, string>>;
   FinalDamage?: string;
+  AdditionalAttacks?: Record<string, AdditionalAttackDefinition>;
   [key: string]: unknown;
 }
 
@@ -77,6 +86,87 @@ export interface UserStatusCalcData {
 export interface SkillCalcData {
   SkillDefinition?: Record<string, unknown>;
   [key: string]: unknown;
+}
+
+/**
+ * スキル定義の型（YAMLから読み込まれる各スキルの定義）
+ */
+export interface SkillDefinition {
+  /** 対応する武器種（空配列の場合はバフ・デバフ系） */
+  BaseDamageType: string[];
+  /** MP消費量（数値または式） */
+  MP?: number | string | null;
+  /** クールタイム（数値または式） */
+  CT?: number | string | null;
+  /** ヒット数（数値、配列[min,max]、式、または"variable"） */
+  Hits?: number | number[] | string;
+  /** ダメージ計算式 */
+  Damage?: string | null;
+  /** 回復量計算式 */
+  Heal?: string | null;
+  /** バフ効果（ステータス名: 計算式） */
+  Buff?: Record<string, string>;
+  /** デバフ効果（ステータス名: 計算式） */
+  Debuff?: Record<string, string>;
+  /** DoT（継続ダメージ）効果 */
+  Dot?: {
+    Count: string;
+    Damage: string;
+  };
+  /** 効果時間（秒） */
+  Duration?: number;
+  /** 追加効果（キー: 計算式の形式で表示用） */
+  Extra?: Record<string, string>;
+}
+
+/**
+ * スキル本のデータ型（武器種ごとにスキルが定義）
+ */
+export interface SkillBookData {
+  [weaponType: string]: Record<string, SkillDefinition>;
+}
+
+/**
+ * 職業スキルのデータ型（職業名ごとにスキルが定義）
+ */
+export interface JobSkillData {
+  [jobName: string]: Record<string, SkillDefinition>;
+}
+
+/**
+ * 全スキルデータの統合型
+ */
+export interface AllSkillCalcData {
+  /** スキル本（武器種ベース） */
+  skillBook: SkillBookData;
+  /** 特殊職スキル */
+  specialJob: JobSkillData;
+  /** 1次職スキル */
+  firstJob: JobSkillData;
+  /** 2次職スキル */
+  secondJob: JobSkillData;
+  /** 3次職スキル */
+  thirdJob: JobSkillData;
+}
+
+/**
+ * UI表示用のスキル情報
+ */
+export interface AvailableSkill {
+  /** スキルID（一意識別子） */
+  id: string;
+  /** スキル名 */
+  name: string;
+  /** スキルソース（'book' | 'job'） */
+  source: 'book' | 'job';
+  /** 職業名（jobスキルの場合） */
+  jobName?: string;
+  /** 対応武器種 */
+  weaponTypes: string[];
+  /** スキル定義データ */
+  definition: SkillDefinition;
+  /** スキルタイプ */
+  type: 'damage' | 'heal' | 'buff' | 'debuff' | 'utility';
 }
 
 // CSV構造の型定義

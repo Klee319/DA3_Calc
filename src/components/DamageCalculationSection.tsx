@@ -215,8 +215,8 @@ export function DamageCalculationSection() {
       const correctionMax = 1.0;
       const correctionAvg = (correctionMin + correctionMax) / 2;
 
-      // 会心率（武器 + ユーザー）
-      const totalCritRate = Math.min(100, (weaponStats.critRate || 0) + (userStats.CRI || 0));
+      // 会心率（userStats.CRI は「武器会心率 + ユーザー器用さ * 0.3」で既に計算済み）
+      const totalCritRate = Math.min(100, userStats.CRI || 0);
 
       // 最大ダメージ（ダメージ補正100%、会心発生時）
       // ダメージ補正100%とは、補正範囲の最大値（1.2倍）ではなく、ダメージ補正が100%（1.0）の状態

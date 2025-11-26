@@ -75,12 +75,25 @@ export {
   calculateBaseDamage,
   // applyJobCorrection, // weaponDamageからエクスポート済み
   applyCritDamage,
-  applyDamageCorrection,
   calculateFinalDamage,
   calculateSkillDamage,
   evaluateFormulaString,
   parseHits
 } from './damageCalculator';
+
+// 新スキル計算システム
+export {
+  evaluateFormula as evaluateSkillFormula,
+  evaluateHits,
+  evaluateMP,
+  evaluateCT,
+  getWeaponMismatchPenalty,
+  checkWeaponMatch,
+  calculateSkill,
+  buildFormulaContext,
+  type FormulaContext,
+  type SkillCalculationResult,
+} from './skillCalculator';
 
 // 型定義のエクスポート
 export type {

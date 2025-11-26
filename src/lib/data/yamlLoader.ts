@@ -4,14 +4,19 @@ import {
   JobConstData,
   WeaponCalcData,
   UserStatusCalcData,
-  SkillCalcData
+  SkillCalcData,
+  AllSkillCalcData,
+  SkillBookData,
+  JobSkillData,
+  SkillDefinition,
+  AvailableSkill
 } from '@/types/data';
 import { Skill } from '@/types';
-import { 
-  YamlParseError, 
+import {
+  YamlParseError,
   FileNotFoundError,
   DataLoadErrorHandler,
-  withFallback 
+  withFallback
 } from './errors';
 
 /**
@@ -154,10 +159,192 @@ export async function loadUserStatusCalc(): Promise<UserStatusCalcData> {
 }
 
 /**
- * SkillCalc.yamlを読み込む
+ * SkillCalc.yamlを読み込む（旧形式、後方互換性のため維持）
+ * 注: SkillCalc.yamlは廃止され、SkillCalcフォルダに移行しています
+ *     404エラーを避けるため、空オブジェクトを返します
  */
 export async function loadSkillCalc(): Promise<SkillCalcData> {
-  return loadYamlFile<SkillCalcData>('/data/formula/SkillCalc.yaml', true);
+  // 旧ファイルは削除されたため、空オブジェクトを返す
+  return {} as SkillCalcData;
+}
+
+/**
+ * SkillCalcフォルダ内の全YAMLファイルを読み込む
+ */
+export async function loadAllSkillCalcData(): Promise<AllSkillCalcData> {
+  const basePath = '/data/formula/SkillCalc';
+
+  // 各ファイルを並列で読み込む
+  const [skillBook, specialJob, firstJob, secondJob, thirdJob] = await Promise.all([
+    withFallback(
+      () => loadYamlFile<SkillBookData>(`${basePath}/SkillBook.yaml`, true),
+      {} as SkillBookData,
+      'Warning: Failed to load SkillBook.yaml'
+    ),
+    withFallback(
+      () => loadYamlFile<JobSkillData>(`${basePath}/SkillSpecialJob.yaml`, true),
+      {} as JobSkillData,
+      'Warning: Failed to load SkillSpecialJob.yaml'
+    ),
+    withFallback(
+      () => loadYamlFile<JobSkillData>(`${basePath}/SkillFirstJob.yaml`, true),
+      {} as JobSkillData,
+      'Warning: Failed to load SkillFirstJob.yaml'
+    ),
+    withFallback(
+      () => loadYamlFile<JobSkillData>(`${basePath}/SkillSecondJob.yaml`, true),
+      {} as JobSkillData,
+      'Warning: Failed to load SkillSecondJob.yaml'
+    ),
+    withFallback(
+      () => loadYamlFile<JobSkillData>(`${basePath}/SkillThirdJob.yaml`, true),
+      {} as JobSkillData,
+      'Warning: Failed to load SkillThirdJob.yaml'
+    ),
+  ]);
+
+  // 空のYAMLファイルをパースするとnullが返される可能性があるため、
+  // 各値がnullの場合は空のオブジェクトに置き換える
+  const safeSkillBook = skillBook || {};
+  const safeSpecialJob = specialJob || {};
+  const safeFirstJob = firstJob || {};
+  const safeSecondJob = secondJob || {};
+  const safeThirdJob = thirdJob || {};
+
+  console.log('Loaded SkillCalc data:', {
+    skillBook: Object.keys(safeSkillBook).length,
+    specialJob: Object.keys(safeSpecialJob).length,
+    firstJob: Object.keys(safeFirstJob).length,
+    secondJob: Object.keys(safeSecondJob).length,
+    thirdJob: Object.keys(safeThirdJob).length,
+  });
+
+  return {
+    skillBook: safeSkillBook,
+    specialJob: safeSpecialJob,
+    firstJob: safeFirstJob,
+    secondJob: safeSecondJob,
+    thirdJob: safeThirdJob,
+  };
+}
+
+/**
+ * スキル定義からスキルタイプを判定
+ */
+function determineSkillType(def: SkillDefinition): AvailableSkill['type'] {
+  if (def.Heal) return 'heal';
+  if (def.Buff && Object.keys(def.Buff).length > 0) return 'buff';
+  if (def.Debuff && Object.keys(def.Debuff).length > 0) return 'debuff';
+  if (def.Damage) return 'damage';
+  return 'utility';
+}
+
+/**
+ * スキル本データから利用可能スキルリストを生成
+ * @param skillBook スキル本データ
+ * @param currentWeaponType 現在装備中の武器種（YAML形式: Sword, Wand等）
+ */
+export function getAvailableBookSkills(
+  skillBook: SkillBookData,
+  currentWeaponType: string
+): AvailableSkill[] {
+  const skills: AvailableSkill[] = [];
+
+  // 武器種に対応するスキルを取得
+  const weaponSkills = skillBook[currentWeaponType];
+  if (!weaponSkills) return skills;
+
+  for (const [skillName, definition] of Object.entries(weaponSkills)) {
+    skills.push({
+      id: `book_${currentWeaponType}_${skillName}`,
+      name: skillName,
+      source: 'book',
+      weaponTypes: definition.BaseDamageType || [currentWeaponType],
+      definition,
+      type: determineSkillType(definition),
+    });
+  }
+
+  return skills;
+}
+
+/**
+ * 職業スキルデータから利用可能スキルリストを生成
+ * @param jobSkillData 職業スキルデータ
+ * @param currentJobName 現在の職業名（YAML形式: Fighter, Mage等）
+ * @param unlockedSkillNames 解放済みスキル名のリスト
+ */
+export function getAvailableJobSkills(
+  jobSkillData: JobSkillData,
+  currentJobName: string,
+  unlockedSkillNames: string[]
+): AvailableSkill[] {
+  const skills: AvailableSkill[] = [];
+
+  // 職業に対応するスキルを取得
+  const jobSkills = jobSkillData[currentJobName];
+  if (!jobSkills) return skills;
+
+  for (const [skillName, definition] of Object.entries(jobSkills)) {
+    // 解放済みスキルのみを追加
+    if (unlockedSkillNames.includes(skillName)) {
+      skills.push({
+        id: `job_${currentJobName}_${skillName}`,
+        name: skillName,
+        source: 'job',
+        jobName: currentJobName,
+        weaponTypes: definition.BaseDamageType || [],
+        definition,
+        type: determineSkillType(definition),
+      });
+    }
+  }
+
+  return skills;
+}
+
+/**
+ * 全スキルデータから利用可能なスキルを取得
+ * @param allSkillData 全スキルデータ
+ * @param currentWeaponType 現在の武器種（YAML形式）
+ * @param currentJobName 現在の職業名（YAML形式）
+ * @param jobGrade 職業のグレード（Special, First, Second, Third）
+ * @param unlockedSkillNames 解放済みスキル名のリスト
+ */
+export function getAllAvailableSkills(
+  allSkillData: AllSkillCalcData,
+  currentWeaponType: string,
+  currentJobName: string,
+  jobGrade: string,
+  unlockedSkillNames: string[]
+): AvailableSkill[] {
+  const skills: AvailableSkill[] = [];
+
+  // 1. スキル本スキル（武器種が一致するもの）
+  const bookSkills = getAvailableBookSkills(allSkillData.skillBook, currentWeaponType);
+  skills.push(...bookSkills);
+
+  // 2. 職業スキル（グレードに応じたデータから取得）
+  let jobSkillData: JobSkillData = {};
+  switch (jobGrade) {
+    case 'Special':
+      jobSkillData = allSkillData.specialJob;
+      break;
+    case 'First':
+      jobSkillData = allSkillData.firstJob;
+      break;
+    case 'Second':
+      jobSkillData = allSkillData.secondJob;
+      break;
+    case 'Third':
+      jobSkillData = allSkillData.thirdJob;
+      break;
+  }
+
+  const jobSkills = getAvailableJobSkills(jobSkillData, currentJobName, unlockedSkillNames);
+  skills.push(...jobSkills);
+
+  return skills;
 }
 
 /**
@@ -263,14 +450,37 @@ export function extractSkillsFromCalcData(skillCalc: SkillCalcData): Skill[] {
 
 /**
  * 全てのYAMLファイルを一括で読み込む
+ * 各ファイルにフォールバック処理を適用し、個別のエラーが全体に影響しないようにする
  */
 export async function loadAllYamlData() {
   const [eqConst, jobConst, weaponCalc, userStatusCalc, skillCalc] = await Promise.all([
-    loadEqConst(),
-    loadJobConst(),
-    loadWeaponCalc(),
-    loadUserStatusCalc(),
-    loadSkillCalc()
+    withFallback(
+      () => loadEqConst(),
+      {} as EqConstData,
+      'Warning: Failed to load EqConst.yaml'
+    ),
+    withFallback(
+      () => loadJobConst(),
+      {} as JobConstData,
+      'Warning: Failed to load JobConst.yaml'
+    ),
+    withFallback(
+      () => loadWeaponCalc(),
+      {} as WeaponCalcData,
+      'Warning: Failed to load WeaponCalc.yaml'
+    ),
+    withFallback(
+      () => loadUserStatusCalc(),
+      {} as UserStatusCalcData,
+      'Warning: Failed to load UserStatusCalc.yaml'
+    ),
+    // SkillCalc.yamlは廃止され、SkillCalcフォルダに移行
+    // 後方互換性のため空オブジェクトを返す
+    withFallback(
+      () => loadSkillCalc(),
+      {} as SkillCalcData,
+      'Info: SkillCalc.yaml not found (migrated to SkillCalc folder)'
+    )
   ]);
 
   return {

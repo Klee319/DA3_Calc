@@ -12,6 +12,8 @@ import { RunestoneSlot } from '@/components/RunestoneSlot';
 import { StatViewer } from '@/components/StatViewer';
 import { CustomSelect, CustomSelectOption } from '@/components/CustomSelect';
 import { DamageCalculationSection } from '@/components/DamageCalculationSection';
+import { SkillCalculationSection } from '@/components/SkillCalculationSection';
+import { ConfirmDialog } from '@/components/ConfirmDialog';
 import { EquipSlot, Job, Equipment, Skill, StatType, WeaponType, ArmorType, StatEffect, SmithingCounts, ExStats } from '@/types';
 import { FoodData, EmblemData, RunestoneData } from '@/types/data';
 import { calculateUnlockedSkills, getReachedTier, getNextSkillInfo, calculateBranchBonus, getMaxSPByBranch } from '@/lib/calc/jobCalculator';
@@ -60,6 +62,23 @@ export default function BuildPage() {
   const [editingPresetId, setEditingPresetId] = useState<string | null>(null);
   const [editingPresetName, setEditingPresetName] = useState('');
 
+  // 確認ダイアログ用のstate
+  const [confirmDialog, setConfirmDialog] = useState<{
+    isOpen: boolean;
+    title: string;
+    message: string;
+    confirmText: string;
+    confirmVariant: 'primary' | 'danger' | 'warning';
+    onConfirm: () => void;
+  }>({
+    isOpen: false,
+    title: '',
+    message: '',
+    confirmText: '確認',
+    confirmVariant: 'primary',
+    onConfirm: () => {},
+  });
+
   // タブ定義
   const tabs = [
     { id: 0, label: '職業', icon: '👤' },
@@ -68,8 +87,7 @@ export default function BuildPage() {
     { id: 3, label: '紋章・ルーンストーン', icon: '💎' },
     { id: 4, label: '食事・指輪', icon: '🍖' },
     { id: 5, label: '最終ステータス', icon: '📈' },
-    { id: 6, label: 'スキル/通常攻撃', icon: '✨' },
-    { id: 7, label: '結果', icon: '🎯' },
+    { id: 6, label: '結果', icon: '🎯' },
   ];
 
   const {
@@ -125,6 +143,7 @@ export default function BuildPage() {
           eqConst: gameData.yaml.eqConst,
           jobConst: gameData.yaml.jobConst,
           jobSPData: gameData.csv.jobs, // CSV読み込み時のMap<string, JobSPData[]>をそのまま設定
+          userStatusCalc: gameData.yaml.userStatusCalc, // 武器計算式を含む
         });
 
         // 職業データの変換（CSVから取得したSPデータから適切に変換）
@@ -536,11 +555,11 @@ export default function BuildPage() {
   useEffect(() => {
     const errors: Array<{ type: 'error' | 'warning'; message: string }> = [];
 
-    // 1. 武器未選択チェック
-    if (!currentBuild.equipment.weapon) {
+    // 1. 職業未選択チェック
+    if (!currentBuild.job) {
       errors.push({
         type: 'error',
-        message: '武器を選択してください。武器は必須です。'
+        message: '職業を選択してください。職業は必須です。'
       });
     }
 
@@ -812,8 +831,18 @@ export default function BuildPage() {
                       <>
                         <button
                           onClick={() => {
-                            loadPreset(preset.id);
-                            setShowPresetPanel(false);
+                            setConfirmDialog({
+                              isOpen: true,
+                              title: 'プリセットの読み込み',
+                              message: `プリセット「${preset.name}」を読み込みます。現在のビルドは上書きされます。よろしいですか？`,
+                              confirmText: '読み込む',
+                              confirmVariant: 'primary',
+                              onConfirm: () => {
+                                loadPreset(preset.id);
+                                setShowPresetPanel(false);
+                                setConfirmDialog(prev => ({ ...prev, isOpen: false }));
+                              },
+                            });
                           }}
                           className="p-2 text-blue-400 hover:text-blue-300 hover:bg-gray-600 rounded"
                           title="読み込み"
@@ -823,7 +852,19 @@ export default function BuildPage() {
                           </svg>
                         </button>
                         <button
-                          onClick={() => updatePreset(preset.id)}
+                          onClick={() => {
+                            setConfirmDialog({
+                              isOpen: true,
+                              title: 'プリセットの上書き',
+                              message: `プリセット「${preset.name}」を現在のビルドで上書きします。よろしいですか？`,
+                              confirmText: '上書き',
+                              confirmVariant: 'warning',
+                              onConfirm: () => {
+                                updatePreset(preset.id);
+                                setConfirmDialog(prev => ({ ...prev, isOpen: false }));
+                              },
+                            });
+                          }}
                           className="p-2 text-yellow-400 hover:text-yellow-300 hover:bg-gray-600 rounded"
                           title="現在のビルドで上書き"
                         >
@@ -845,9 +886,17 @@ export default function BuildPage() {
                         </button>
                         <button
                           onClick={() => {
-                            if (confirm(`プリセット「${preset.name}」を削除しますか？`)) {
-                              deletePreset(preset.id);
-                            }
+                            setConfirmDialog({
+                              isOpen: true,
+                              title: 'プリセットの削除',
+                              message: `プリセット「${preset.name}」を削除します。この操作は元に戻せません。よろしいですか？`,
+                              confirmText: '削除',
+                              confirmVariant: 'danger',
+                              onConfirm: () => {
+                                deletePreset(preset.id);
+                                setConfirmDialog(prev => ({ ...prev, isOpen: false }));
+                              },
+                            });
                           }}
                           className="p-2 text-red-400 hover:text-red-300 hover:bg-gray-600 rounded"
                           title="削除"
@@ -961,6 +1010,7 @@ export default function BuildPage() {
                 jobs={availableJobs}
                 selectedJob={currentBuild.job}
                 onChange={setJob}
+                jobConst={gameData?.jobConst}
               />
               {currentBuild.job && (
                 <LevelInput
@@ -1371,194 +1421,18 @@ export default function BuildPage() {
           </div>
         )}
 
-        {/* タブ6: スキル/通常攻撃 */}
+        {/* タブ6: 結果 */}
         {activeTab === 6 && (
           <div className="space-y-6">
-            {/* 通常攻撃設定 */}
-            <div className="glass-card p-8">
-              <h2 className="text-2xl font-semibold mb-6 flex items-center gap-2">
-                <span className="text-3xl">⚔️</span>
-                <span className="truncate">通常攻撃</span>
-              </h2>
+            {/* 火力計算セクション */}
+            <DamageCalculationSection />
 
-              {currentBuild.equipment.weapon ? (
-                <div className="space-y-4">
-                  <div className="p-4 bg-glass-light rounded-lg">
-                    <div className="flex items-center justify-between mb-3">
-                      <span className="text-gray-400">装備中の武器</span>
-                      <span className="text-white font-medium">
-                        {currentBuild.equipment.weapon.name}
-                      </span>
-                    </div>
-                    <div className="grid grid-cols-2 gap-3">
-                      <div className="p-3 bg-glass-dark/50 rounded">
-                        <span className="text-xs text-gray-500 block mb-1">武器タイプ</span>
-                        <span className="text-sm text-white font-medium">
-                          {currentBuild.equipment.weapon.weaponType === 'sword' && '剣'}
-                          {currentBuild.equipment.weapon.weaponType === 'greatsword' && '大剣'}
-                          {currentBuild.equipment.weapon.weaponType === 'dagger' && '短剣'}
-                          {currentBuild.equipment.weapon.weaponType === 'axe' && '斧'}
-                          {currentBuild.equipment.weapon.weaponType === 'spear' && '槍'}
-                          {currentBuild.equipment.weapon.weaponType === 'bow' && '弓'}
-                          {currentBuild.equipment.weapon.weaponType === 'staff' && '杖'}
-                          {!currentBuild.equipment.weapon.weaponType && '不明'}
-                        </span>
-                      </div>
-                      <div className="p-3 bg-glass-dark/50 rounded">
-                        <span className="text-xs text-gray-500 block mb-1">通常攻撃倍率</span>
-                        <span className="text-sm text-green-400 font-medium">100%</span>
-                      </div>
-                    </div>
-                  </div>
-
-                  <div className="text-xs text-gray-500">
-                    ※ 通常攻撃のダメージは「ダメージ計算」ページで確認できます
-                  </div>
-                </div>
-              ) : (
-                <div className="text-center py-6 text-gray-500">
-                  <svg className="w-12 h-12 mx-auto mb-3 opacity-50" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
-                  </svg>
-                  <p>武器を装備してください</p>
-                </div>
-              )}
-            </div>
-
-            {/* 解放済みスキル一覧 */}
-            <div className="glass-card p-8">
-              <h2 className="text-2xl font-semibold mb-6 flex items-center gap-2">
-                <span className="text-3xl">✨</span>
-                <span className="truncate">解放済みスキル</span>
-              </h2>
-
-              {currentBuild.job ? (
-                <>
-                  {unlockedSkills.length > 0 ? (
-                    <div className="space-y-4">
-                      {/* ブランチ別でグループ化して表示 */}
-                      {(['A', 'B', 'C'] as const).map(branch => {
-                        const branchSkills = unlockedSkills.filter(s => s.branch === branch);
-                        if (branchSkills.length === 0) return null;
-
-                        const branchColor = branch === 'A' ? 'red' : branch === 'B' ? 'green' : 'blue';
-
-                        return (
-                          <div key={branch} className="p-4 bg-glass-light rounded-lg">
-                            <h3 className={`text-lg font-semibold mb-3 text-${branchColor}-400`}>
-                              {branch}軸スキル ({branchSkills.length}個)
-                            </h3>
-                            <div className="space-y-2">
-                              {branchSkills.map((skill, idx) => (
-                                <div
-                                  key={`${skill.branch}-${skill.tier}-${idx}`}
-                                  className="flex items-center justify-between p-3 bg-glass-dark/50 rounded hover:bg-glass-dark/70 transition-colors"
-                                >
-                                  <div className="flex items-center gap-3">
-                                    <span className={`px-2 py-1 text-xs font-mono rounded bg-${branchColor}-900/50 text-${branchColor}-300`}>
-                                      {skill.branch}-{skill.tier}
-                                    </span>
-                                    <span className="text-white font-medium">
-                                      {skill.skillName}
-                                    </span>
-                                  </div>
-                                  <div className="flex items-center gap-2">
-                                    <span className="text-xs text-gray-500">
-                                      必要SP: {skill.requiredSP}
-                                    </span>
-                                    <span className="text-green-400 text-sm">✓ 解放済み</span>
-                                  </div>
-                                </div>
-                              ))}
-                            </div>
-                          </div>
-                        );
-                      })}
-
-                      <div className="text-xs text-gray-500 mt-4">
-                        ※ スキルのダメージ計算は「ダメージ計算」ページで行えます
-                      </div>
-                    </div>
-                  ) : (
-                    <div className="text-center py-8 text-gray-500">
-                      <svg className="w-12 h-12 mx-auto mb-3 opacity-50" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M13 10V3L4 14h7v7l9-11h-7z" />
-                      </svg>
-                      <p className="mb-2">まだスキルが解放されていません</p>
-                      <p className="text-sm">SP割り振りタブでSPを配分してスキルを解放してください</p>
-                    </div>
-                  )}
-                </>
-              ) : (
-                <div className="text-center py-8 text-gray-500">
-                  <svg className="w-12 h-12 mx-auto mb-3 opacity-50" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
-                  </svg>
-                  <p>まず職業を選択してください</p>
-                </div>
-              )}
-            </div>
-
-            {/* 次のスキル解放情報 */}
-            {nextSkillInfo && (
-              <div className="glass-card p-8">
-                <h2 className="text-2xl font-semibold mb-6 flex items-center gap-2">
-                  <span className="text-3xl">🎯</span>
-                  <span className="truncate">次に解放可能なスキル</span>
-                </h2>
-
-                <div className="p-4 bg-gradient-to-br from-yellow-900/30 to-amber-900/30 rounded-lg border border-yellow-700/50">
-                  <div className="flex items-center justify-between mb-3">
-                    <div className="flex items-center gap-3">
-                      <span className="px-2 py-1 text-xs font-mono rounded bg-yellow-900/50 text-yellow-300">
-                        {nextSkillInfo.branch}軸
-                      </span>
-                      <span className="text-white font-medium text-lg">
-                        {nextSkillInfo.skillName}
-                      </span>
-                    </div>
-                    <span className="text-yellow-400 font-semibold">
-                      あと {nextSkillInfo.needMoreSP} SP
-                    </span>
-                  </div>
-                  <div className="w-full bg-gray-700 rounded-full h-3 overflow-hidden">
-                    <div
-                      className="bg-gradient-to-r from-yellow-500 to-amber-500 h-full rounded-full transition-all duration-500"
-                      style={{ width: `${(nextSkillInfo.currentSP / nextSkillInfo.requiredSP) * 100}%` }}
-                    />
-                  </div>
-                  <div className="flex justify-between mt-2 text-xs text-gray-400">
-                    <span>現在: {nextSkillInfo.currentSP} SP</span>
-                    <span>必要: {nextSkillInfo.requiredSP} SP</span>
-                  </div>
-                </div>
-              </div>
-            )}
-          </div>
-        )}
-
-        {/* タブ7: 結果 */}
-        {activeTab === 7 && (
-          <div className="glass-card p-8">
-            <h2 className="text-2xl font-semibold mb-6 flex items-center gap-2">
-              <span className="text-3xl">🎯</span>
-              <span className="truncate">結果</span>
-            </h2>
-            <div className="text-gray-600 dark:text-gray-400">
-              <p className="mb-4">ダメージ計算結果は「ダメージ計算」ページで確認できます。</p>
-              <a
-                href="/damage"
-                className="btn-primary inline-block"
-              >
-                ダメージ計算ページへ
-              </a>
-            </div>
+            {/* スキル計算セクション */}
+            <SkillCalculationSection />
           </div>
         )}
       </div>
 
-      {/* 火力計算セクション */}
-      <DamageCalculationSection />
 
       {/* タブナビゲーションボタン */}
       <div className="flex justify-between mt-6">
@@ -1578,6 +1452,17 @@ export default function BuildPage() {
           次へ →
         </button>
       </div>
+
+      {/* 確認ダイアログ */}
+      <ConfirmDialog
+        isOpen={confirmDialog.isOpen}
+        title={confirmDialog.title}
+        message={confirmDialog.message}
+        confirmText={confirmDialog.confirmText}
+        confirmVariant={confirmDialog.confirmVariant}
+        onConfirm={confirmDialog.onConfirm}
+        onCancel={() => setConfirmDialog(prev => ({ ...prev, isOpen: false }))}
+      />
     </main>
   );
 }

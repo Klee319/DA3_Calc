@@ -160,21 +160,26 @@ export function applyJobCorrection(
   }
 }
 
+/** デフォルトの最終ダメージ計算式（YAMLから読み込めない場合のフォールバック） */
+const DEFAULT_FINAL_DAMAGE_FORMULA = "(HitDamage-(EnemyDefence/2))*(1-(EnemyTypeResistance/100))*(1-(EnemyAttributeResistance/100))";
+
 /**
  * 最終ダメージ計算（敵の防御・耐性考慮）
- * FinalDamage: "(HitDamage-(EnemyDefence/2))*(1-(EnemyTypeResistance/100))*(1-(EnemyAttributeResistance/100))"
+ * WeaponCalc.yamlのFinalDamage式を使用
  *
  * @param hitDamage - ヒットダメージ
  * @param enemyDefence - 敵の防御力
  * @param typeResist - タイプ耐性（%）
  * @param attrResist - 属性耐性（%）
+ * @param weaponCalc - 武器計算データ（オプション、指定時はYAMLの式を使用）
  * @returns 最終ダメージ
  */
 export function calcFinalDamage(
   hitDamage: number,
   enemyDefence: number,
   typeResist: number,
-  attrResist: number
+  attrResist: number,
+  weaponCalc?: WeaponCalcData
 ): number {
   const variables = {
     HitDamage: hitDamage,
@@ -183,7 +188,8 @@ export function calcFinalDamage(
     EnemyAttributeResistance: attrResist
   };
 
-  const formula = "(HitDamage-(EnemyDefence/2))*(1-(EnemyTypeResistance/100))*(1-(EnemyAttributeResistance/100))";
+  // YAMLから式を取得、なければデフォルト式を使用
+  const formula = weaponCalc?.FinalDamage || DEFAULT_FINAL_DAMAGE_FORMULA;
 
   try {
     const finalDamage = evaluateFormula(formula, variables);
@@ -245,12 +251,13 @@ export function calcWeaponDamage(
     damageCorrection
   );
 
-  // 最終ダメージ計算
+  // 最終ダメージ計算（YAMLの式を使用）
   const finalDamage = calcFinalDamage(
     jobCorrectedDamage,
     enemyDefence,
     typeResist,
-    attrResist
+    attrResist,
+    weaponCalc
   );
 
   return {

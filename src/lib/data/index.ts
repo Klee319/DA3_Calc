@@ -12,7 +12,12 @@ export {
   loadUserStatusCalc,
   loadSkillCalc,
   loadAllYamlData,
-  extractSkillsFromCalcData
+  extractSkillsFromCalcData,
+  // 新スキル計算システム
+  loadAllSkillCalcData,
+  getAvailableBookSkills,
+  getAvailableJobSkills,
+  getAllAvailableSkills,
 } from './yamlLoader';
 
 // CSVローダーをエクスポート

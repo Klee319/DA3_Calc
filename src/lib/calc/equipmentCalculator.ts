@@ -308,7 +308,8 @@ export function calculateWeaponStats(
       // 式: ROUNDUP( Initial.AttackP + AvailableLv * (Rank.Bonus.AttackP / Denominator) ) + Rank.Alchemy.AttackP + Reinforcement.AttackP * <ReinforcementLevel> + Forge.AttackP * <ForgeAttackPAmount>
       // Note: Rank.Bonus.AttackP は Denominator で割った項でのみ使用し、フラット加算はしない
       if (weaponFormulas.AttackP) {
-        attackPower = round(evaluateFormula(weaponFormulas.AttackP, variables));
+        const rawAttackPower = evaluateFormula(weaponFormulas.AttackP, variables);
+        attackPower = round(rawAttackPower);
       } else {
         // デフォルト計算
         const attackPowerBase = roundUp(baseAttackP + weapon.使用可能Lv * ((rankBonus.AttackP || 0) / variables.Denominator));
@@ -583,43 +584,33 @@ export function calculateArmorStats(
  * @param level 使用可能レベル
  * @param rank 装備ランク
  * @param exStatType EXステータスの種類
+ * @param eqConst 装備定数データ
  * @returns EX実数値
  */
 function calculateArmorEXValue(
   level: number,
   rank: EquipmentRank,
-  exStatType: 'Dex' | 'CritDamage' | 'Speed' | 'HP' | 'Power' | 'Magic' | 'Mind' | 'Defense'
+  exStatType: 'Dex' | 'CritDamage' | 'Speed' | 'HP' | 'Power' | 'Magic' | 'Mind' | 'Defense',
+  eqConst: EqConstData
 ): number {
   // エラーハンドリング：levelが0や負数の場合
   if (level <= 0) {
     return 1; // 最小値は1
   }
 
-  // ランクEX係数テーブル（仕様書§4.1より）
-  const coeffTable: Record<string, Record<EquipmentRank, number>> = {
-    'Dex': {
-      'SSS': 0.15, 'SS': 0.13, 'S': 0.11, 'A': 0.09, 'B': 0.09,
-      'C': 0.07, 'D': 0.07, 'E': 0.05, 'F': 0.05
-    },
-    'CritDamage': {
-      'SSS': 0.6, 'SS': 0.5, 'S': 0.4, 'A': 0.3, 'B': 0.3,
-      'C': 0.2, 'D': 0.2, 'E': 0.1, 'F': 0.1
-    },
-    'Speed': {
-      'SSS': 0.6, 'SS': 0.5, 'S': 0.4, 'A': 0.3, 'B': 0.3,
-      'C': 0.2, 'D': 0.2, 'E': 0.1, 'F': 0.1
-    },
-    'Other': { // HP, Power, Magic, Mind, Defense
-      'SSS': 0.7, 'SS': 0.6, 'S': 0.5, 'A': 0.4, 'B': 0.4,
-      'C': 0.3, 'D': 0.3, 'E': 0.2, 'F': 0.2
-    }
-  };
+  // EqConst.yamlから係数を取得
+  // Dex → CritR, CritDamage/Speed → Speed_CritD, その他 → Other
+  const exRankCoeffs = eqConst.Equipment_EX.Rank;
+  let coeff: number;
 
-  const statCategory = ['Dex', 'CritDamage', 'Speed'].includes(exStatType)
-    ? exStatType
-    : 'Other';
-
-  const coeff = coeffTable[statCategory][rank];
+  if (exStatType === 'Dex') {
+    coeff = exRankCoeffs.CritR[rank] ?? 0;
+  } else if (exStatType === 'CritDamage' || exStatType === 'Speed') {
+    coeff = exRankCoeffs.Speed_CritD[rank] ?? 0;
+  } else {
+    // HP, Power, Magic, Mind, Defense
+    coeff = exRankCoeffs.Other[rank] ?? 0;
+  }
 
   // EX実数値 = ROUND(Lv × ランクEX係数 + 1)
   return round(level * coeff + 1);
@@ -631,19 +622,21 @@ function calculateArmorEXValue(
  * @param rank 装備ランク
  * @param ex1Type EX1の種類
  * @param ex2Type EX2の種類
+ * @param eqConst 装備定数データ
  * @returns EX1とEX2の計算結果
  */
 export function calculateArmorEX(
   armor: ArmorData,
   rank: EquipmentRank,
   ex1Type: 'Dex' | 'CritDamage' | 'Speed' | 'HP' | 'Power' | 'Magic' | 'Mind' | 'Defense',
-  ex2Type: 'Dex' | 'CritDamage' | 'Speed' | 'HP' | 'Power' | 'Magic' | 'Mind' | 'Defense'
+  ex2Type: 'Dex' | 'CritDamage' | 'Speed' | 'HP' | 'Power' | 'Magic' | 'Mind' | 'Defense',
+  eqConst: EqConstData
 ): { ex1: number; ex2: number; ex1Type: string; ex2Type: string } {
   const level = armor.使用可能Lv;
 
   return {
-    ex1: calculateArmorEXValue(level, rank, ex1Type),
-    ex2: calculateArmorEXValue(level, rank, ex2Type),
+    ex1: calculateArmorEXValue(level, rank, ex1Type, eqConst),
+    ex2: calculateArmorEXValue(level, rank, ex2Type, eqConst),
     ex1Type,
     ex2Type
   };
@@ -652,16 +645,22 @@ export function calculateArmorEX(
 /**
  * アクセサリEXステータスを計算
  * 仕様書 §5.3 に基づく（防具EXと同様のルール）
+ * @param accessory アクセサリデータ
+ * @param rank 装備ランク
+ * @param exType EXステータスの種類
+ * @param eqConst 装備定数データ
+ * @returns EX値とEXタイプ
  */
 export function calculateAccessoryEX(
   accessory: AccessoryData,
   rank: EquipmentRank,
-  exType: 'Dex' | 'CritDamage' | 'Speed' | 'HP' | 'Power' | 'Magic' | 'Mind'
+  exType: 'Dex' | 'CritDamage' | 'Speed' | 'HP' | 'Power' | 'Magic' | 'Mind',
+  eqConst: EqConstData
 ): { exValue: number; exType: string } {
   const level = accessory.使用可能Lv;
 
   return {
-    exValue: calculateArmorEXValue(level, rank, exType),
+    exValue: calculateArmorEXValue(level, rank, exType, eqConst),
     exType
   };
 }

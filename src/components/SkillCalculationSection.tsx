@@ -481,7 +481,9 @@ export function SkillCalculationSection() {
           {/* ダメージ/回復系 */}
           {(calculationResult.type === 'damage' || calculationResult.type === 'heal') && (() => {
             // 会心率・ダメージ補正の期待値計算
-            const critRate = Math.min(storeWeaponStats?.critRate || 0, 100) / 100;
+            // calculatedStats.total.CRI は「武器会心率 + ユーザー器用さ * 0.3」で既に計算済み
+            const totalCritRate = calculatedStats.total.CRI || 0;
+            const critRate = Math.min(totalCritRate, 100) / 100;
             // ダメージ補正: 武器値（例: 80）~ 100%の範囲
             const damageCorrectionMin = storeWeaponStats?.damageCorrection || 80;
             const damageCorrectionMax = 100;

@@ -33,6 +33,8 @@ export interface WeaponData {
 export interface WeaponStats extends StatBlock {
   attackPower?: number;
   magicPower?: number;
+  critRate?: number;    // 会心率
+  critDamage?: number;  // 会心ダメージ
 }
 
 // 防具データ
