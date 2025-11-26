@@ -1,0 +1,69 @@
+Sword:
+  斬撃波:
+    BaseDamageType: ["Sword"]
+    MP: "15 + <Level>*5"
+    CT: "7 - <Level>*0.25"
+    Hits: 1
+    Damage: "BaseDamage.Sword * 1.0"
+
+  火炎斬:
+    BaseDamageType: ["Sword"]
+    MP: "24 + <Level>"
+    CT: "9 - <Level>*0.25"
+    Hits: 1
+    Damage: "BaseDamage.Sword * 1.0"
+
+  斬撃波・改:
+    BaseDamageType: ["Sword"]
+    MP: "37 + <Level>*5"
+    CT: "13 - <Level>*0.25"
+    Hits: 1
+    Damage: "BaseDamage.Sword * ((<Level> + 2) * 0.1)"
+
+Wand:
+  フェアリースイフト:
+    BaseDamageType: ["Wand"]
+    MP: "18 + <Level>"
+    CT: "7 - <Level>*0.25"
+    Hits: 1
+    Damage: "BaseDamage.Wand * 1.0"
+
+  ウォルタ:
+    BaseDamageType: ["Wand"]
+    MP: "23 + <Level>"
+    CT: "9 - <Level>*0.25"
+    Hits: 1
+    Damage: "BaseDamage.Wand * 1.0"
+
+Bow:
+  ブラッドショット:
+    BaseDamageType: ["Bow"]
+    MP: "28 + <Level>*2"
+    CT: "14 - <Level>*0.5"
+    Hits: 1
+    Damage: "ROUND((BaseDamage.Bow + UserSpeed*40)*(2.05 + <Level>*0.2), -1)"
+    Extra:
+      "出血": "UserHP * (1.025 + <Level>*0.1)"
+
+GreatSword:
+  斬撃波(大剣):
+    BaseDamageType: ["GreatSword"]
+    MP: "15 + <Level>*5"
+    CT: "7 - <Level>*0.25"
+    Hits: 1
+    Damage: "BaseDamage.GreatSword * ((<Level> + 2) * 0.1)"
+
+Dagger:
+  連撃・覇:
+    BaseDamageType: ["Dagger"]
+    MP: null
+    CT: null
+    Hits: 1
+    Damage: "BaseDamage.Dagger * (<Level> + 13) * 0.05 + UserSpeed * 0.5"
+
+  鏡喪斬:
+    BaseDamageType: ["Dagger"]
+    MP: null
+    CT: null
+    Hits: 1
+    Damage: "BaseDamage.Dagger * (<Level> + 39) * 0.02"
