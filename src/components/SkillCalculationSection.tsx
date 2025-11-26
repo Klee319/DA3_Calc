@@ -57,6 +57,12 @@ export function SkillCalculationSection() {
   const [skillLevel, setSkillLevel] = useState<number>(1); // スキル本用
   const [customHits, setCustomHits] = useState<number | undefined>(undefined); // variableヒット用
 
+  // 高度なオプション（敵ステータス）
+  const [showAdvancedOptions, setShowAdvancedOptions] = useState(false);
+  const [enemyDefense, setEnemyDefense] = useState<number>(0); // 敵守備力
+  const [enemyTypeResistance, setEnemyTypeResistance] = useState<number>(0); // 攻撃耐性(物理/魔力)(%)
+  const [enemyAttributeResistance, setEnemyAttributeResistance] = useState<number>(0); // 属性耐性(%)
+
   // 計算結果
   const [calculationResult, setCalculationResult] = useState<SkillCalculationResult | null>(null);
 
@@ -461,6 +467,95 @@ export function SkillCalculationSection() {
         </div>
       )}
 
+      {/* 高度なオプション（敵ステータス） */}
+      <div className="mb-6">
+        <button
+          onClick={() => setShowAdvancedOptions(!showAdvancedOptions)}
+          className="flex items-center gap-2 text-sm text-gray-400 hover:text-white transition-colors"
+        >
+          <span className={`transform transition-transform ${showAdvancedOptions ? 'rotate-90' : ''}`}>
+            ▶
+          </span>
+          <span>高度なオプション（敵ステータス）</span>
+          {(enemyDefense > 0 || enemyTypeResistance > 0 || enemyAttributeResistance > 0) && (
+            <span className="px-2 py-0.5 bg-rpg-accent/30 text-rpg-accent text-xs rounded-full">
+              適用中
+            </span>
+          )}
+        </button>
+
+        {showAdvancedOptions && (
+          <div className="mt-4 p-4 bg-gray-800/50 border border-gray-700/50 rounded-lg space-y-4">
+            <p className="text-xs text-gray-500 mb-3">
+              敵のステータスを入力すると、最終ダメージが計算されます。
+              <br />
+              計算式: (HitDamage - 守備力/2) × (1 - 攻撃耐性%) × (1 - 属性耐性%)
+            </p>
+
+            {/* 敵守備力 */}
+            <div>
+              <label className="block text-sm font-medium text-gray-400 mb-2">
+                敵守備力
+              </label>
+              <input
+                type="number"
+                min={0}
+                value={enemyDefense}
+                onChange={(e) => setEnemyDefense(Math.max(0, Number(e.target.value) || 0))}
+                placeholder="0"
+                className="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-lg text-white"
+              />
+            </div>
+
+            {/* 攻撃耐性（物理/魔力） */}
+            <div>
+              <label className="block text-sm font-medium text-gray-400 mb-2">
+                攻撃耐性 (%) <span className="text-gray-500">物理/魔力</span>
+              </label>
+              <input
+                type="number"
+                min={-100}
+                max={100}
+                value={enemyTypeResistance}
+                onChange={(e) => setEnemyTypeResistance(Math.min(100, Math.max(-100, Number(e.target.value) || 0)))}
+                placeholder="0"
+                className="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-lg text-white"
+              />
+              <p className="text-xs text-gray-500 mt-1">負の値は弱点（ダメージ増加）</p>
+            </div>
+
+            {/* 属性耐性 */}
+            <div>
+              <label className="block text-sm font-medium text-gray-400 mb-2">
+                属性耐性 (%)
+              </label>
+              <input
+                type="number"
+                min={-100}
+                max={100}
+                value={enemyAttributeResistance}
+                onChange={(e) => setEnemyAttributeResistance(Math.min(100, Math.max(-100, Number(e.target.value) || 0)))}
+                placeholder="0"
+                className="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-lg text-white"
+              />
+              <p className="text-xs text-gray-500 mt-1">負の値は弱点（ダメージ増加）</p>
+            </div>
+
+            {/* リセットボタン */}
+            <button
+              onClick={() => {
+                setEnemyDefense(0);
+                setEnemyTypeResistance(0);
+                setEnemyAttributeResistance(0);
+              }}
+              className="w-full px-3 py-2 bg-gray-600 hover:bg-gray-500 text-gray-300 rounded-lg transition-colors text-sm"
+            >
+              リセット
+            </button>
+          </div>
+        )}
+      </div>
+
       {/* 計算結果 */}
       {calculationResult && selectedSkill && (
         <div className="mt-6 space-y-4">
@@ -508,6 +603,27 @@ export function SkillCalculationSection() {
             const maxPerHit = Math.round(
               calculationResult.damagePerHit * (damageCorrectionMax / 100)
             );
+
+            // 敵ステータスを考慮した最終ダメージ計算関数
+            // FinalDamage = (HitDamage - EnemyDefence/2) * (1 - TypeRes/100) * (1 - AttrRes/100)
+            // 多段攻撃は1段ごとに計算して合計
+            const calculateFinalDamage = (hitDamage: number): number => {
+              const afterDefense = Math.max(0, hitDamage - (enemyDefense / 2));
+              const afterTypeRes = afterDefense * (1 - enemyTypeResistance / 100);
+              const afterAttrRes = afterTypeRes * (1 - enemyAttributeResistance / 100);
+              return Math.max(0, Math.floor(afterAttrRes));
+            };
+
+            // 敵ステータスが設定されているか
+            const hasEnemyStats = enemyDefense > 0 || enemyTypeResistance !== 0 || enemyAttributeResistance !== 0;
+
+            // 最終ダメージ（1hit単位で計算）
+            const finalMaxPerHit = calculateFinalDamage(maxPerHit);
+            const finalExpectedPerHit = calculateFinalDamage(expectedPerHit);
+
+            // 多段攻撃の合計（1段ごとに計算して合計）
+            const finalMaxTotal = finalMaxPerHit * calculationResult.hits;
+            const finalExpectedTotal = finalExpectedPerHit * calculationResult.hits;
 
             return (
               <>
@@ -589,6 +705,49 @@ export function SkillCalculationSection() {
                     )}
                   </div>
                 )}
+
+                {/* 最終ダメージ（敵ステータス考慮、ダメージスキルのみ） */}
+                {calculationResult.type === 'damage' && hasEnemyStats && (
+                  <div className="mt-4 p-4 bg-gradient-to-br from-emerald-900/30 to-teal-900/30 border border-emerald-500/40 rounded-lg">
+                    <h5 className="text-sm font-semibold text-emerald-400 mb-3 flex items-center gap-2">
+                      <span>🎯</span>
+                      最終ダメージ（敵ステータス考慮）
+                    </h5>
+                    <p className="text-xs text-gray-400 mb-3">
+                      守備力: {enemyDefense} / 攻撃耐性: {enemyTypeResistance}% / 属性耐性: {enemyAttributeResistance}%
+                    </p>
+                    <div className="grid grid-cols-2 gap-3">
+                      <div className="p-3 bg-gray-800/50 rounded-lg">
+                        <p className="text-xs text-emerald-400 mb-1">1hit期待値</p>
+                        <p className="text-2xl font-bold text-emerald-300">
+                          {finalExpectedPerHit.toLocaleString()}
+                        </p>
+                      </div>
+                      <div className="p-3 bg-gray-800/50 rounded-lg">
+                        <p className="text-xs text-teal-400 mb-1">1hit最大</p>
+                        <p className="text-2xl font-bold text-teal-300">
+                          {finalMaxPerHit.toLocaleString()}
+                        </p>
+                      </div>
+                      {calculationResult.hits > 1 && (
+                        <>
+                          <div className="p-3 bg-gray-800/50 rounded-lg">
+                            <p className="text-xs text-emerald-400 mb-1">全段({calculationResult.hits}hit)期待値</p>
+                            <p className="text-2xl font-bold text-emerald-300">
+                              {finalExpectedTotal.toLocaleString()}
+                            </p>
+                          </div>
+                          <div className="p-3 bg-gray-800/50 rounded-lg">
+                            <p className="text-xs text-teal-400 mb-1">全段({calculationResult.hits}hit)最大</p>
+                            <p className="text-2xl font-bold text-teal-300">
+                              {finalMaxTotal.toLocaleString()}
+                            </p>
+                          </div>
+                        </>
+                      )}
+                    </div>
+                  </div>
+                )}
               </>
             );
           })()}
@@ -651,11 +810,11 @@ export function SkillCalculationSection() {
 
           {/* Extra効果（追加ダメージなど） */}
           {calculationResult.extraEffects && Object.keys(calculationResult.extraEffects).length > 0 && (() => {
-            // ダメージ補正の期待値計算（EXTRA用）
-            // 注: Extra効果はUserHPなどに基づくことが多く、会心とは無関係
-            const damageCorrectionMin = storeWeaponStats?.damageCorrection || 80;
-            const damageCorrectionMax = 100;
-            const avgDamageCorrection = ((damageCorrectionMin + damageCorrectionMax) / 2) / 100;
+            // 敵ステータスが設定されているか
+            const hasEnemyStats = enemyDefense > 0 || enemyTypeResistance !== 0 || enemyAttributeResistance !== 0;
+
+            // Extra式文字列を取得（BaseDamage判定用）
+            const extraFormulas = selectedSkill.definition.Extra || {};
 
             return (
               <div className="p-4 bg-gradient-to-br from-amber-900/20 to-yellow-900/20 border border-amber-500/30 rounded-lg">
@@ -665,33 +824,58 @@ export function SkillCalculationSection() {
                 </h5>
                 <div className="space-y-3">
                   {Object.entries(calculationResult.extraEffects).map(([key, value]) => {
-                    // 各EXTRA効果の期待値・最大ダメージを計算
-                    // 注: Extra効果は会心とは無関係、ダメージ補正のみ適用
+                    // Extra効果の基礎値
                     const baseValue = Math.floor(value);
-                    const expectedValue = Math.round(baseValue * avgDamageCorrection);
-                    const maxValue = Math.round(baseValue * (damageCorrectionMax / 100));
+
+                    // この式がBaseDamageを含むかどうかを判定
+                    const formula = extraFormulas[key] || '';
+                    const containsBaseDamage = formula.includes('BaseDamage');
+
+                    // BaseDamageを含まない式の場合：単一値のみ出力（会心/ダメージ補正なし）
+                    if (!containsBaseDamage) {
+                      return (
+                        <div key={key} className="p-3 bg-gray-800/50 rounded-lg">
+                          <p className="text-xs text-gray-400 mb-2">{key}</p>
+                          <div className="text-center">
+                            <p className="text-xl font-bold text-amber-300">
+                              {baseValue.toLocaleString()}
+                            </p>
+                            <p className="text-xs text-gray-500 mt-1">（会心/ダメージ補正なし）</p>
+                          </div>
+                        </div>
+                      );
+                    }
+
+                    // BaseDamageを含む式の場合：最大値と期待値を出力
+                    // ※ BaseDamageには既に会心ダメージが含まれているため、会心補正は掛けない
+                    // ダメージ補正: 武器値（例: 80）~ 100%の範囲
+                    const damageCorrectionMin = storeWeaponStats?.damageCorrection || 80;
+                    const damageCorrectionMax = 100;
+                    const avgDamageCorrection = ((damageCorrectionMin + damageCorrectionMax) / 2) / 100;
+
+                    // 1hit最大（ダメ補正100%）
+                    const maxDamage = Math.floor(baseValue * (damageCorrectionMax / 100));
+
+                    // 1hit期待値（ダメ補正平均）
+                    const expectedDamage = Math.floor(baseValue * avgDamageCorrection);
 
                     return (
                       <div key={key} className="p-3 bg-gray-800/50 rounded-lg">
                         <p className="text-xs text-gray-400 mb-2">{key}</p>
-                        <div className="grid grid-cols-3 gap-2">
-                          <div>
-                            <p className="text-xs text-gray-500">基礎値</p>
-                            <p className="text-lg font-bold text-amber-300">
-                              {baseValue.toLocaleString()}
+                        <div className="grid grid-cols-2 gap-3">
+                          <div className="text-center">
+                            <p className="text-xs text-amber-400 mb-1">1hit最大</p>
+                            <p className="text-xl font-bold text-amber-300">
+                              {maxDamage.toLocaleString()}
                             </p>
+                            <p className="text-xs text-gray-500">補正100%</p>
                           </div>
-                          <div>
-                            <p className="text-xs text-yellow-500">期待値</p>
-                            <p className="text-lg font-bold text-yellow-300">
-                              {expectedValue.toLocaleString()}
+                          <div className="text-center">
+                            <p className="text-xs text-yellow-400 mb-1">1hit期待値</p>
+                            <p className="text-xl font-bold text-yellow-300">
+                              {expectedDamage.toLocaleString()}
                             </p>
-                          </div>
-                          <div>
-                            <p className="text-xs text-red-500">最大</p>
-                            <p className="text-lg font-bold text-red-300">
-                              {maxValue.toLocaleString()}
-                            </p>
+                            <p className="text-xs text-gray-500">補正{damageCorrectionMin}%-100%</p>
                           </div>
                         </div>
                       </div>
