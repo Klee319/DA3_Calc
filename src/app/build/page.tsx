@@ -1215,27 +1215,67 @@ export default function BuildPage() {
                 <span className="text-gray-700 dark:text-gray-300 font-medium">リングバフ</span>
               </label>
               {ringOption.enabled && (
-                <div className="mt-3 ml-6 p-4 glass-card-secondary rounded-lg animate-fadeIn">
+                <div className="mt-3 ml-6 p-4 glass-card-secondary rounded-lg animate-fadeIn space-y-4">
+                  {/* リング種類選択 */}
                   <CustomSelect
                     options={[
-                      { value: 'attack_1', label: '攻撃リング Lv1', icon: '⚔️', description: '攻撃力 +10%' },
-                      { value: 'magic_1', label: '魔法リング Lv1', icon: '🔮', description: '魔法攻撃力 +10%' },
-                      { value: 'defense_1', label: '防御リング Lv1', icon: '🛡️', description: '防御力 +10%' },
+                      { value: 'none', label: 'なし', icon: '-', description: 'リングバフ無効' },
+                      { value: 'power', label: '力リング', icon: '💪', description: '力（ATK）に%ボーナス' },
+                      { value: 'magic', label: '魔力リング', icon: '✨', description: '魔力（MATK）に%ボーナス' },
+                      { value: 'speed', label: '素早さリング', icon: '💨', description: '素早さ（AGI）に%ボーナス' },
                     ]}
-                    value={ringOption.rings.length > 0 ? `${ringOption.rings[0].type}_${ringOption.rings[0].level}` : ''}
+                    value={ringOption.rings.length > 0 ? ringOption.rings[0].type : 'none'}
                     onChange={(value) => {
-                      const [type, level] = value.split('_');
-                      setRingOption({ 
-                        ...ringOption, 
-                        rings: [{
-                          type: type as 'attack' | 'magic' | 'defense',
-                          level: parseInt(level) || 1
-                        }]
-                      });
+                      const ringType = value as 'power' | 'magic' | 'speed' | 'none';
+                      if (ringType === 'none') {
+                        setRingOption({ ...ringOption, rings: [] });
+                      } else {
+                        const currentLevel = ringOption.rings.length > 0 ? ringOption.rings[0].level : 1;
+                        setRingOption({
+                          ...ringOption,
+                          rings: [{
+                            type: ringType,
+                            level: currentLevel
+                          }]
+                        });
+                      }
                     }}
-                    placeholder="リングを選択"
-                    label="リング設定"
+                    placeholder="リング種類を選択"
+                    label="リング種類"
                   />
+
+                  {/* リングレベル選択（リングが選択されている場合のみ表示） */}
+                  {ringOption.rings.length > 0 && ringOption.rings[0].type !== 'none' && (
+                    <CustomSelect
+                      options={[
+                        { value: '1', label: 'Lv1', icon: '1', description: '+10%' },
+                        { value: '2', label: 'Lv2', icon: '2', description: '+15%' },
+                        { value: '3', label: 'Lv3', icon: '3', description: '+20%' },
+                      ]}
+                      value={String(ringOption.rings[0].level)}
+                      onChange={(value) => {
+                        const level = parseInt(value) || 1;
+                        setRingOption({
+                          ...ringOption,
+                          rings: [{
+                            ...ringOption.rings[0],
+                            level: level
+                          }]
+                        });
+                      }}
+                      placeholder="レベルを選択"
+                      label="リングレベル"
+                    />
+                  )}
+
+                  {/* 選択中のリング効果表示 */}
+                  {ringOption.rings.length > 0 && ringOption.rings[0].type !== 'none' && (
+                    <div className="mt-2 p-2 bg-blue-500/10 rounded text-sm text-blue-400">
+                      {ringOption.rings[0].type === 'power' && `力 +${ringOption.rings[0].level === 1 ? 10 : ringOption.rings[0].level === 2 ? 15 : 20}%`}
+                      {ringOption.rings[0].type === 'magic' && `魔力 +${ringOption.rings[0].level === 1 ? 10 : ringOption.rings[0].level === 2 ? 15 : 20}%`}
+                      {ringOption.rings[0].type === 'speed' && `素早さ +${ringOption.rings[0].level === 1 ? 10 : ringOption.rings[0].level === 2 ? 15 : 20}%`}
+                    </div>
+                  )}
                 </div>
               )}
             </div>
@@ -1318,23 +1358,6 @@ export default function BuildPage() {
 
               {showAdvancedSettings && (
                 <div className="space-y-6 animate-fadeIn">
-                  {/* 再帰収束計算ON/OFF */}
-                  <div>
-                    <label className="flex items-center cursor-pointer">
-                      <input
-                        type="checkbox"
-                        checked={userOption.recursiveEnabled || false}
-                        onChange={(e) => setUserOption({
-                          ...userOption,
-                          recursiveEnabled: e.target.checked,
-                        })}
-                        className="checkbox-primary mr-3"
-                      />
-                      <span className="text-gray-700 dark:text-gray-300 font-medium">再帰収束計算</span>
-                      <span className="text-xs text-gray-500 ml-2">（%ボーナスを変化が1未満になるまで繰り返し適用）</span>
-                    </label>
-                  </div>
-
                   {/* 手動追加ステータス（固定値） */}
                   <div>
                     <h3 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-3">

@@ -5,7 +5,7 @@ UserStatusFormula:
 
   RingOption:
     Enabled: "IfUserSetsThisTrue"
-    IterativeApply: "repeat( round( CurrentStatus * (1 + Ring.<Stat>/100) ), until_converged )"
+    IterativeApply: "repeat( 40+round(SumEquipment.<Stat>)*0.1, until_converged )"
 
   Components:
 

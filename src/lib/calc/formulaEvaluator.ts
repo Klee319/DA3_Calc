@@ -134,7 +134,9 @@ function processCustomRoundFunctions(formula: string, variables: Record<string, 
         const sortedVariables = Object.entries(variables).sort(([a], [b]) => b.length - a.length);
         for (const [varName, varValue] of sortedVariables) {
           const escapedVarName = varName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-          const regex = new RegExp(`\\b${escapedVarName}\\b`, 'g');
+          // ドット記法の変数（Initial.AttackP等）は単語境界が効かないため、
+          // 前後の文字が英数字またはドットでないことを確認する
+          const regex = new RegExp(`(?<![a-zA-Z0-9._])${escapedVarName}(?![a-zA-Z0-9._])`, 'g');
           valueExpr = valueExpr.replace(regex, String(varValue));
         }
         // ネストされたROUND関数を再帰的に処理
@@ -154,7 +156,8 @@ function processCustomRoundFunctions(formula: string, variables: Record<string, 
           const sortedVariables = Object.entries(variables).sort(([a], [b]) => b.length - a.length);
           for (const [varName, varValue] of sortedVariables) {
             const escapedVarName = varName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-            const regex = new RegExp(`\\b${escapedVarName}\\b`, 'g');
+            // ドット記法の変数対応
+            const regex = new RegExp(`(?<![a-zA-Z0-9._])${escapedVarName}(?![a-zA-Z0-9._])`, 'g');
             decExpr = decExpr.replace(regex, String(varValue));
           }
           decimals = evaluate(decExpr);
@@ -190,8 +193,10 @@ export function evaluateFormula(formula: string, variables: Record<string, numbe
     for (const [varName, value] of sortedVariables) {
       // 変数名を正規表現でエスケープ
       const escapedVarName = varName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-      // 単語境界を考慮して置換
-      const regex = new RegExp(`\\b${escapedVarName}\\b`, 'g');
+      // ドット記法の変数（Initial.AttackP等）は単語境界が効かないため、
+      // 前後の文字が英数字またはドットでないことを確認する
+      // (?<![a-zA-Z0-9._]) は後読みアサーション、(?![a-zA-Z0-9._]) は先読みアサーション
+      const regex = new RegExp(`(?<![a-zA-Z0-9._])${escapedVarName}(?![a-zA-Z0-9._])`, 'g');
       processedFormula = processedFormula.replace(regex, String(value));
     }
 

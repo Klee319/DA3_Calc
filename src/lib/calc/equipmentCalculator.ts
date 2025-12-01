@@ -295,9 +295,10 @@ export function calculateWeaponStats(
       'Forge.AttackP': eqConst.Weapon.Forge?.Other || 1,
       'Forge.CritR': eqConst.Weapon.Forge?.Other || 1,
       'Forge.CritD': eqConst.Weapon.Forge?.Other || 1,
-      'ForgeAttackPAmount': attackPowerSmithing,
-      'ForgeCritRAmount': critRateSmithing,
-      'ForgeCritDAmount': critDamageSmithing,
+      // YAML式では <ForgeAttackPAmount> が ForgeAttackP に変換される
+      'ForgeAttackP': attackPowerSmithing,
+      'ForgeCritR': critRateSmithing,
+      'ForgeCritD': critDamageSmithing,
       // その他
       'AvailableLv': weapon.使用可能Lv,
       'Denominator': (eqConst.Weapon.Reinforcement as any)?.Denominator || 320,

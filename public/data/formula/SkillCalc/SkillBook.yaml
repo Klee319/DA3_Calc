@@ -41,7 +41,7 @@ Bow:
     MP: "28 + <Level>*2"
     CT: "14 - <Level>*0.5"
     Hits: 1
-    Damage: null
+    Damage: "Round((BaseDamage.Bow + UserSpeed*40) * (2.05 + <Level> * 0.2),-1)"
     Extra:
       "出血": "UserHP * (1.025 + <Level>*0.1)"
 

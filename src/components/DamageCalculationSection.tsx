@@ -59,6 +59,25 @@ function convertWeaponTypeToYamlFormat(weaponType: string): string {
 }
 
 /**
+ * 武器種ごとのUserCritDamage係数を取得する
+ * WeaponCalc.yamlの各武器種の式に基づく
+ */
+function getUserCritDamageCoefficient(weaponType: string): number {
+  const coefficients: Record<string, number> = {
+    'Sword': 0.005,
+    'Wand': 0.0016,
+    'Bow': 0.0016,
+    'Axe': 0.001,
+    'GreatSword': 0.001,
+    'Dagger': 0.0015,
+    'Spear': 0.001 / 3, // 槍は÷3で適用される
+    'Frypan': 0.005,
+  };
+
+  return coefficients[weaponType] || 0.005;
+}
+
+/**
  * 武器種を日本語名に変換する
  */
 function convertWeaponTypeToJapanese(weaponType: string): string {
@@ -199,9 +218,12 @@ export function DamageCalculationSection() {
 
     try {
       const weapon = currentBuild.equipment.weapon;
+      console.log('[DamageCalc] weapon.weaponType:', weapon.weaponType);
+      console.log('[DamageCalc] storeWeaponStats.weaponType:', storeWeaponStats?.weaponType);
       const weaponType = convertWeaponTypeToYamlFormat(
-        weapon.weaponType || 'sword'
+        weapon.weaponType || storeWeaponStats?.weaponType || 'sword'
       ) as WeaponType;
+      console.log('[DamageCalc] Converted weaponType:', weaponType);
 
       const weaponStats = getWeaponStats();
       const userStats = getUserStats();
@@ -244,9 +266,11 @@ export function DamageCalculationSection() {
       }
 
       // 非会心ダメージを計算するために、会心ダメージ部分を除外した係数を計算
-      // YAML式: (base) * DamageCorrection * (1 + WeaponCritDamage/100 + UserCritDamage*0.005)
-      // 会心倍率 = (1 + WeaponCritDamage/100 + UserCritDamage*0.005)
-      const critMultiplier = 1 + (weaponStats.critDamage || 0) / 100 + (userStats.HIT || 0) * 0.005;
+      // YAML式: (base) * DamageCorrection * (1 + WeaponCritDamage/100 + UserCritDamage*係数)
+      // 会心倍率 = (1 + WeaponCritDamage/100 + UserCritDamage*係数)
+      // 係数は武器種によって異なる（弓: 0.0016, 剣: 0.005 など）
+      const userCritDamageCoeff = getUserCritDamageCoefficient(weaponType);
+      const critMultiplier = 1 + (weaponStats.critDamage || 0) / 100 + (userStats.HIT || 0) * userCritDamageCoeff;
 
       // 非会心時のダメージ（会心ダメージ部分を除外）
       // 非会心時は critMultiplier が 1.0 と仮定

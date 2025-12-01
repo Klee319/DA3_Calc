@@ -1,0 +1,35 @@
+
+# ------------------------
+# スペルリファクター
+# ------------------------
+SpellRefactor:
+
+  ウィンドバースト・改:
+    BaseDamageType: ["Sword","Wand"]
+    Hits: 8
+    Damage: "(BaseDamage.Sword + UserMind*0.2)*0.5"
+    Extra:
+      杖の場合: "(BaseDamage.Wand + UserMind*0.2)*0.5"
+
+  ウィンドバースト・改2:
+    BaseDamageType: ["Sword","Wand"]
+    Hits: 8
+    Damage: "(BaseDamage.Sword + UserMind*0.2)*0.75"
+    Extra:
+      杖の場合: "(BaseDamage.Wand + UserMind*0.2)*0.75"
+
+# ------------------------
+# ステラシャフト
+# ------------------------
+StellaShaft:
+
+  シャイニングアロー:
+    BaseDamageType: ["Bow"]
+    Hits: 5
+    Damage: "Round(BaseDamage.Bow + UserSpeed*13,-1)"
+
+  シャイニングアロー2:
+    BaseDamageType: ["Bow"]
+    Hits: 5
+    Damage: "Round((BaseDamage.Bow + UserSpeed*13)*1.25,-1)"
+

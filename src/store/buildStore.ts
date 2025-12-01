@@ -159,16 +159,24 @@ export interface UserOption {
   manualStats: Partial<Record<StatType, number>>;
   // ユーザー指定%ボーナス（職業・紋章補正とは別）
   percentBonus: Partial<Record<StatType, number>>;
-  // 再帰収束計算ON/OFF（ONの場合、変化が1未満になるまで%を再帰適用）
-  recursiveEnabled: boolean;
 }
 
 // RingOption の型定義
+// リングタイプ: power=力リング, magic=魔力リング, speed=素早さリング, none=なし
+export type RingType = 'power' | 'magic' | 'speed' | 'none';
+
+// リングレベル別ボーナス（%）
+export const RING_BONUS_PERCENT: Record<number, number> = {
+  1: 10,   // Lv1: 10%
+  2: 15,   // Lv2: 15%
+  3: 20,   // Lv3: 20%
+};
+
 export interface RingOption {
   enabled: boolean;
   rings: Array<{
-    type: 'attack' | 'magic' | 'defense' | 'special';
-    level: number;
+    type: RingType;
+    level: number;  // 1-3
   }>;
 }
 
@@ -312,7 +320,6 @@ export const useBuildStore = create<BuildState>((set, get) => ({
   userOption: {
     manualStats: {},
     percentBonus: {},
-    recursiveEnabled: false,
   },
   ringOption: {
     enabled: false,
@@ -878,10 +885,29 @@ export const useBuildStore = create<BuildState>((set, get) => ({
           }
           return acc;
         }, {} as StatBlock),
-        ring: ringOption.enabled ? {
-          enabled: true,
-          bonusPercent: {} // リングデータから計算（実装が必要）
-        } : undefined,
+        ring: ringOption.enabled && ringOption.rings.length > 0 ? (() => {
+          // リングボーナスを計算（内部キー形式）
+          const ringBonusPercent: Record<string, number> = {};
+          for (const ring of ringOption.rings) {
+            if (ring.type === 'none') continue;
+            const bonusValue = RING_BONUS_PERCENT[ring.level] || 10;
+            switch (ring.type) {
+              case 'power':
+                ringBonusPercent['Power'] = (ringBonusPercent['Power'] || 0) + bonusValue;
+                break;
+              case 'magic':
+                ringBonusPercent['Magic'] = (ringBonusPercent['Magic'] || 0) + bonusValue;
+                break;
+              case 'speed':
+                ringBonusPercent['Agility'] = (ringBonusPercent['Agility'] || 0) + bonusValue;
+                break;
+            }
+          }
+          return {
+            enabled: true,
+            bonusPercent: ringBonusPercent
+          };
+        })() : undefined,
         weaponCritRate: weaponCritRateValue,
         // ユーザー指定%ボーナス（職業・紋章補正とは別）
         userPercentBonus: Object.entries(userOption.percentBonus || {}).reduce((acc, [key, value]) => {
@@ -902,7 +928,7 @@ export const useBuildStore = create<BuildState>((set, get) => ({
           }
           return acc;
         }, {} as StatBlock),
-        recursiveEnabled: userOption.recursiveEnabled || false,
+        recursiveEnabled: false,
         // 紋章ボーナスを計算（%補正として適用）
         // 内部キー形式（Power, Magic, HP, Mind, Agility, Dex, CritDamage, Defense）を使用
         emblemBonusPercent: selectedEmblem ? {

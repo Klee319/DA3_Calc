@@ -210,7 +210,7 @@ export const CustomSelect: React.FC<CustomSelectProps> = ({
           `}
           role="listbox"
         >
-          <div className="max-h-60 overflow-y-auto custom-scrollbar py-2">
+          <div className="max-h-72 overflow-y-auto custom-scrollbar py-2">
             {options.map((option, index) => (
               <button
                 key={option.value}

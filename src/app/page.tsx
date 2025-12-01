@@ -5,7 +5,7 @@ export default function Home() {
     <div className="container mx-auto px-4 max-w-7xl">
       {/* Hero Section */}
       <div className="text-center mb-20">
-        <h1 className="text-6xl md:text-7xl lg:text-8xl font-thin mb-6 text-gradient from-white via-gray-100 to-gray-400">
+        <h1 className="text-6xl md:text-7xl lg:text-8xl font-thin mb-6 text-gradient from-white via-gray-100 to-gray-400 leading-normal">
           Build Your Legend
         </h1>
         <p className="text-xl md:text-2xl text-gray-400 max-w-2xl mx-auto mb-12 leading-relaxed">

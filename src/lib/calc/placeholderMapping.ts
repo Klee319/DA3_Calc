@@ -49,11 +49,30 @@ export function convertJapaneseWeaponType(japaneseType: string): WeaponType {
 
 /**
  * WeaponTypeからWeaponCalc.yamlで使用されるキーに変換
- * @param weaponType WeaponType
+ * @param weaponType WeaponType（小文字またはPascalCase）
  * @returns YAMLキー（例：'Sword', 'GreatSword'）
  */
-export function getWeaponCalcKey(weaponType: WeaponType): string {
-  return WEAPON_TYPE_TO_CALC_KEY[weaponType] || 'Sword';
+export function getWeaponCalcKey(weaponType: WeaponType | string): string {
+  // 小文字に変換してマッピングを検索
+  const lowerType = weaponType.toLowerCase() as WeaponType;
+
+  // まず直接マッピングを試す
+  if (WEAPON_TYPE_TO_CALC_KEY[weaponType as WeaponType]) {
+    return WEAPON_TYPE_TO_CALC_KEY[weaponType as WeaponType];
+  }
+
+  // 小文字で検索
+  if (WEAPON_TYPE_TO_CALC_KEY[lowerType]) {
+    return WEAPON_TYPE_TO_CALC_KEY[lowerType];
+  }
+
+  // PascalCaseで渡された場合、直接そのまま返す（YAMLキーとして使用）
+  // 例: 'Bow' → 'Bow', 'Sword' → 'Sword'
+  if (weaponType.charAt(0) === weaponType.charAt(0).toUpperCase()) {
+    return weaponType;
+  }
+
+  return 'Sword';
 }
 
 /**
