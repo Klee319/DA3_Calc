@@ -1220,60 +1220,28 @@ export default function BuildPage() {
                   <CustomSelect
                     options={[
                       { value: 'none', label: 'なし', icon: '-', description: 'リングバフ無効' },
-                      { value: 'power', label: '力リング', icon: '💪', description: '力（ATK）に%ボーナス' },
-                      { value: 'magic', label: '魔力リング', icon: '✨', description: '魔力（MATK）に%ボーナス' },
-                      { value: 'speed', label: '素早さリング', icon: '💨', description: '素早さ（AGI）に%ボーナス' },
+                      { value: 'power', label: '力リング', icon: '💪', description: '力に収束バフ' },
+                      { value: 'magic', label: '魔力リング', icon: '✨', description: '魔力に収束バフ' },
+                      { value: 'speed', label: '素早さリング', icon: '💨', description: '素早さに収束バフ' },
                     ]}
-                    value={ringOption.rings.length > 0 ? ringOption.rings[0].type : 'none'}
+                    value={ringOption.ringType || 'none'}
                     onChange={(value) => {
                       const ringType = value as 'power' | 'magic' | 'speed' | 'none';
-                      if (ringType === 'none') {
-                        setRingOption({ ...ringOption, rings: [] });
-                      } else {
-                        const currentLevel = ringOption.rings.length > 0 ? ringOption.rings[0].level : 1;
-                        setRingOption({
-                          ...ringOption,
-                          rings: [{
-                            type: ringType,
-                            level: currentLevel
-                          }]
-                        });
-                      }
+                      setRingOption({
+                        ...ringOption,
+                        ringType: ringType
+                      });
                     }}
                     placeholder="リング種類を選択"
                     label="リング種類"
                   />
 
-                  {/* リングレベル選択（リングが選択されている場合のみ表示） */}
-                  {ringOption.rings.length > 0 && ringOption.rings[0].type !== 'none' && (
-                    <CustomSelect
-                      options={[
-                        { value: '1', label: 'Lv1', icon: '1', description: '+10%' },
-                        { value: '2', label: 'Lv2', icon: '2', description: '+15%' },
-                        { value: '3', label: 'Lv3', icon: '3', description: '+20%' },
-                      ]}
-                      value={String(ringOption.rings[0].level)}
-                      onChange={(value) => {
-                        const level = parseInt(value) || 1;
-                        setRingOption({
-                          ...ringOption,
-                          rings: [{
-                            ...ringOption.rings[0],
-                            level: level
-                          }]
-                        });
-                      }}
-                      placeholder="レベルを選択"
-                      label="リングレベル"
-                    />
-                  )}
-
                   {/* 選択中のリング効果表示 */}
-                  {ringOption.rings.length > 0 && ringOption.rings[0].type !== 'none' && (
+                  {ringOption.ringType && ringOption.ringType !== 'none' && (
                     <div className="mt-2 p-2 bg-blue-500/10 rounded text-sm text-blue-400">
-                      {ringOption.rings[0].type === 'power' && `力 +${ringOption.rings[0].level === 1 ? 10 : ringOption.rings[0].level === 2 ? 15 : 20}%`}
-                      {ringOption.rings[0].type === 'magic' && `魔力 +${ringOption.rings[0].level === 1 ? 10 : ringOption.rings[0].level === 2 ? 15 : 20}%`}
-                      {ringOption.rings[0].type === 'speed' && `素早さ +${ringOption.rings[0].level === 1 ? 10 : ringOption.rings[0].level === 2 ? 15 : 20}%`}
+                      {ringOption.ringType === 'power' && '力: 40 + 装備力×1.1 を収束'}
+                      {ringOption.ringType === 'magic' && '魔力: 40 + 装備魔力×1.1 を収束'}
+                      {ringOption.ringType === 'speed' && '素早さ: 40 + 装備素早さ×1.1 を収束'}
                     </div>
                   )}
                 </div>

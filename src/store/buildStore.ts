@@ -165,19 +165,9 @@ export interface UserOption {
 // リングタイプ: power=力リング, magic=魔力リング, speed=素早さリング, none=なし
 export type RingType = 'power' | 'magic' | 'speed' | 'none';
 
-// リングレベル別ボーナス（%）
-export const RING_BONUS_PERCENT: Record<number, number> = {
-  1: 10,   // Lv1: 10%
-  2: 15,   // Lv2: 15%
-  3: 20,   // Lv3: 20%
-};
-
 export interface RingOption {
   enabled: boolean;
-  rings: Array<{
-    type: RingType;
-    level: number;  // 1-3
-  }>;
+  ringType: RingType;  // 選択中のリング種類（レベルの概念なし）
 }
 
 // プリセット型定義
@@ -323,7 +313,7 @@ export const useBuildStore = create<BuildState>((set, get) => ({
   },
   ringOption: {
     enabled: false,
-    rings: [],
+    ringType: 'none',
   },
   selectedFood: null,
   foodEnabled: false,
@@ -885,29 +875,15 @@ export const useBuildStore = create<BuildState>((set, get) => ({
           }
           return acc;
         }, {} as StatBlock),
-        ring: ringOption.enabled && ringOption.rings.length > 0 ? (() => {
-          // リングボーナスを計算（内部キー形式）
-          const ringBonusPercent: Record<string, number> = {};
-          for (const ring of ringOption.rings) {
-            if (ring.type === 'none') continue;
-            const bonusValue = RING_BONUS_PERCENT[ring.level] || 10;
-            switch (ring.type) {
-              case 'power':
-                ringBonusPercent['Power'] = (ringBonusPercent['Power'] || 0) + bonusValue;
-                break;
-              case 'magic':
-                ringBonusPercent['Magic'] = (ringBonusPercent['Magic'] || 0) + bonusValue;
-                break;
-              case 'speed':
-                ringBonusPercent['Agility'] = (ringBonusPercent['Agility'] || 0) + bonusValue;
-                break;
-            }
-          }
-          return {
-            enabled: true,
-            bonusPercent: ringBonusPercent
-          };
-        })() : undefined,
+        // リング収束計算用データ
+        // YAMLの式: repeat( 40 + round(SumEquipment.<Stat>) * 0.1, until_converged )
+        // 装備ステータスの10%を加算し続けて収束させる
+        ring: ringOption.enabled && ringOption.ringType !== 'none' ? {
+          enabled: true,
+          ringType: ringOption.ringType,
+          // 装備合計ステータスを渡す（収束計算の基準）
+          equipmentTotal: equipmentTotal
+        } : undefined,
         weaponCritRate: weaponCritRateValue,
         // ユーザー指定%ボーナス（職業・紋章補正とは別）
         userPercentBonus: Object.entries(userOption.percentBonus || {}).reduce((acc, [key, value]) => {

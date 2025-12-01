@@ -240,9 +240,11 @@ export interface StatusCalcInput {
   recursiveEnabled?: boolean;
 
   // リング設定
+  // YAMLの式: repeat( 40 + round(SumEquipment.<Stat>) * 0.1, until_converged )
   ring?: {
     enabled: boolean;
-    bonusPercent: StatBlock;
+    ringType: 'power' | 'magic' | 'speed';
+    equipmentTotal: StatBlock;  // 装備合計ステータス（収束計算の基準）
   };
 
   // 武器会心率（会心率計算用）

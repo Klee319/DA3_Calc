@@ -156,13 +156,15 @@ export function calculateStatus(
     }
 
     // 4. リング収束計算（有効な場合）
+    // YAMLの式: repeat( 40 + round(SumEquipment.<Stat>) * 0.1, until_converged )
     let finalStats = afterUserPercent;
     let ringResult = undefined;
 
-    if (input.ring?.enabled && input.ring?.bonusPercent) {
-      const convergence = applyRingConvergence(
+    if (input.ring?.enabled && input.ring?.ringType && input.ring?.equipmentTotal) {
+      const convergence = applyRingConvergenceAdditive(
         afterUserPercent,
-        input.ring.bonusPercent
+        input.ring.ringType,
+        input.ring.equipmentTotal
       );
       finalStats = convergence.final;
       ringResult = {
@@ -489,6 +491,74 @@ export function applyUserPercentBonus(
     const finalValue = (current as any)[key] || 0;
     (delta as any)[key] = finalValue - baseValue;
   }
+
+  return {
+    final: current,
+    iterations,
+    delta
+  };
+}
+
+/**
+ * リング収束計算
+ * YAMLの式: 40 + repeat( round(SumEquipment.<Stat>) * 1.1, until_converged )
+ *
+ * 1. 装備ステータスに40を加算
+ * 2. round(値 * 1.1) を収束するまで繰り返す（変化がなくなるまで）
+ *
+ * @param base 基礎ステータス（%補正適用後）
+ * @param ringType リング種類（power/magic/speed）
+ * @param equipmentTotal 装備合計ステータス
+ * @param maxIterations 最大反復回数（デフォルト: 100）
+ * @returns 収束結果
+ */
+export function applyRingConvergenceAdditive(
+  base: StatBlock,
+  ringType: 'power' | 'magic' | 'speed',
+  equipmentTotal: StatBlock,
+  maxIterations: number = 100
+): { final: StatBlock; iterations: number; delta: StatBlock } {
+  // リングタイプに対応するステータスキー
+  const targetStatKey = ringType === 'power' ? 'Power' :
+                        ringType === 'magic' ? 'Magic' : 'Agility';
+
+  // 装備ステータスの対象値を取得
+  const equipValue = (equipmentTotal as any)[targetStatKey] || 0;
+
+  // 装備ステータスが0以下の場合は何もしない
+  if (equipValue <= 0) {
+    return {
+      final: cloneStats(base),
+      iterations: 0,
+      delta: {}
+    };
+  }
+
+  let current = cloneStats(base);
+  let iterations = 0;
+
+  // Step 1: 装備ステータスに40を加算した値を初期値とする
+  let ringValue = equipValue + 40;
+
+  // Step 2: round(値 * 1.1) を収束するまで繰り返す
+  for (let i = 0; i < maxIterations; i++) {
+    iterations++;
+    const newValue = round(ringValue * 1.1);
+
+    // 変化がなければ収束
+    if (newValue === ringValue) {
+      break;
+    }
+    ringValue = newValue;
+  }
+
+  // リング効果を基礎ステータスに加算
+  const baseValue = (current as any)[targetStatKey] || 0;
+  (current as any)[targetStatKey] = baseValue + ringValue;
+
+  // 変化量を計算
+  const delta: StatBlock = {};
+  (delta as any)[targetStatKey] = ringValue;
 
   return {
     final: current,
