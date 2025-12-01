@@ -45,7 +45,7 @@ function convertWeaponTypeToYamlFormat(weaponType: string): string {
  * スキル計算セクションコンポーネント
  */
 export function SkillCalculationSection() {
-  const { currentBuild, calculatedStats, weaponStats: storeWeaponStats, gameData } = useBuildStore();
+  const { currentBuild, calculatedStats, weaponStats: storeWeaponStats, gameData, enemyStats } = useBuildStore();
 
   // データ読み込み状態
   const [skillCalcData, setSkillCalcData] = useState<AllSkillCalcData | null>(null);
@@ -56,12 +56,6 @@ export function SkillCalculationSection() {
   const [selectedSkill, setSelectedSkill] = useState<AvailableSkill | null>(null);
   const [skillLevel, setSkillLevel] = useState<number>(1); // スキル本用
   const [customHits, setCustomHits] = useState<number | undefined>(undefined); // variableヒット用
-
-  // 高度なオプション（敵ステータス）
-  const [showAdvancedOptions, setShowAdvancedOptions] = useState(false);
-  const [enemyDefense, setEnemyDefense] = useState<number>(0); // 敵守備力
-  const [enemyTypeResistance, setEnemyTypeResistance] = useState<number>(0); // 攻撃耐性(物理/魔力)(%)
-  const [enemyAttributeResistance, setEnemyAttributeResistance] = useState<number>(0); // 属性耐性(%)
 
   // 計算結果
   const [calculationResult, setCalculationResult] = useState<SkillCalculationResult | null>(null);
@@ -467,95 +461,6 @@ export function SkillCalculationSection() {
         </div>
       )}
 
-      {/* 高度なオプション（敵ステータス） */}
-      <div className="mb-6">
-        <button
-          onClick={() => setShowAdvancedOptions(!showAdvancedOptions)}
-          className="flex items-center gap-2 text-sm text-gray-400 hover:text-white transition-colors"
-        >
-          <span className={`transform transition-transform ${showAdvancedOptions ? 'rotate-90' : ''}`}>
-            ▶
-          </span>
-          <span>高度なオプション（敵ステータス）</span>
-          {(enemyDefense > 0 || enemyTypeResistance > 0 || enemyAttributeResistance > 0) && (
-            <span className="px-2 py-0.5 bg-rpg-accent/30 text-rpg-accent text-xs rounded-full">
-              適用中
-            </span>
-          )}
-        </button>
-
-        {showAdvancedOptions && (
-          <div className="mt-4 p-4 bg-gray-800/50 border border-gray-700/50 rounded-lg space-y-4">
-            <p className="text-xs text-gray-500 mb-3">
-              敵のステータスを入力すると、最終ダメージが計算されます。
-              <br />
-              計算式: (HitDamage - 守備力/2) × (1 - 攻撃耐性%) × (1 - 属性耐性%)
-            </p>
-
-            {/* 敵守備力 */}
-            <div>
-              <label className="block text-sm font-medium text-gray-400 mb-2">
-                敵守備力
-              </label>
-              <input
-                type="number"
-                min={0}
-                value={enemyDefense}
-                onChange={(e) => setEnemyDefense(Math.max(0, Number(e.target.value) || 0))}
-                placeholder="0"
-                className="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-lg text-white"
-              />
-            </div>
-
-            {/* 攻撃耐性（物理/魔力） */}
-            <div>
-              <label className="block text-sm font-medium text-gray-400 mb-2">
-                攻撃耐性 (%) <span className="text-gray-500">物理/魔力</span>
-              </label>
-              <input
-                type="number"
-                min={-100}
-                max={100}
-                value={enemyTypeResistance}
-                onChange={(e) => setEnemyTypeResistance(Math.min(100, Math.max(-100, Number(e.target.value) || 0)))}
-                placeholder="0"
-                className="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-lg text-white"
-              />
-              <p className="text-xs text-gray-500 mt-1">負の値は弱点（ダメージ増加）</p>
-            </div>
-
-            {/* 属性耐性 */}
-            <div>
-              <label className="block text-sm font-medium text-gray-400 mb-2">
-                属性耐性 (%)
-              </label>
-              <input
-                type="number"
-                min={-100}
-                max={100}
-                value={enemyAttributeResistance}
-                onChange={(e) => setEnemyAttributeResistance(Math.min(100, Math.max(-100, Number(e.target.value) || 0)))}
-                placeholder="0"
-                className="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-lg text-white"
-              />
-              <p className="text-xs text-gray-500 mt-1">負の値は弱点（ダメージ増加）</p>
-            </div>
-
-            {/* リセットボタン */}
-            <button
-              onClick={() => {
-                setEnemyDefense(0);
-                setEnemyTypeResistance(0);
-                setEnemyAttributeResistance(0);
-              }}
-              className="w-full px-3 py-2 bg-gray-600 hover:bg-gray-500 text-gray-300 rounded-lg transition-colors text-sm"
-            >
-              リセット
-            </button>
-          </div>
-        )}
-      </div>
-
       {/* 計算結果 */}
       {calculationResult && selectedSkill && (
         <div className="mt-6 space-y-4">
@@ -607,6 +512,10 @@ export function SkillCalculationSection() {
             // 敵ステータスを考慮した最終ダメージ計算関数
             // FinalDamage = (HitDamage - EnemyDefence/2) * (1 - TypeRes/100) * (1 - AttrRes/100)
             // 多段攻撃は1段ごとに計算して合計
+            const enemyDefense = enemyStats?.defense || 0;
+            const enemyTypeResistance = enemyStats?.speciesResistance || 0;
+            const enemyAttributeResistance = enemyStats?.elementResistance || 0;
+
             const calculateFinalDamage = (hitDamage: number): number => {
               const afterDefense = Math.max(0, hitDamage - (enemyDefense / 2));
               const afterTypeRes = afterDefense * (1 - enemyTypeResistance / 100);
@@ -810,9 +719,6 @@ export function SkillCalculationSection() {
 
           {/* Extra効果（追加ダメージなど） */}
           {calculationResult.extraEffects && Object.keys(calculationResult.extraEffects).length > 0 && (() => {
-            // 敵ステータスが設定されているか
-            const hasEnemyStats = enemyDefense > 0 || enemyTypeResistance !== 0 || enemyAttributeResistance !== 0;
-
             // Extra式文字列を取得（BaseDamage判定用）
             const extraFormulas = selectedSkill.definition.Extra || {};
 

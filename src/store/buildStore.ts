@@ -84,10 +84,11 @@ const convertToUIStats = (calcStats: CalcSystemStats): CalculatedStats => {
   // SPボーナス（SP割り振りによるステータス増加）
   const skillStats = convertStatBlock(calcStats.breakdown?.jobSP || {});
 
-  // バフ（食べ物 + ユーザー手動補正）
+  // バフ（食べ物 + ユーザー手動補正 + リング効果）
   const buffStats = convertStatBlock({
     ...(calcStats.breakdown?.food || {}),
-    ...(calcStats.breakdown?.userOption || {})
+    ...(calcStats.breakdown?.userOption || {}),
+    ...(calcStats.ring?.delta || {})  // リング効果の変化量を含める
   });
 
   // %補正による増分を計算
