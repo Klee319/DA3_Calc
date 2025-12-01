@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { useBuildStore, UserOption, RingOption, Food, BuildPreset } from '@/store/buildStore';
+import { useBuildStore, UserOption, RingOption, Food, BuildPreset, EnemyStats } from '@/store/buildStore';
 import { initializeGameData } from '@/lib/data';
 import { JobSelector } from '@/components/JobSelector';
 import { LevelInput } from '@/components/LevelInput';
@@ -106,6 +106,7 @@ export default function BuildPage() {
     selectedEmblem,
     selectedRunestones,
     gameData,
+    enemyStats,
     setJob,
     setLevel,
     setEquipment,
@@ -117,6 +118,7 @@ export default function BuildPage() {
     toggleWeaponSkill,
     setEmblem,
     setRunestones,
+    setEnemyStats,
     setAvailableJobs,
     setAvailableEquipment,
     setAvailableFoods,
@@ -1415,6 +1417,97 @@ export default function BuildPage() {
         {/* タブ6: 結果 */}
         {activeTab === 6 && (
           <div className="space-y-6">
+            {/* 敵パラメータ設定 */}
+            <div className="glass-card p-6">
+              <h2 className="text-xl font-semibold mb-4 flex items-center gap-2">
+                <span className="text-2xl">👹</span>
+                <span>敵パラメータ</span>
+              </h2>
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                {/* 防御力 */}
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                    防御力
+                  </label>
+                  <input
+                    type="number"
+                    value={enemyStats.defense}
+                    onChange={(e) => setEnemyStats({
+                      ...enemyStats,
+                      defense: Math.max(0, parseInt(e.target.value) || 0)
+                    })}
+                    className="input-primary w-full"
+                    min={0}
+                    placeholder="0"
+                  />
+                  <p className="text-xs text-gray-500 mt-1">ダメージから減算</p>
+                </div>
+
+                {/* 種族耐性 */}
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                    種族耐性 (%)
+                  </label>
+                  <input
+                    type="number"
+                    value={enemyStats.speciesResistance}
+                    onChange={(e) => setEnemyStats({
+                      ...enemyStats,
+                      speciesResistance: Math.max(-100, Math.min(100, parseInt(e.target.value) || 0))
+                    })}
+                    className="input-primary w-full"
+                    min={-100}
+                    max={100}
+                    placeholder="0"
+                  />
+                  <p className="text-xs text-gray-500 mt-1">正: 軽減 / 負: 弱点</p>
+                </div>
+
+                {/* 属性耐性 */}
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                    属性耐性 (%)
+                  </label>
+                  <input
+                    type="number"
+                    value={enemyStats.elementResistance}
+                    onChange={(e) => setEnemyStats({
+                      ...enemyStats,
+                      elementResistance: Math.max(-100, Math.min(100, parseInt(e.target.value) || 0))
+                    })}
+                    className="input-primary w-full"
+                    min={-100}
+                    max={100}
+                    placeholder="0"
+                  />
+                  <p className="text-xs text-gray-500 mt-1">正: 軽減 / 負: 弱点</p>
+                </div>
+              </div>
+
+              {/* プリセットボタン */}
+              <div className="mt-4 flex flex-wrap gap-2">
+                <span className="text-sm text-gray-500 mr-2">プリセット:</span>
+                {[
+                  { name: '弱い敵', def: 50, sp: 0, el: 0 },
+                  { name: '通常', def: 100, sp: 10, el: 10 },
+                  { name: '強敵', def: 200, sp: 20, el: 20 },
+                  { name: 'ボス', def: 300, sp: 30, el: 30 },
+                ].map((preset) => (
+                  <button
+                    key={preset.name}
+                    onClick={() => setEnemyStats({
+                      defense: preset.def,
+                      speciesResistance: preset.sp,
+                      elementResistance: preset.el,
+                    })}
+                    className="px-3 py-1 text-xs bg-gray-700 hover:bg-gray-600 rounded transition-colors"
+                  >
+                    {preset.name}
+                  </button>
+                ))}
+              </div>
+            </div>
+
             {/* 火力計算セクション */}
             <DamageCalculationSection />
 

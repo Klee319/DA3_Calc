@@ -170,6 +170,13 @@ export interface RingOption {
   ringType: RingType;  // 選択中のリング種類（レベルの概念なし）
 }
 
+// 敵パラメータの型定義
+export interface EnemyStats {
+  defense: number;           // 防御力
+  speciesResistance: number; // 種族耐性（%）
+  elementResistance: number; // 属性耐性（%）
+}
+
 // プリセット型定義
 export interface BuildPreset {
   id: string;
@@ -243,6 +250,9 @@ interface BuildState {
   foodEnabled: boolean;
   weaponSkillEnabled: boolean;
 
+  // 敵パラメータ
+  enemyStats: EnemyStats;
+
   // 紋章・ルーンストーン選択
   selectedEmblem: EmblemData | null;
   selectedRunestones: RunestoneData[];
@@ -265,6 +275,7 @@ interface BuildState {
   setFood: (food: Food | null) => void;
   toggleFood: (enabled: boolean) => void;
   toggleWeaponSkill: (enabled: boolean) => void;
+  setEnemyStats: (stats: EnemyStats) => void;
 
   // データ読み込み
   setAvailableJobs: (jobs: Job[]) => void;
@@ -318,6 +329,11 @@ export const useBuildStore = create<BuildState>((set, get) => ({
   selectedFood: null,
   foodEnabled: false,
   weaponSkillEnabled: false,
+  enemyStats: {
+    defense: 0,
+    speciesResistance: 0,
+    elementResistance: 0,
+  },
   selectedEmblem: null,
   selectedRunestones: [],
   presets: [],
@@ -422,6 +438,10 @@ export const useBuildStore = create<BuildState>((set, get) => ({
   toggleWeaponSkill: (enabled) => {
     set({ weaponSkillEnabled: enabled });
     get().recalculateStats();
+  },
+
+  setEnemyStats: (stats) => {
+    set({ enemyStats: stats });
   },
 
   setAvailableJobs: (jobs) => set({ availableJobs: jobs }),

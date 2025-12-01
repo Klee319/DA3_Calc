@@ -34,6 +34,10 @@ interface DamageCalculationResult {
   critRate: number;
   /** ダメージ補正範囲 */
   damageCorrectionRange: { min: number; max: number; avg: number };
+  /** 敵防御力 */
+  enemyDefense: number;
+  /** 敵耐性倍率 */
+  resistanceMultiplier: number;
 }
 
 /**
@@ -105,7 +109,7 @@ function convertWeaponTypeToJapanese(weaponType: string): string {
  */
 export function DamageCalculationSection() {
   // ストアから必要なデータを取得
-  const { currentBuild, calculatedStats, weaponStats: storeWeaponStats } = useBuildStore();
+  const { currentBuild, calculatedStats, weaponStats: storeWeaponStats, enemyStats } = useBuildStore();
 
   // 現在の職業名をYAML形式に変換
   const jobName = currentBuild.job ? convertJobNameToYAML(currentBuild.job.id) : null;
@@ -282,17 +286,30 @@ export function DamageCalculationSection() {
       const expectedDamageAtMaxCorrection = nonCritDamage * (1 - critRateDecimal) + maxDamage * critRateDecimal;
 
       // 平均ダメージ補正を適用
-      const expectedDamage = Math.floor(expectedDamageAtMaxCorrection * correctionAvg);
+      let expectedDamage = Math.floor(expectedDamageAtMaxCorrection * correctionAvg);
+
+      // 敵の守備力を適用（ダメージから減算、最低1）
+      const enemyDefense = enemyStats?.defense || 0;
+      const maxDamageAfterDefense = Math.max(1, Math.floor(maxDamage) - enemyDefense);
+      const expectedDamageAfterDefense = Math.max(1, expectedDamage - enemyDefense);
+
+      // 敵の耐性を適用
+      const speciesMultiplier = (100 - (enemyStats?.speciesResistance || 0)) / 100;
+      const elementMultiplier = (100 - (enemyStats?.elementResistance || 0)) / 100;
+      const totalResistanceMultiplier = speciesMultiplier * elementMultiplier;
+
+      const finalMaxDamage = Math.floor(maxDamageAfterDefense * totalResistanceMultiplier);
+      const finalExpectedDamage = Math.floor(expectedDamageAfterDefense * totalResistanceMultiplier);
 
       // 武器CT（秒）- CSVは秒単位で保存されている
       const coolTime = storeWeaponStats?.coolTime || 0;
 
       // DPS計算（CT が 0 の場合は計算しない）
-      const dps = coolTime > 0 ? Math.floor(expectedDamage / coolTime) : 0;
+      const dps = coolTime > 0 ? Math.floor(finalExpectedDamage / coolTime) : 0;
 
       return {
-        maxDamage: Math.floor(maxDamage),
-        expectedDamage,
+        maxDamage: finalMaxDamage,
+        expectedDamage: finalExpectedDamage,
         dps,
         coolTime,
         critRate: totalCritRate,
@@ -301,6 +318,9 @@ export function DamageCalculationSection() {
           max: Math.round(correctionMax * 100),
           avg: Math.round(correctionAvg * 100),
         },
+        // 敵パラメータを結果に含める
+        enemyDefense,
+        resistanceMultiplier: totalResistanceMultiplier,
       };
     } catch (err) {
       console.error('ダメージ計算エラー:', err);
@@ -313,6 +333,7 @@ export function DamageCalculationSection() {
     getWeaponStats,
     getUserStats,
     jobName,
+    enemyStats,
   ]);
 
   // 読み込み中の表示
@@ -435,6 +456,21 @@ export function DamageCalculationSection() {
                 </span>
               </div>
             </div>
+            {/* 敵パラメータ情報 */}
+            {(damageResult.enemyDefense > 0 || damageResult.resistanceMultiplier !== 1) && (
+              <div className="mt-2 pt-2 border-t border-gray-600 grid grid-cols-2 md:grid-cols-3 gap-3 text-xs text-gray-400">
+                <div>
+                  <span className="text-gray-500">敵防御:</span>{' '}
+                  <span className="text-orange-400">-{damageResult.enemyDefense}</span>
+                </div>
+                <div>
+                  <span className="text-gray-500">耐性倍率:</span>{' '}
+                  <span className={damageResult.resistanceMultiplier < 1 ? 'text-red-400' : damageResult.resistanceMultiplier > 1 ? 'text-green-400' : 'text-white'}>
+                    ×{damageResult.resistanceMultiplier.toFixed(3)}
+                  </span>
+                </div>
+              </div>
+            )}
           </div>
         </div>
       )}
