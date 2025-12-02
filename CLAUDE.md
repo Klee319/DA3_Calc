@@ -35,4 +35,42 @@ Please ensure that the instructions described here are also applied to sub-agent
 * **Step-by-Step Reasoning:** Avoid risky shortcuts; proceed through the required steps and follow a steady reasoning process.
 * **Web Search Rules:** Actively use web searches to obtain the latest information.
 * **Conserving Cognitive Resources:** Do not open or memorize files—such as dependencies, unreferenced materials, or logs—that you are not certain you will use. Open them only when needed and include them in the context at that time.
+
+## Deploy Procedure (GitHub Pages)
+
+このプロジェクトは2つのリポジトリで管理されている：
+- **ソースコード**: `https://github.com/Klee319/DA3_Calc.git` (mainブランチ)
+- **デプロイ先**: `https://github.com/Klee319/DA3_Calc_DP.git` (mainブランチ)
+- **公開URL**: `https://klee319.github.io/DA3_Calc_DP/`
+
+### デプロイ手順
+
+1. **ビルド実行**
+   ```bash
+   cd /c/Users/T-319/Documents/Program/ClaudeCodeDev/products/DA_calc
+   npm run build
+   ```
+   - `next.config.mjs`に`output: 'export'`, `basePath: '/DA3_Calc_DP'`, `assetPrefix: '/DA3_Calc_DP/'`が設定済み
+   - ビルド結果は`out`ディレクトリに出力される
+
+2. **デプロイ用ディレクトリにコピー**
+   ```bash
+   cp -r out/* /c/Users/T-319/Documents/Program/ClaudeCodeDev/products/DA3_Calc_DP_temp/
+   ```
+   - `out`ディレクトリは親プロジェクトのgit管理下にあるため、別ディレクトリを使用
+
+3. **.nojekyllファイルの確認**
+   - `DA3_Calc_DP_temp/.nojekyll`が存在することを確認（`_next`ディレクトリの配信に必要）
+
+4. **デプロイリポジトリにプッシュ**
+   ```bash
+   cd /c/Users/T-319/Documents/Program/ClaudeCodeDev/products/DA3_Calc_DP_temp
+   git add -A
+   git commit -m "deploy: ビルド出力をデプロイ"
+   git push
+   ```
+
+### 注意事項
+- `out`ディレクトリ内で直接gitコミットしないこと（親プロジェクトのgitが適用される）
+- GitHub Pagesのキャッシュ更新に数分かかる場合がある
   
