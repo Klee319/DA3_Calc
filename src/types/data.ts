@@ -8,6 +8,7 @@ export interface EqConstData {
     Forge: {
       Defence: number;
       Other: number;
+      MaxTotal?: number;  // 叩き回数の合計上限
     };
     Reinforcement: {
       MAX: number;
@@ -15,9 +16,11 @@ export interface EqConstData {
       Other: number;
     };
     Rank: Record<string, number>;
+    ExponentPower?: number;  // Used in armor calculation formula: baseWithTataki^0.2
   };
   Accessory: {
     Rank: Record<string, number>;
+    ScalingDivisor?: number;  // Used in accessory formula: (level * rankBonus / 550)
   };
   Equipment_EX: {
     Rank: {
@@ -37,6 +40,7 @@ export interface EqConstData {
     Reinforcement: {
       Denominator: number;
       MAX: number;
+      MaxSmithingCount?: number;  // 武器叩き回数の合計上限
       AttackP: number;
       CritD: number;
       CritR: number;
@@ -81,11 +85,72 @@ export interface WeaponCalcData {
 export interface UserStatusCalcData {
   UserStatusFormula: Record<string, string>;
   EquipmentStatusFormula: Record<string, string>;
+  RingConvergence?: {
+    BaseValue: number;
+    Multiplier: number;
+    Description?: string;
+  };
 }
 
 export interface SkillCalcData {
   SkillDefinition?: Record<string, unknown>;
   [key: string]: unknown;
+}
+
+/**
+ * 武器スキルの定義（武器名一致で有効化）
+ * 1つのスキルで複数のステータスにバフをかけられる
+ */
+export interface WeaponSkillDefinition {
+  /** スキル名（表示用） */
+  Name: string;
+  /** 対象武器名リスト（部分一致判定） */
+  WeaponNames: string[];
+  /** バフ効果（ステータス名: 計算式） */
+  Buffs: Record<string, string>;
+  /** 最大レベル */
+  MaxLevel: number;
+}
+
+/**
+ * 職業スキルの定義（特定スキル解放で有効化）
+ * 1つのスキルで複数のステータスにバフをかけられる
+ */
+export interface JobSkillBuffDefinition {
+  /** スキル名（表示用） */
+  Name: string;
+  /** 対象職業名 */
+  JobName: string;
+  /** 解放必須スキル名リスト（これらのスキルを解放している場合に有効） */
+  RequiredSkills: string[];
+  /** バフ効果（ステータス名: 計算式） */
+  Buffs: Record<string, string>;
+  /** 最大レベル */
+  MaxLevel: number;
+}
+
+/**
+ * 指輪バフの定義（収束計算用）
+ */
+export interface RingBuffDefinition {
+  /** バフ名（表示用） */
+  Name: string;
+  /** 対象ステータス */
+  TargetStat: string;
+  /** 計算式（FinalStatus参照を含む） */
+  BaseFormula: string;
+}
+
+/**
+ * 武器スキルバフのYAMLデータ型
+ */
+export interface WeaponSkillCalcData {
+  /** 武器スキル（武器名一致で有効化） */
+  WeaponSkills?: Record<string, WeaponSkillDefinition>;
+  /** 職業スキル（特定スキル解放で有効化） */
+  JobSkills?: Record<string, JobSkillBuffDefinition>;
+  /** 指輪バフ（収束計算用） */
+  RingBuffs?: Record<string, RingBuffDefinition>;
 }
 
 /**
@@ -338,6 +403,7 @@ export interface GameData {
     weaponCalc: WeaponCalcData;
     userStatusCalc: UserStatusCalcData;
     skillCalc: SkillCalcData;
+    weaponSkillCalc?: WeaponSkillCalcData;
   };
   csv: {
     weapons: WeaponData[];

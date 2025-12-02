@@ -5,6 +5,7 @@ import { useBuildStore } from '@/store/buildStore';
 import { loadWeaponCalc } from '@/lib/data';
 import { calcBaseDamage, applyJobCorrection } from '@/lib/calc';
 import { convertJobNameToYAML } from '@/constants/jobMappings';
+import { SkillCalculationSection } from './SkillCalculationSection';
 import type { WeaponCalcData } from '@/types/data';
 import type { WeaponType, StatBlock, WeaponStats } from '@/types/calc';
 
@@ -22,11 +23,17 @@ interface ExtendedWeaponStats {
  * 火力計算結果の型定義
  */
 interface DamageCalculationResult {
-  /** 最大ダメージ（ダメージ補正100%、会心発生時） */
+  /** 基礎最大ダメージ（敵パラメータ未適用） */
+  baseMaxDamage: number;
+  /** 基礎期待値（敵パラメータ未適用） */
+  baseExpectedDamage: number;
+  /** 基礎DPS（敵パラメータ未適用） */
+  baseDps: number;
+  /** 最終最大ダメージ（敵パラメータ適用後） */
   maxDamage: number;
-  /** 期待値（ダメージ補正乱数・会心率考慮） */
+  /** 最終期待値（敵パラメータ適用後） */
   expectedDamage: number;
-  /** DPS（期待値 / CT） */
+  /** 最終DPS（敵パラメータ適用後） */
   dps: number;
   /** 武器CT（秒） */
   coolTime: number;
@@ -36,8 +43,14 @@ interface DamageCalculationResult {
   damageCorrectionRange: { min: number; max: number; avg: number };
   /** 敵防御力 */
   enemyDefense: number;
+  /** 敵攻撃耐性（%） */
+  enemyAttackResistance: number;
+  /** 敵属性耐性（%） */
+  enemyElementResistance: number;
   /** 敵耐性倍率 */
   resistanceMultiplier: number;
+  /** 敵ステータスが設定されているか */
+  hasEnemyStats: boolean;
 }
 
 /**
@@ -103,11 +116,17 @@ function convertWeaponTypeToJapanese(weaponType: string): string {
   return mapping[weaponType.toLowerCase()] || weaponType;
 }
 
+// 内部サブタブタイプ
+type DamageSubTab = 'normal' | 'skill';
+
 /**
  * 火力計算セクションコンポーネント
- * 最大ダメージ、期待値、DPSを表示
+ * 通常攻撃とスキル計算を統合
  */
 export function DamageCalculationSection() {
+  // サブタブ状態
+  const [subTab, setSubTab] = useState<DamageSubTab>('normal');
+
   // ストアから必要なデータを取得
   const { currentBuild, calculatedStats, weaponStats: storeWeaponStats, enemyStats } = useBuildStore();
 
@@ -222,12 +241,9 @@ export function DamageCalculationSection() {
 
     try {
       const weapon = currentBuild.equipment.weapon;
-      console.log('[DamageCalc] weapon.weaponType:', weapon.weaponType);
-      console.log('[DamageCalc] storeWeaponStats.weaponType:', storeWeaponStats?.weaponType);
       const weaponType = convertWeaponTypeToYamlFormat(
         weapon.weaponType || storeWeaponStats?.weaponType || 'sword'
       ) as WeaponType;
-      console.log('[DamageCalc] Converted weaponType:', weaponType);
 
       const weaponStats = getWeaponStats();
       const userStats = getUserStats();
@@ -236,16 +252,14 @@ export function DamageCalculationSection() {
       const baseDamageCorrection = (storeWeaponStats?.damageCorrection || 100) / 100;
 
       // ダメージ補正の範囲（武器のダメージ補正 ~ 100%）
-      // 例: 武器が80%なら 80%~100%の範囲で乱数
       const correctionMin = baseDamageCorrection;
       const correctionMax = 1.0;
       const correctionAvg = (correctionMin + correctionMax) / 2;
 
-      // 会心率（userStats.CRI は「武器会心率 + ユーザー器用さ * 0.3」で既に計算済み）
+      // 会心率
       const totalCritRate = Math.min(100, userStats.CRI || 0);
 
       // 最大ダメージ（ダメージ補正100%、会心発生時）
-      // ダメージ補正100%とは、補正範囲の最大値（1.2倍）ではなく、ダメージ補正が100%（1.0）の状態
       const maxDamageCorrection = 1.0;
       let maxDamage = calcBaseDamage(
         weaponType,
@@ -256,7 +270,7 @@ export function DamageCalculationSection() {
         1.0
       );
 
-      // 職業補正を適用（職業固有式またはBonus係数）
+      // 職業補正を適用
       if (jobName) {
         maxDamage = applyJobCorrection(
           maxDamage,
@@ -269,45 +283,56 @@ export function DamageCalculationSection() {
         );
       }
 
-      // 非会心ダメージを計算するために、会心ダメージ部分を除外した係数を計算
-      // YAML式: (base) * DamageCorrection * (1 + WeaponCritDamage/100 + UserCritDamage*係数)
-      // 会心倍率 = (1 + WeaponCritDamage/100 + UserCritDamage*係数)
-      // 係数は武器種によって異なる（弓: 0.0016, 剣: 0.005 など）
+      // 会心倍率計算
       const userCritDamageCoeff = getUserCritDamageCoefficient(weaponType);
       const critMultiplier = 1 + (weaponStats.critDamage || 0) / 100 + (userStats.HIT || 0) * userCritDamageCoeff;
 
-      // 非会心時のダメージ（会心ダメージ部分を除外）
-      // 非会心時は critMultiplier が 1.0 と仮定
+      // 非会心時のダメージ
       const nonCritDamage = maxDamage / critMultiplier;
 
       // 期待値計算
-      // E[damage] = avgCorrection × (nonCritDamage × (1 - critRate) + critDamage × critRate)
       const critRateDecimal = totalCritRate / 100;
       const expectedDamageAtMaxCorrection = nonCritDamage * (1 - critRateDecimal) + maxDamage * critRateDecimal;
 
       // 平均ダメージ補正を適用
-      let expectedDamage = Math.floor(expectedDamageAtMaxCorrection * correctionAvg);
+      const expectedDamage = Math.floor(expectedDamageAtMaxCorrection * correctionAvg);
 
-      // 敵の守備力を適用（ダメージから減算、最低1）
+      // 基礎ダメージ（敵パラメータ未適用）
+      const baseMaxDamage = Math.floor(maxDamage);
+      const baseExpectedDamage = expectedDamage;
+
+      // 敵パラメータの取得
       const enemyDefense = enemyStats?.defense || 0;
-      const maxDamageAfterDefense = Math.max(1, Math.floor(maxDamage) - enemyDefense);
-      const expectedDamageAfterDefense = Math.max(1, expectedDamage - enemyDefense);
+      const enemyAttackResistance = enemyStats?.attackResistance || 0;
+      const enemyElementResistance = enemyStats?.elementResistance || 0;
+
+      // 敵ステータスが設定されているかの判定
+      const hasEnemyStats = enemyDefense > 0 || enemyAttackResistance !== 0 || enemyElementResistance !== 0;
+
+      // 敵の守備力を適用（ダメージから守備力/2を減算、最低1）
+      const defenseReduction = Math.floor(enemyDefense / 2);
+      const maxDamageAfterDefense = Math.max(1, baseMaxDamage - defenseReduction);
+      const expectedDamageAfterDefense = Math.max(1, baseExpectedDamage - defenseReduction);
 
       // 敵の耐性を適用
-      const speciesMultiplier = (100 - (enemyStats?.speciesResistance || 0)) / 100;
-      const elementMultiplier = (100 - (enemyStats?.elementResistance || 0)) / 100;
-      const totalResistanceMultiplier = speciesMultiplier * elementMultiplier;
+      const attackResistanceMultiplier = (100 - enemyAttackResistance) / 100;
+      const elementMultiplier = (100 - enemyElementResistance) / 100;
+      const totalResistanceMultiplier = attackResistanceMultiplier * elementMultiplier;
 
       const finalMaxDamage = Math.floor(maxDamageAfterDefense * totalResistanceMultiplier);
       const finalExpectedDamage = Math.floor(expectedDamageAfterDefense * totalResistanceMultiplier);
 
-      // 武器CT（秒）- CSVは秒単位で保存されている
+      // 武器CT（秒）
       const coolTime = storeWeaponStats?.coolTime || 0;
 
-      // DPS計算（CT が 0 の場合は計算しない）
+      // DPS計算
+      const baseDps = coolTime > 0 ? Math.floor(baseExpectedDamage / coolTime) : 0;
       const dps = coolTime > 0 ? Math.floor(finalExpectedDamage / coolTime) : 0;
 
       return {
+        baseMaxDamage,
+        baseExpectedDamage,
+        baseDps,
         maxDamage: finalMaxDamage,
         expectedDamage: finalExpectedDamage,
         dps,
@@ -318,9 +343,11 @@ export function DamageCalculationSection() {
           max: Math.round(correctionMax * 100),
           avg: Math.round(correctionAvg * 100),
         },
-        // 敵パラメータを結果に含める
         enemyDefense,
+        enemyAttackResistance,
+        enemyElementResistance,
         resistanceMultiplier: totalResistanceMultiplier,
+        hasEnemyStats,
       };
     } catch (err) {
       console.error('ダメージ計算エラー:', err);
@@ -339,7 +366,7 @@ export function DamageCalculationSection() {
   // 読み込み中の表示
   if (isLoading) {
     return (
-      <section className="mt-12 p-6 rounded-xl bg-gradient-to-br from-red-900/20 to-orange-900/20 border border-red-500/30">
+      <section className="p-6 rounded-xl bg-gradient-to-br from-red-900/20 to-orange-900/20 border border-red-500/30">
         <h2 className="text-2xl font-bold text-white mb-6 flex items-center gap-2">
           <svg className="w-6 h-6 text-red-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
@@ -356,7 +383,7 @@ export function DamageCalculationSection() {
   // エラー表示
   if (error) {
     return (
-      <section className="mt-12 p-6 rounded-xl bg-gradient-to-br from-red-900/20 to-orange-900/20 border border-red-500/30">
+      <section className="p-6 rounded-xl bg-gradient-to-br from-red-900/20 to-orange-900/20 border border-red-500/30">
         <h2 className="text-2xl font-bold text-white mb-6 flex items-center gap-2">
           <svg className="w-6 h-6 text-red-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
@@ -371,118 +398,177 @@ export function DamageCalculationSection() {
   }
 
   return (
-    <section className="mt-12 p-6 rounded-xl bg-gradient-to-br from-red-900/20 to-orange-900/20 border border-red-500/30">
-      <h2 className="text-2xl font-bold text-white mb-6 flex items-center gap-2">
+    <section className="p-6 rounded-xl bg-gradient-to-br from-red-900/20 to-orange-900/20 border border-red-500/30">
+      {/* ヘッダー */}
+      <h2 className="text-2xl font-bold text-white mb-4 flex items-center gap-2">
         <svg className="w-6 h-6 text-red-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
         </svg>
         火力計算
       </h2>
 
-      {/* 武器が装備されていない場合 */}
-      {!currentBuild.equipment.weapon && (
-        <div className="text-center py-8">
-          <svg className="w-12 h-12 mx-auto mb-3 text-gray-500 opacity-50" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
-          </svg>
-          <p className="text-gray-400">武器を装備してください</p>
-        </div>
-      )}
+      {/* サブタブ切り替え */}
+      <div className="flex gap-2 mb-6">
+        <button
+          onClick={() => setSubTab('normal')}
+          className={`min-w-[120px] px-4 py-2 rounded-lg font-medium transition-all ${
+            subTab === 'normal'
+              ? 'bg-blue-600 text-white'
+              : 'bg-gray-700/50 text-gray-400 hover:bg-gray-600/50 hover:text-gray-300'
+          }`}
+        >
+          ⚔️ 通常攻撃
+        </button>
+        <button
+          onClick={() => setSubTab('skill')}
+          className={`min-w-[120px] px-4 py-2 rounded-lg font-medium transition-all ${
+            subTab === 'skill'
+              ? 'bg-blue-600 text-white'
+              : 'bg-gray-700/50 text-gray-400 hover:bg-gray-600/50 hover:text-gray-300'
+          }`}
+        >
+          ✨ スキル
+        </button>
+      </div>
 
-      {/* 武器が装備されている場合 */}
-      {currentBuild.equipment.weapon && damageResult && (
-        <div className="space-y-4">
-          {/* 3つのダメージ表示グリッド */}
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            {/* 最大ダメージ */}
-            <div className="p-4 bg-gradient-to-r from-yellow-900/30 to-orange-900/30 rounded-lg border border-yellow-500/20">
-              <h3 className="text-sm text-gray-400 mb-1">最大ダメージ</h3>
-              <p className="text-2xl font-bold text-yellow-400">
-                {damageResult.maxDamage.toLocaleString()}
-              </p>
-              <p className="text-xs text-gray-500 mt-1">
-                ダメ補正100% / 会心発生時
-              </p>
+      {/* コンテンツエリア（切り替え時のちらつき防止のため最小高さを設定） */}
+      <div className="min-h-[140px]">
+        {/* 通常攻撃タブ */}
+        {subTab === 'normal' && (
+          <>
+          {/* 職業/武器が未設定の場合 */}
+          {(!currentBuild.job || !currentBuild.equipment.weapon) && (
+            <div className="text-center py-8 text-gray-500">
+              <svg className="w-12 h-12 mx-auto mb-3 opacity-50" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+              </svg>
+              <p>職業と武器を選択してください</p>
             </div>
+          )}
 
-            {/* 期待値 */}
-            <div className="p-4 bg-gradient-to-r from-green-900/30 to-teal-900/30 rounded-lg border border-green-500/20">
-              <h3 className="text-sm text-gray-400 mb-1">期待値</h3>
-              <p className="text-2xl font-bold text-green-400">
-                {damageResult.expectedDamage.toLocaleString()}
-              </p>
-              <p className="text-xs text-gray-500 mt-1">
-                ダメ補正{damageResult.damageCorrectionRange.avg}% / 会心率{damageResult.critRate}%考慮
-              </p>
-            </div>
-
-            {/* DPS */}
-            <div className="p-4 bg-gradient-to-r from-purple-900/30 to-pink-900/30 rounded-lg border border-purple-500/20">
-              <h3 className="text-sm text-gray-400 mb-1">DPS</h3>
-              <p className="text-2xl font-bold text-purple-400">
-                {damageResult.dps > 0 ? damageResult.dps.toLocaleString() : '-'}
-              </p>
-              <p className="text-xs text-gray-500 mt-1">
-                {damageResult.coolTime > 0
-                  ? `CT: ${damageResult.coolTime.toFixed(2)}秒`
-                  : 'CT情報なし'}
-              </p>
-            </div>
-          </div>
-
-          {/* 補足情報 */}
-          <div className="p-3 bg-glass-dark/50 rounded-lg">
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-xs text-gray-400">
-              <div>
-                <span className="text-gray-500">武器種:</span>{' '}
-                <span className="text-white">
-                  {convertWeaponTypeToJapanese(currentBuild.equipment.weapon.weaponType || '')}
-                </span>
-              </div>
-              <div>
-                <span className="text-gray-500">ダメ補正範囲:</span>{' '}
-                <span className="text-white">
-                  {damageResult.damageCorrectionRange.min}%〜{damageResult.damageCorrectionRange.max}%
-                </span>
-              </div>
-              <div>
-                <span className="text-gray-500">会心率:</span>{' '}
-                <span className="text-white">{damageResult.critRate}%</span>
-              </div>
-              <div>
-                <span className="text-gray-500">武器CT:</span>{' '}
-                <span className="text-white">
-                  {damageResult.coolTime > 0 ? `${(damageResult.coolTime * 1000).toFixed(0)}ms` : '-'}
-                </span>
-              </div>
-            </div>
-            {/* 敵パラメータ情報 */}
-            {(damageResult.enemyDefense > 0 || damageResult.resistanceMultiplier !== 1) && (
-              <div className="mt-2 pt-2 border-t border-gray-600 grid grid-cols-2 md:grid-cols-3 gap-3 text-xs text-gray-400">
-                <div>
-                  <span className="text-gray-500">敵防御:</span>{' '}
-                  <span className="text-orange-400">-{damageResult.enemyDefense}</span>
+          {/* 職業と武器が設定されている場合 */}
+          {currentBuild.job && currentBuild.equipment.weapon && damageResult && (
+            <div className="space-y-4">
+              {/* 基礎ダメージ表示グリッド */}
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                {/* 最大ダメージ */}
+                <div className="p-4 bg-slate-800/60 rounded-lg border border-slate-600/40">
+                  <h3 className="text-sm text-slate-400 mb-1">最大ダメージ</h3>
+                  <p className="text-2xl font-bold text-red-400">
+                    {damageResult.baseMaxDamage.toLocaleString()}
+                  </p>
+                  <p className="text-xs text-slate-500 mt-1">
+                    ダメ補正100% / 会心発生時
+                  </p>
                 </div>
-                <div>
-                  <span className="text-gray-500">耐性倍率:</span>{' '}
-                  <span className={damageResult.resistanceMultiplier < 1 ? 'text-red-400' : damageResult.resistanceMultiplier > 1 ? 'text-green-400' : 'text-white'}>
-                    ×{damageResult.resistanceMultiplier.toFixed(3)}
-                  </span>
+
+                {/* 期待値 */}
+                <div className="p-4 bg-slate-800/60 rounded-lg border border-slate-600/40">
+                  <h3 className="text-sm text-slate-400 mb-1">期待値</h3>
+                  <p className="text-2xl font-bold text-orange-400">
+                    {damageResult.baseExpectedDamage.toLocaleString()}
+                  </p>
+                  <p className="text-xs text-slate-500 mt-1">
+                    ダメ補正{damageResult.damageCorrectionRange.avg}% / 会心率{damageResult.critRate}%考慮
+                  </p>
+                </div>
+
+                {/* DPS */}
+                <div className="p-4 bg-slate-800/60 rounded-lg border border-slate-600/40">
+                  <h3 className="text-sm text-slate-400 mb-1">DPS</h3>
+                  <p className="text-2xl font-bold text-amber-400">
+                    {damageResult.baseDps > 0 ? damageResult.baseDps.toLocaleString() : '-'}
+                  </p>
+                  <p className="text-xs text-slate-500 mt-1">
+                    {damageResult.coolTime > 0
+                      ? `CT: ${damageResult.coolTime.toFixed(2)}秒`
+                      : 'CT情報なし'}
+                  </p>
                 </div>
               </div>
-            )}
-          </div>
-        </div>
-      )}
 
-      {/* 計算エラー時 */}
-      {currentBuild.equipment.weapon && !damageResult && (
-        <div className="text-center py-8">
-          <p className="text-yellow-400">
-            ダメージ計算に必要なデータが不足しています
-          </p>
-        </div>
-      )}
+              {/* 敵ステータス考慮後のダメージ表示（敵パラメータが設定されている場合のみ） */}
+              {damageResult.hasEnemyStats && (
+                <div className="p-4 bg-slate-800/80 border border-cyan-600/40 rounded-lg">
+                  <h4 className="text-sm font-semibold text-cyan-400 mb-3 flex items-center gap-2">
+                    <span>🎯</span>
+                    最終ダメージ（敵ステータス考慮）
+                  </h4>
+                  <p className="text-xs text-slate-400 mb-3">
+                    守備力: {damageResult.enemyDefense} / 攻撃耐性: {damageResult.enemyAttackResistance}% / 属性耐性: {damageResult.enemyElementResistance}%
+                  </p>
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                    <div className="p-3 bg-slate-700/50 rounded-lg">
+                      <p className="text-xs text-cyan-400 mb-1">最大ダメージ</p>
+                      <p className="text-2xl font-bold text-cyan-300">
+                        {damageResult.maxDamage.toLocaleString()}
+                      </p>
+                    </div>
+                    <div className="p-3 bg-slate-700/50 rounded-lg">
+                      <p className="text-xs text-cyan-400 mb-1">期待値</p>
+                      <p className="text-2xl font-bold text-cyan-300">
+                        {damageResult.expectedDamage.toLocaleString()}
+                      </p>
+                    </div>
+                    <div className="p-3 bg-slate-700/50 rounded-lg">
+                      <p className="text-xs text-cyan-400 mb-1">DPS</p>
+                      <p className="text-2xl font-bold text-cyan-300">
+                        {damageResult.dps > 0 ? damageResult.dps.toLocaleString() : '-'}
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* 補足情報 */}
+              <div className="p-3 bg-glass-dark/50 rounded-lg">
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-xs text-gray-400">
+                  <div>
+                    <span className="text-gray-500">武器種:</span>{' '}
+                    <span className="text-white">
+                      {convertWeaponTypeToJapanese(currentBuild.equipment.weapon.weaponType || '')}
+                    </span>
+                  </div>
+                  <div>
+                    <span className="text-gray-500">ダメ補正範囲:</span>{' '}
+                    <span className="text-white">
+                      {damageResult.damageCorrectionRange.min}%〜{damageResult.damageCorrectionRange.max}%
+                    </span>
+                  </div>
+                  <div>
+                    <span className="text-gray-500">会心率:</span>{' '}
+                    <span className="text-white">{damageResult.critRate}%</span>
+                  </div>
+                  <div>
+                    <span className="text-gray-500">武器CT:</span>{' '}
+                    <span className="text-white">
+                      {damageResult.coolTime > 0 ? `${(damageResult.coolTime * 1000).toFixed(0)}ms` : '-'}
+                    </span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* 計算エラー時 */}
+          {currentBuild.job && currentBuild.equipment.weapon && !damageResult && (
+            <div className="text-center py-8 text-gray-500">
+              <svg className="w-12 h-12 mx-auto mb-3 opacity-50" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+              </svg>
+              <p className="text-yellow-400">
+                ダメージ計算に必要なデータが不足しています
+              </p>
+            </div>
+          )}
+          </>
+        )}
+
+        {/* スキルタブ */}
+        {subTab === 'skill' && (
+          <SkillCalculationSection embedded />
+        )}
+      </div>
     </section>
   );
 }

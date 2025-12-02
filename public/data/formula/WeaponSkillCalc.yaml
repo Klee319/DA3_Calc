@@ -1,382 +1,201 @@
 # =============================================================================
-# WeaponSkillCalc.yaml - 武器スキルバフ計算式定義
+# WeaponSkillCalc.yaml - 武器スキル・職業スキルバフ定義
 # =============================================================================
 #
 # 概要:
-#   武器種ごとに習得可能なパッシブスキルによるステータスバフを定義する。
-#   これらのバフは装備装着後、他のバフ（食べ物等）適用前の純粋なステータスを基準に計算される。
-#
-# 重要な仕様:
-#   - 武器スキルバフは装備装着後、他のバフ適用前の「BaseStatus」を基準に計算
-#   - 指輪バフのみ、すべてのバフ適用後の最終ステータスを基準に収束計算
-#   - 複数の武器スキルバフが有効な場合は加算で適用
+#   武器スキルと職業スキルによるステータスバフを定義する。
+#   1つのスキルで複数のステータスにバフをかけられる。
 #
 # サポート関数:
-#   - ROUND(value)          : 四捨五入（小数点以下を丸める）
-#   - ROUNDUP(value)        : 切り上げ
-#   - ROUNDDOWN(value)      : 切り捨て（FLOOR と同義）
-#   - FLOOR(value)          : 切り捨て
-#   - CONVERGE(formula, threshold) : 収束するまで繰り返し計算（threshold以下の変化で終了）
-#   - MAX(a, b)             : 大きい方の値を返す
-#   - MIN(a, b)             : 小さい方の値を返す
+#   - ROUND(value)    : 四捨五入
+#   - FLOOR(value)    : 切り捨て
+#   - MAX(a, b)       : 大きい方
+#   - MIN(a, b)       : 小さい方
 #
 # プレースホルダー:
-#   - BaseStatus.<Stat>     : 装備後・バフ前の基礎ステータス
-#   - SkillLevel            : スキルレベル（各スキルのMaxLevelまでの整数）
-#   - Current.<Stat>        : 収束計算時の現在値（CONVERGE内でのみ使用）
+#   - BaseStatus.<Stat> : 装備後・バフ前の基礎ステータス
+#   - SkillLevel        : スキルレベル（1-10等）
 #
-# 対応ステータス (<Stat>):
-#   Power, Magic, HP, Mind, Agility, Dex, CritDamage, Defense, Speed
+# 対応ステータス:
+#   Power(力), Magic(魔力), HP, Mind(精神), Agility(素早さ),
+#   Dex(器用), CritDamage(会心ダメージ), Defense(守備力), Speed(速度)
 #
 # =============================================================================
 
 # -----------------------------------------------------------------------------
-# 計算順序の定義
+# 武器スキル（特定の武器名を装備時に有効）
 # -----------------------------------------------------------------------------
-CalculationOrder:
-  Description: |
-    1. 装備ステータス計算（武器・防具・アクセサリー）
-    2. 職業ステータス計算（初期値×レベル + SP配分）
-    3. BaseStatus算出（装備 + 職業 + ルーンストーン）← 武器スキルバフの基準点
-    4. 武器スキルバフ適用（本ファイルで定義）
-    5. 食べ物バフ適用
-    6. %補正適用（職業補正 + 紋章補正 + ユーザー指定%）
-    7. 指輪バフ適用（最終ステータスを基準に収束計算）
+WeaponSkills:
 
-  Steps:
-    - Name: "EquipmentCalculation"
-      Order: 1
-      Description: "武器・防具・アクセサリーのステータス合算"
+  # 例: 炎系の剣
+  FlameSwordSkill:
+    Name: "炎剣の加護"
+    WeaponNames: ["炎剣", "フレイムソード", "灼熱の剣"]
+    Buffs:
+      Power: "ROUND(BaseStatus.Power * SkillLevel * 0.03)"
+      CritDamage: "ROUND(BaseStatus.CritDamage * SkillLevel * 0.02)"
+    MaxLevel: 10
 
-    - Name: "JobCalculation"
-      Order: 2
-      Description: "職業初期値×レベル + SP配分"
+  # 例: 氷系の剣
+  IceSwordSkill:
+    Name: "氷剣の加護"
+    WeaponNames: ["氷剣", "フロストソード", "凍てつく剣"]
+    Buffs:
+      Magic: "ROUND(BaseStatus.Magic * SkillLevel * 0.025)"
+      Defense: "ROUND(BaseStatus.Defense * SkillLevel * 0.02)"
+    MaxLevel: 10
 
-    - Name: "BaseStatusCalculation"
-      Order: 3
-      Description: "BaseStatusの確定（武器スキルバフの基準）"
+  # 例: ショートソード系
+  ShortSwordSkill:
+    Name: "剣術の心得"
+    WeaponNames: ["ショートソード", "ロングソード", "ブロードソード"]
+    Buffs:
+      Power: "ROUND(BaseStatus.Power * SkillLevel * 0.02)"
+    MaxLevel: 10
 
-    - Name: "WeaponSkillBuffApplication"
-      Order: 4
-      Description: "武器スキルバフの適用"
+  # 例: 大剣系
+  GreatSwordSkill:
+    Name: "豪剣の心得"
+    WeaponNames: ["グレートソード", "ツヴァイハンダー", "クレイモア"]
+    Buffs:
+      Power: "ROUND(BaseStatus.Power * SkillLevel * 0.035)"
+      HP: "ROUND(BaseStatus.HP * SkillLevel * 0.02)"
+    MaxLevel: 8
 
-    - Name: "FoodBuffApplication"
-      Order: 5
-      Description: "食べ物バフの適用"
+  # 例: 弓系
+  BowSkill:
+    Name: "弓術の心得"
+    WeaponNames: ["ショートボウ", "ロングボウ", "コンポジットボウ"]
+    Buffs:
+      Dex: "ROUND(BaseStatus.Dex * SkillLevel * 0.025)"
+      Agility: "ROUND(BaseStatus.Agility * SkillLevel * 0.02)"
+    MaxLevel: 10
 
-    - Name: "PercentageBonusApplication"
-      Order: 6
-      Description: "%補正の適用（職業・紋章・ユーザー指定）"
+  # 例: 杖系
+  WandSkill:
+    Name: "杖術の心得"
+    WeaponNames: ["ウッドワンド", "アイアンワンド", "ミスリルワンド", "マジックワンド"]
+    Buffs:
+      Magic: "ROUND(BaseStatus.Magic * SkillLevel * 0.025)"
+      Mind: "ROUND(BaseStatus.Mind * SkillLevel * 0.02)"
+    MaxLevel: 10
 
-    - Name: "RingBuffApplication"
-      Order: 7
-      Description: "指輪バフの適用（収束計算）"
-
-# -----------------------------------------------------------------------------
-# 武器スキルバフ定義
-# -----------------------------------------------------------------------------
-WeaponSkillFormula:
-
-  # ---------------------------------------------------------------------------
-  # 剣 (Sword)
-  # ---------------------------------------------------------------------------
-  Sword:
-    SwordMastery:
-      Name: "剣術の心得"
-      Description: "剣の扱いに習熟し、力を上昇させる"
-      TargetStat: "Power"
-      Formula: "ROUND(BaseStatus.Power * SkillLevel * 0.02)"
-      MaxLevel: 10
-      Category: "Passive"
-
-    BladeAura:
-      Name: "剣気"
-      Description: "剣に気を纏わせ、会心ダメージを上昇させる"
-      TargetStat: "CritDamage"
-      Formula: "ROUND(BaseStatus.CritDamage * SkillLevel * 0.015)"
-      MaxLevel: 10
-      Category: "Passive"
-
-    SteadyStance:
-      Name: "堅牢の構え"
-      Description: "守りを固め、防御力を上昇させる"
-      TargetStat: "Defense"
-      Formula: "ROUND(BaseStatus.Defense * SkillLevel * 0.03)"
-      MaxLevel: 5
-      Category: "Passive"
-
-  # ---------------------------------------------------------------------------
-  # 大剣 (GreatSword)
-  # ---------------------------------------------------------------------------
-  GreatSword:
-    GreatSwordMastery:
-      Name: "豪剣の心得"
-      Description: "大剣の扱いに習熟し、力を大幅に上昇させる"
-      TargetStat: "Power"
-      Formula: "ROUND(BaseStatus.Power * SkillLevel * 0.035)"
-      MaxLevel: 8
-      Category: "Passive"
-
-    Fortitude:
-      Name: "剛健"
-      Description: "強靭な肉体を得て、HPを上昇させる"
-      TargetStat: "HP"
-      Formula: "ROUND(BaseStatus.HP * SkillLevel * 0.025)"
-      MaxLevel: 10
-      Category: "Passive"
-
-    HeavyBlow:
-      Name: "重撃"
-      Description: "重い一撃を放つ力を得て、会心ダメージを上昇させる"
-      TargetStat: "CritDamage"
-      Formula: "ROUND(BaseStatus.CritDamage * SkillLevel * 0.02)"
-      MaxLevel: 8
-      Category: "Passive"
-
-  # ---------------------------------------------------------------------------
-  # 斧 (Axe)
-  # ---------------------------------------------------------------------------
-  Axe:
-    AxeMastery:
-      Name: "斧術の心得"
-      Description: "斧の扱いに習熟し、力を上昇させる"
-      TargetStat: "Power"
-      Formula: "ROUND(BaseStatus.Power * SkillLevel * 0.025)"
-      MaxLevel: 10
-      Category: "Passive"
-
-    BerserkerSpirit:
-      Name: "狂戦士の魂"
-      Description: "精神を研ぎ澄まし、精神力を上昇させる"
-      TargetStat: "Mind"
-      Formula: "ROUND(BaseStatus.Mind * SkillLevel * 0.03)"
-      MaxLevel: 8
-      Category: "Passive"
-
-    IronWill:
-      Name: "鉄の意志"
-      Description: "不屈の精神で、HPを上昇させる"
-      TargetStat: "HP"
-      Formula: "ROUND(BaseStatus.HP * SkillLevel * 0.02)"
-      MaxLevel: 10
-      Category: "Passive"
-
-  # ---------------------------------------------------------------------------
-  # 弓 (Bow)
-  # ---------------------------------------------------------------------------
-  Bow:
-    BowMastery:
-      Name: "弓術の心得"
-      Description: "弓の扱いに習熟し、力を上昇させる"
-      TargetStat: "Power"
-      Formula: "ROUND(BaseStatus.Power * SkillLevel * 0.02)"
-      MaxLevel: 10
-      Category: "Passive"
-
-    EagleEye:
-      Name: "鷹の目"
-      Description: "精密な照準で、器用さを上昇させる"
-      TargetStat: "Dex"
-      Formula: "ROUND(BaseStatus.Dex * SkillLevel * 0.025)"
-      MaxLevel: 10
-      Category: "Passive"
-
-    SwiftMovement:
-      Name: "疾風の動き"
-      Description: "素早い動きを身につけ、素早さを上昇させる"
-      TargetStat: "Agility"
-      Formula: "ROUND(BaseStatus.Agility * SkillLevel * 0.03)"
-      MaxLevel: 8
-      Category: "Passive"
-
-    QuickDraw:
-      Name: "速射"
-      Description: "素早く矢を放つ技術で、速度を上昇させる"
-      TargetStat: "Speed"
-      Formula: "ROUND(BaseStatus.Speed * SkillLevel * 0.02)"
-      MaxLevel: 10
-      Category: "Passive"
-
-  # ---------------------------------------------------------------------------
-  # 短剣 (Dagger)
-  # ---------------------------------------------------------------------------
-  Dagger:
-    DaggerMastery:
-      Name: "短剣術の心得"
-      Description: "短剣の扱いに習熟し、力を上昇させる"
-      TargetStat: "Power"
-      Formula: "ROUND(BaseStatus.Power * SkillLevel * 0.015)"
-      MaxLevel: 10
-      Category: "Passive"
-
-    Agility:
-      Name: "俊敏"
-      Description: "素早い身のこなしで、素早さを大幅に上昇させる"
-      TargetStat: "Agility"
-      Formula: "ROUND(BaseStatus.Agility * SkillLevel * 0.04)"
-      MaxLevel: 10
-      Category: "Passive"
-
-    CriticalStrike:
-      Name: "急所狙い"
-      Description: "急所を狙う技術で、会心ダメージを上昇させる"
-      TargetStat: "CritDamage"
-      Formula: "ROUND(BaseStatus.CritDamage * SkillLevel * 0.025)"
-      MaxLevel: 10
-      Category: "Passive"
-
-    ShadowStep:
-      Name: "影渡り"
-      Description: "影のように動き、速度を上昇させる"
-      TargetStat: "Speed"
-      Formula: "ROUND(BaseStatus.Speed * SkillLevel * 0.03)"
-      MaxLevel: 8
-      Category: "Passive"
-
-  # ---------------------------------------------------------------------------
-  # 杖 (Wand)
-  # ---------------------------------------------------------------------------
-  Wand:
-    WandMastery:
-      Name: "杖術の心得"
-      Description: "杖の扱いに習熟し、魔力を上昇させる"
-      TargetStat: "Magic"
-      Formula: "ROUND(BaseStatus.Magic * SkillLevel * 0.025)"
-      MaxLevel: 10
-      Category: "Passive"
-
-    ManaAmplification:
-      Name: "魔力増幅"
-      Description: "魔力の流れを強化し、魔力をさらに上昇させる"
-      TargetStat: "Magic"
-      Formula: "ROUND(BaseStatus.Magic * SkillLevel * 0.015)"
-      MaxLevel: 10
-      Category: "Passive"
-
-    Meditation:
-      Name: "瞑想"
-      Description: "精神を集中させ、精神力を上昇させる"
-      TargetStat: "Mind"
-      Formula: "ROUND(BaseStatus.Mind * SkillLevel * 0.03)"
-      MaxLevel: 10
-      Category: "Passive"
-
-    ArcaneKnowledge:
-      Name: "秘術の知識"
-      Description: "古の知識で、会心ダメージを上昇させる"
-      TargetStat: "CritDamage"
-      Formula: "ROUND(BaseStatus.CritDamage * SkillLevel * 0.02)"
-      MaxLevel: 8
-      Category: "Passive"
-
-  # ---------------------------------------------------------------------------
-  # 槍 (Spear)
-  # ---------------------------------------------------------------------------
-  Spear:
-    SpearMastery:
-      Name: "槍術の心得"
-      Description: "槍の扱いに習熟し、器用さを上昇させる"
-      TargetStat: "Dex"
-      Formula: "ROUND(BaseStatus.Dex * SkillLevel * 0.03)"
-      MaxLevel: 10
-      Category: "Passive"
-
-    DefensiveStance:
-      Name: "防御の構え"
-      Description: "槍で身を守り、防御力を上昇させる"
-      TargetStat: "Defense"
-      Formula: "ROUND(BaseStatus.Defense * SkillLevel * 0.035)"
-      MaxLevel: 10
-      Category: "Passive"
-
-    PiercingThrust:
-      Name: "貫通突き"
-      Description: "鋭い突きの技術で、力を上昇させる"
-      TargetStat: "Power"
-      Formula: "ROUND(BaseStatus.Power * SkillLevel * 0.02)"
-      MaxLevel: 10
-      Category: "Passive"
-
-  # ---------------------------------------------------------------------------
-  # フライパン (Frypan) - 特殊武器
-  # ---------------------------------------------------------------------------
-  Frypan:
-    CookingMastery:
-      Name: "料理の心得"
-      Description: "料理の腕を磨き、力を上昇させる"
-      TargetStat: "Power"
-      Formula: "ROUND(BaseStatus.Power * SkillLevel * 0.02)"
-      MaxLevel: 10
-      Category: "Passive"
-
-    TasteOfVictory:
-      Name: "勝利の味"
-      Description: "勝利への執念で、HPを上昇させる"
-      TargetStat: "HP"
-      Formula: "ROUND(BaseStatus.HP * SkillLevel * 0.015)"
-      MaxLevel: 10
-      Category: "Passive"
+  # 例: 短剣系
+  DaggerSkill:
+    Name: "短剣術の心得"
+    WeaponNames: ["ダガー", "ナイフ", "スティレット"]
+    Buffs:
+      Agility: "ROUND(BaseStatus.Agility * SkillLevel * 0.03)"
+      Speed: "ROUND(BaseStatus.Speed * SkillLevel * 0.025)"
+    MaxLevel: 10
 
 # -----------------------------------------------------------------------------
-# 指輪バフ定義（収束計算用）
+# 職業スキル（SP振り分けで解放したスキルを所持時に有効）
 # -----------------------------------------------------------------------------
-RingSkillFormula:
-  Description: |
-    指輪バフは他のすべてのバフが適用された後の最終ステータスを基準に計算される。
-    自身のバフ効果が再帰的にステータスに影響するため、収束計算が必要。
+JobSkills:
 
-  # 指輪バフの例
-  PowerRing:
-    Name: "力の指輪"
-    Description: "最終的な力を基準に、力を上昇させる"
-    TargetStat: "Power"
-    # 収束計算: Current.Powerに対して10%のボーナスを加算し、変化が1未満になるまで繰り返す
-    Formula: "CONVERGE(ROUND(Current.Power * 0.1), 1)"
-    BaseFormula: "40 + ROUND(FinalStatus.Power * 0.1)"
-    MaxLevel: 1
-    Category: "Ring"
+  # ウォーリアー系
+  WarriorPowerSkill:
+    Name: "闘志"
+    JobName: "ウォーリアー"
+    RequiredSkills: ["烈刃の円斬撃3"]  # このスキルを解放していれば有効
+    Buffs:
+      Power: "ROUND(BaseStatus.Power * SkillLevel * 0.02)"
+      HP: "ROUND(BaseStatus.HP * SkillLevel * 0.015)"
+    MaxLevel: 10
 
-  MagicRing:
-    Name: "魔力の指輪"
-    Description: "最終的な魔力を基準に、魔力を上昇させる"
-    TargetStat: "Magic"
-    Formula: "CONVERGE(ROUND(Current.Magic * 0.1), 1)"
-    BaseFormula: "40 + ROUND(FinalStatus.Magic * 0.1)"
-    MaxLevel: 1
-    Category: "Ring"
+  WarriorDefenseSkill:
+    Name: "鉄壁"
+    JobName: "ウォーリアー"
+    RequiredSkills: ["鎧崩し"]
+    Buffs:
+      Defense: "ROUND(BaseStatus.Defense * SkillLevel * 0.025)"
+    MaxLevel: 10
 
-  SpeedRing:
-    Name: "速度の指輪"
-    Description: "最終的な速度を基準に、速度を上昇させる"
-    TargetStat: "Speed"
-    Formula: "CONVERGE(ROUND(Current.Speed * 0.1), 1)"
-    BaseFormula: "40 + ROUND(FinalStatus.Speed * 0.1)"
-    MaxLevel: 1
-    Category: "Ring"
+  WarriorAdvancedSkill:
+    Name: "覇王の力"
+    JobName: "ウォーリアー"
+    RequiredSkills: ["覇王の獄炎斬"]
+    Buffs:
+      Power: "ROUND(BaseStatus.Power * SkillLevel * 0.04)"
+      CritDamage: "ROUND(BaseStatus.CritDamage * SkillLevel * 0.03)"
+    MaxLevel: 10
 
-# -----------------------------------------------------------------------------
-# 複合バフ計算（複数スキルの合算）
-# -----------------------------------------------------------------------------
-BuffAggregation:
-  Description: |
-    同一ステータスに対する複数のバフは加算で適用される。
-    例: 剣術の心得(Power +5%) + 堅牢の構え(Defense +15%) の場合、
-    それぞれ独立して計算された後、対応するステータスに加算される。
+  # ナイト系
+  KnightGuardSkill:
+    Name: "騎士の守護"
+    JobName: "ナイト"
+    RequiredSkills: ["シールドバッシュ"]
+    Buffs:
+      Defense: "ROUND(BaseStatus.Defense * SkillLevel * 0.03)"
+      HP: "ROUND(BaseStatus.HP * SkillLevel * 0.02)"
+    MaxLevel: 10
 
-  Method: "Additive"
+  # ハンター系
+  HunterAgilitySkill:
+    Name: "俊敏"
+    JobName: "ハンター"
+    RequiredSkills: ["チャージショット"]
+    Buffs:
+      Agility: "ROUND(BaseStatus.Agility * SkillLevel * 0.03)"
+      Dex: "ROUND(BaseStatus.Dex * SkillLevel * 0.02)"
+    MaxLevel: 10
 
-  Example:
-    # 剣を装備し、以下のスキルが有効な場合
-    ActiveSkills:
-      - "SwordMastery Lv10"
-      - "BladeAura Lv10"
+  # レンジャー系
+  RangerSpeedSkill:
+    Name: "疾風の足"
+    JobName: "レンジャー"
+    RequiredSkills: ["スナイプショット"]
+    Buffs:
+      Speed: "ROUND(BaseStatus.Speed * SkillLevel * 0.025)"
+      Agility: "ROUND(BaseStatus.Agility * SkillLevel * 0.02)"
+    MaxLevel: 10
 
-    # BaseStatus.Power = 1000, BaseStatus.CritDamage = 200 の場合
-    Calculation:
-      PowerBonus: "ROUND(1000 * 10 * 0.02) = 200"
-      CritDamageBonus: "ROUND(200 * 10 * 0.015) = 30"
+  # ウィザード系
+  WizardMagicSkill:
+    Name: "魔力増幅"
+    JobName: "ウィザード"
+    RequiredSkills: ["ファイアボール"]
+    Buffs:
+      Magic: "ROUND(BaseStatus.Magic * SkillLevel * 0.025)"
+    MaxLevel: 10
 
-    # 最終的なバフ適用後
-    Result:
-      Power: "1000 + 200 = 1200"
-      CritDamage: "200 + 30 = 230"
+  WizardAdvancedSkill:
+    Name: "大魔導の叡智"
+    JobName: "ウィザード"
+    RequiredSkills: ["メテオストライク"]
+    Buffs:
+      Magic: "ROUND(BaseStatus.Magic * SkillLevel * 0.04)"
+      Mind: "ROUND(BaseStatus.Mind * SkillLevel * 0.025)"
+    MaxLevel: 10
+
+  # クレリック系
+  ClericMindSkill:
+    Name: "精神集中"
+    JobName: "クレリック"
+    RequiredSkills: ["ヒール"]
+    Buffs:
+      Mind: "ROUND(BaseStatus.Mind * SkillLevel * 0.03)"
+      HP: "ROUND(BaseStatus.HP * SkillLevel * 0.015)"
+    MaxLevel: 10
+
+  # プリースト系
+  PriestHolySkill:
+    Name: "聖なる加護"
+    JobName: "プリースト"
+    RequiredSkills: ["ハイヒール"]
+    Buffs:
+      Mind: "ROUND(BaseStatus.Mind * SkillLevel * 0.035)"
+      Defense: "ROUND(BaseStatus.Defense * SkillLevel * 0.02)"
+    MaxLevel: 10
+
+  # ガーディアン系
+  GuardianFortressSkill:
+    Name: "不落の砦"
+    JobName: "ガーディアン"
+    RequiredSkills: ["フォートレス"]
+    Buffs:
+      Defense: "ROUND(BaseStatus.Defense * SkillLevel * 0.04)"
+      HP: "ROUND(BaseStatus.HP * SkillLevel * 0.03)"
+    MaxLevel: 10
+

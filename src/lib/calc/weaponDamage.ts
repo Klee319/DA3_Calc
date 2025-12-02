@@ -62,18 +62,7 @@ export function calcBaseDamage(
   };
 
   try {
-    // デバッグログ
-    console.log('[calcBaseDamage] weaponType:', weaponType, 'weaponTypeKey:', weaponTypeKey);
-    console.log('[calcBaseDamage] Variables:', {
-      WeaponAttackPower: variables.WeaponAttackPower,
-      UserPower: variables.UserPower,
-      WeaponCritDamage: variables.WeaponCritDamage,
-      UserCritDamage: variables.UserCritDamage,
-      DamageCorrection: variables.DamageCorrection,
-      formula: formula
-    });
     const damage = evaluateFormula(formula, variables);
-    console.log('[calcBaseDamage] Result:', damage);
     return Math.max(0, Math.floor(damage));
   } catch (error) {
     console.error(`Failed to calculate base damage for ${weaponType}:`, error);

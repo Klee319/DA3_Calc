@@ -89,10 +89,7 @@ async function loadCsvFile<T>(path: string): Promise<T[]> {
       throw new Error(`Failed to load ${path}: ${response.statusText}`);
     }
     const text = await response.text();
-    console.log(`Loaded CSV from ${path}, length: ${text.length}`);
-    
     const data = parseCSV<T>(text, fileName);
-    console.log(`Parsed ${data.length} rows from ${path}`);
     return data;
   } catch (error) {
     // 既にカスタムエラーの場合はそのまま投げる

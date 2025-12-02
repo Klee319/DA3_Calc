@@ -11,6 +11,7 @@ export {
   loadWeaponCalc,
   loadUserStatusCalc,
   loadSkillCalc,
+  loadWeaponSkillCalc,
   loadAllYamlData,
   extractSkillsFromCalcData,
   // 新スキル計算システム
@@ -44,8 +45,6 @@ import { DataLoadErrorHandler, withFallback } from './errors';
  */
 export async function initializeGameData(): Promise<GameData> {
   try {
-    console.log('Starting game data initialization...');
-    
     // エラーハンドラーをクリア
     DataLoadErrorHandler.clearErrors();
 
@@ -58,7 +57,8 @@ export async function initializeGameData(): Promise<GameData> {
         jobConst: {} as any,
         weaponCalc: {} as any,
         userStatusCalc: {} as any,
-        skillCalc: {} as any
+        skillCalc: {} as any,
+        weaponSkillCalc: {} as any
       },
       'Warning: Failed to load some YAML files, using default values'
     );
@@ -101,19 +101,6 @@ export async function initializeGameData(): Promise<GameData> {
       console.warn(DataLoadErrorHandler.getErrorSummary());
     }
 
-    console.log('Game data initialization completed');
-    console.log('Loaded data summary:', {
-      yamlFiles: Object.keys(yamlData).length,
-      weapons: gameData.csv.weapons.length,
-      armors: gameData.csv.armors.length,
-      accessories: gameData.csv.accessories.length,
-      emblems: gameData.csv.emblems.length,
-      runestones: gameData.csv.runestones.length,
-      foods: gameData.csv.foods.length,
-      jobs: gameData.csv.jobs.size,
-      errors: DataLoadErrorHandler.getErrors().length
-    });
-
     return gameData;
   } catch (error) {
     console.error('Failed to initialize game data:', error);
@@ -125,7 +112,8 @@ export async function initializeGameData(): Promise<GameData> {
         jobConst: {} as any,
         weaponCalc: {} as any,
         userStatusCalc: {} as any,
-        skillCalc: {} as any
+        skillCalc: {} as any,
+        weaponSkillCalc: {} as any
       },
       csv: {
         weapons: [],
@@ -171,7 +159,6 @@ function validateGameData(gameData: GameData): void {
     console.warn('No job data loaded');
   }
 
-  console.log('Data validation completed');
 }
 
 /**
@@ -195,5 +182,4 @@ export async function getGameData(): Promise<GameData> {
  */
 export function clearGameDataCache(): void {
   cachedGameData = null;
-  console.log('Game data cache cleared');
 }

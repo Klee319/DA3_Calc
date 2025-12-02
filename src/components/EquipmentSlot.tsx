@@ -32,8 +32,8 @@ const STAT_TO_SMITHING_PARAM: Partial<Record<StatType, SmithingParamType>> = {
   DEF: '守備力',
 };
 
-// 最大叩き回数（合計上限）
-const MAX_TOTAL_SMITHING_COUNT = 12;
+// 最大叩き回数（合計上限）- デフォルト値（YAMLがロードされていない場合のフォールバック）
+const DEFAULT_MAX_TOTAL_SMITHING_COUNT = 12;
 
 // デフォルト値（YAMLがロードされていない場合のフォールバック）
 const DEFAULT_SMITHING_BONUS = {
@@ -67,12 +67,21 @@ const EX_STAT_OPTIONS = [
 // EX値計算のカテゴリ型
 type ExCategory = 'CritR' | 'Speed_CritD' | 'Other';
 
+// EX係数のデフォルト値（YAMLがロードされていない場合のフォールバック）
+const DEFAULT_EX_COEFFICIENTS = {
+  CritR: { SSS: 0.15, SS: 0.13, S: 0.11, A: 0.09, B: 0.09, C: 0.07, D: 0.07, E: 0.05, F: 0.05 },
+  Speed_CritD: { SSS: 0.6, SS: 0.5, S: 0.4, A: 0.3, B: 0.3, C: 0.2, D: 0.2, E: 0.1, F: 0.1 },
+  Other: { SSS: 0.7, SS: 0.6, S: 0.5, A: 0.4, B: 0.4, C: 0.3, D: 0.3, E: 0.2, F: 0.2 },
+} as const;
+
 // EX値計算関数（EqConst.yaml準拠）
-const calculateExValue = (level: number, rank: string, category: ExCategory): number => {
+const calculateExValue = (level: number, rank: string, category: ExCategory, eqConst?: EqConstData): number => {
+  // YAMLから係数を取得、なければデフォルト値を使用
+  const yamlCoeffs = eqConst?.Equipment_EX?.Rank;
   const coefficients = {
-    CritR: { SSS: 0.15, SS: 0.13, S: 0.11, A: 0.09, B: 0.09, C: 0.07, D: 0.07, E: 0.05, F: 0.05 },
-    Speed_CritD: { SSS: 0.6, SS: 0.5, S: 0.4, A: 0.3, B: 0.3, C: 0.2, D: 0.2, E: 0.1, F: 0.1 },
-    Other: { SSS: 0.7, SS: 0.6, S: 0.5, A: 0.4, B: 0.4, C: 0.3, D: 0.3, E: 0.2, F: 0.2 },
+    CritR: yamlCoeffs?.CritR ?? DEFAULT_EX_COEFFICIENTS.CritR,
+    Speed_CritD: yamlCoeffs?.Speed_CritD ?? DEFAULT_EX_COEFFICIENTS.Speed_CritD,
+    Other: yamlCoeffs?.Other ?? DEFAULT_EX_COEFFICIENTS.Other,
   };
   const coeff = coefficients[category][rank as keyof typeof coefficients.CritR] || 0;
   return Math.round(level * coeff + 1);
@@ -172,6 +181,12 @@ export const EquipmentSlot: React.FC<EquipmentSlotProps> = ({
   const WEAPON_SMITHING_BONUS = useMemo(() =>
     eqConst?.Weapon?.Forge?.Other ?? DEFAULT_WEAPON_SMITHING_BONUS
   , [eqConst]);
+
+  // 叩き回数上限をYAMLから取得（フォールバック付き）
+  const MAX_TOTAL_SMITHING_COUNT = useMemo(() =>
+    eqConst?.Armor?.Forge?.MaxTotal ?? DEFAULT_MAX_TOTAL_SMITHING_COUNT
+  , [eqConst]);
+
   const [showSmithingDetails, setShowSmithingDetails] = useState(false);
   const [showAdvancedSettings, setShowAdvancedSettings] = useState(true);
   const [isSelectOpen, setIsSelectOpen] = useState(false);
@@ -1077,7 +1092,7 @@ export const EquipmentSlot: React.FC<EquipmentSlotProps> = ({
                         <div className="px-2 py-1 bg-cyan-900/40 rounded">
                           <span className="text-cyan-400">EX1 {EX_STAT_OPTIONS.find(o => o.value === exStats.ex1)?.label}: </span>
                           <span className="text-cyan-200 font-semibold">
-                            +{calculateExValue(equipment.requiredLevel || 1, rank, getExCategory(exStats.ex1))}
+                            +{calculateExValue(equipment.requiredLevel || 1, rank, getExCategory(exStats.ex1), eqConst)}
                           </span>
                         </div>
                       )}
@@ -1085,7 +1100,7 @@ export const EquipmentSlot: React.FC<EquipmentSlotProps> = ({
                         <div className="px-2 py-1 bg-cyan-900/40 rounded">
                           <span className="text-cyan-400">EX2 {EX_STAT_OPTIONS.find(o => o.value === exStats.ex2)?.label}: </span>
                           <span className="text-cyan-200 font-semibold">
-                            +{calculateExValue(equipment.requiredLevel || 1, rank, getExCategory(exStats.ex2))}
+                            +{calculateExValue(equipment.requiredLevel || 1, rank, getExCategory(exStats.ex2), eqConst)}
                           </span>
                         </div>
                       )}
@@ -1140,7 +1155,7 @@ export const EquipmentSlot: React.FC<EquipmentSlotProps> = ({
                         <div className="px-2 py-1 bg-cyan-900/40 rounded">
                           <span className="text-cyan-400">EX1 {EX_STAT_OPTIONS.find(o => o.value === exStats.ex1)?.label}: </span>
                           <span className="text-cyan-200 font-semibold">
-                            +{calculateExValue(equipment.requiredLevel || 1, rank, getExCategory(exStats.ex1))}
+                            +{calculateExValue(equipment.requiredLevel || 1, rank, getExCategory(exStats.ex1), eqConst)}
                           </span>
                         </div>
                       )}
@@ -1148,7 +1163,7 @@ export const EquipmentSlot: React.FC<EquipmentSlotProps> = ({
                         <div className="px-2 py-1 bg-cyan-900/40 rounded">
                           <span className="text-cyan-400">EX2 {EX_STAT_OPTIONS.find(o => o.value === exStats.ex2)?.label}: </span>
                           <span className="text-cyan-200 font-semibold">
-                            +{calculateExValue(equipment.requiredLevel || 1, rank, getExCategory(exStats.ex2))}
+                            +{calculateExValue(equipment.requiredLevel || 1, rank, getExCategory(exStats.ex2), eqConst)}
                           </span>
                         </div>
                       )}

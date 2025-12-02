@@ -2,11 +2,6 @@ UserStatusFormula:
 
   BaseStatus: "(SumEquipment.<Stat> + Job.Initial.<Stat> * <JobLevel> + Job.SP.<Stat> + Food.<Stat> + UserOption.<Stat>) * (1 + Job.Bonus.<Stat>/100 + Emblem.Bonus.<Stat>/100)"
 
-
-  RingOption:
-    Enabled: "IfUserSetsThisTrue"
-    IterativeApply: "40+repeat( round(SumEquipment.<Stat>)*1.1, until_converged )"
-
   Components:
 
     Equipment:          
@@ -26,9 +21,6 @@ UserStatusFormula:
     Emblem:
       Bonus: "Emblem.Bonus.<Stat>"
 
-    Ring:
-      Stat: "Ring.<Stat>" 
-
 EquipmentStatusFormula:
 
     Weapon:
@@ -46,3 +38,8 @@ EquipmentStatusFormula:
 
     EX:
       RealValue: "ROUND( AvailableLv * Rank.<Stat> + 1 )"
+
+RingConvergence:
+  BaseValue: 40
+  Multiplier: 0.1
+  Description: "Ring convergence calculation: baseRingValue = equipValue + BaseValue, then iterate adding round(currentValue * Multiplier) until converged"

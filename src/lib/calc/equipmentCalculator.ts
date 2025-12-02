@@ -230,13 +230,9 @@ export function calculateWeaponStats(
   }
   rank = validRank;
 
-  if (forgeCount < 0 || forgeCount > 80) {
-    throw new Error('Reinforcement must be between 0 and 80');
-  }
-
-  const totalSmithing = attackPowerSmithing + critRateSmithing + critDamageSmithing;
-  if (totalSmithing < 0 || totalSmithing > 999) {
-    throw new Error('Total smithing count must be between 0 and 999');
+  const maxReinforcement = eqConst.Weapon.Reinforcement?.MAX ?? 80;
+  if (forgeCount < 0 || forgeCount > maxReinforcement) {
+    throw new Error(`Reinforcement must be between 0 and ${maxReinforcement}`);
   }
 
   // F基準値の計算（最低ランク指定時）
@@ -468,8 +464,9 @@ export function calculateArmorStats(
     throw new Error(`Invalid rank ${rank} for armor ${armor.アイテム名}`);
   }
 
-  if (reinforcementCount < 0 || reinforcementCount > 40) {
-    throw new Error('Reinforcement must be between 0 and 40');
+  const maxArmorReinforcement = eqConst.Armor.Reinforcement?.MAX ?? 40;
+  if (reinforcementCount < 0 || reinforcementCount > maxArmorReinforcement) {
+    throw new Error(`Reinforcement must be between 0 and ${maxArmorReinforcement}`);
   }
 
   if (tatakiCount < 0 || tatakiCount > 12) {
@@ -550,16 +547,18 @@ export function calculateArmorStats(
         console.warn(`Failed to evaluate armor formula for ${stat.key}, using default`, error);
         // フォールバック: デフォルト計算
         const baseWithTataki = baseValue + tatakiValue;
+        const exponentPower = eqConst.Armor?.ExponentPower ?? 0.2;
         const calculatedValue = round(
-          baseWithTataki * (1 + Math.pow(baseWithTataki, 0.2) * (rankValue / armor.使用可能Lv))
+          baseWithTataki * (1 + Math.pow(baseWithTataki, exponentPower) * (rankValue / armor.使用可能Lv))
         );
         finalValue = calculatedValue + reinforcementValue;
       }
     } else {
       // デフォルト計算
       const baseWithTataki = baseValue + tatakiValue;
+      const exponentPower = eqConst.Armor?.ExponentPower ?? 0.2;
       const calculatedValue = round(
-        baseWithTataki * (1 + Math.pow(baseWithTataki, 0.2) * (rankValue / armor.使用可能Lv))
+        baseWithTataki * (1 + Math.pow(baseWithTataki, exponentPower) * (rankValue / armor.使用可能Lv))
       );
       finalValue = calculatedValue + reinforcementValue;
     }
@@ -721,8 +720,9 @@ export function calculateAccessoryStats(
       finalValue = baseValue;
     } else {
       // その他のランクは補正式を適用
-      // 実数値 = ROUNDUP( 基礎値 + (使用可能Lv × ランク係数 / 550) )
-      finalValue = Math.ceil(baseValue + (accessory.使用可能Lv * rankBonus / 550));
+      // 実数値 = ROUNDUP( 基礎値 + (使用可能Lv × ランク係数 / ScalingDivisor) )
+      const scalingDivisor = eqConst.Accessory?.ScalingDivisor ?? 550;
+      finalValue = Math.ceil(baseValue + (accessory.使用可能Lv * rankBonus / scalingDivisor));
     }
 
     // 結果に格納

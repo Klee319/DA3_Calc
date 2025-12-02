@@ -4,7 +4,6 @@ import {
   calculateBaseDamage,
   applyJobCorrection,
   applyCritDamage,
-  applyDamageCorrection,
   calculateFinalDamage,
   calculateSkillDamage,
   evaluateFormulaString,
@@ -100,9 +99,9 @@ describe('damageCalculator', () => {
     Mind: 60,
     Agility: 70,
     HP: 500,
-    Dexterity: 50,
+    Dex: 50,
     Defense: 100,
-    CriticalDamage: 50
+    CritDamage: 50
   };
 
   const mockCalculatedStats: CalculatedStats = {
@@ -351,23 +350,6 @@ describe('damageCalculator', () => {
     it('期待値モードで会心率を考慮したダメージを返す', () => {
       const result = applyCritDamage(1000, 50, 100, 'avg'); // 会心率50%、会心ダメージ100%
       expect(result).toBe(1500); // 1000 * 0.5 + 2000 * 0.5 = 1500
-    });
-  });
-
-  describe('applyDamageCorrection', () => {
-    it('minモードで最小値を返す', () => {
-      const correctedDamage = applyDamageCorrection(100, 'min');
-      expect(correctedDamage).toBe(80); // 100 * 0.8 = 80
-    });
-
-    it('maxモードで最大値を返す', () => {
-      const correctedDamage = applyDamageCorrection(100, 'max');
-      expect(correctedDamage).toBe(120); // 100 * 1.2 = 120
-    });
-
-    it('avgモードで平均値を返す', () => {
-      const correctedDamage = applyDamageCorrection(100, 'avg');
-      expect(correctedDamage).toBe(100); // avgモードではそのまま返す
     });
   });
 
@@ -620,7 +602,9 @@ describe('damageCalculator', () => {
         weaponCritDamage: 50,
         damageCorrection: 80,
         enemy: {
-          defense: 0
+          defense: 0,
+          typeResistance: 0,
+          attributeResistance: 0
         },
         options: {
           critMode: 'never',
@@ -664,7 +648,9 @@ describe('damageCalculator', () => {
         weaponCritDamage: 50,
         damageCorrection: 80,
         enemy: {
-          defense: 0
+          defense: 0,
+          typeResistance: 0,
+          attributeResistance: 0
         },
         options: {
           critMode: 'never',

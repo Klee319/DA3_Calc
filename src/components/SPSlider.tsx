@@ -1,6 +1,7 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
+import { JobSPData } from '@/types/data';
 
 interface SPSliderProps {
   spValues: {
@@ -31,6 +32,36 @@ interface SPSliderProps {
     B: { 力: number; 体力: number; 魔力: number; 精神: number; 素早さ: number; 器用さ: number; 撃力: number; 守備力: number };
     C: { 力: number; 体力: number; 魔力: number; 精神: number; 素早さ: number; 器用さ: number; 撃力: number; 守備力: number };
   };
+  jobSPData?: JobSPData[];  // SPツリーデータ
+}
+
+// SPツリーのティア情報
+interface TierInfo {
+  tier: number;
+  branch: 'A' | 'B' | 'C';
+  requiredSP: number;
+  skillName?: string;
+  stats: {
+    力?: number;
+    体力?: number;
+    魔力?: number;
+    精神?: number;
+    素早さ?: number;
+    器用さ?: number;
+    撃力?: number;
+    守備力?: number;
+  };
+  resistances: {
+    物理耐性?: number;
+    魔耐性?: number;
+    炎耐性?: number;
+    水耐性?: number;
+    雷耐性?: number;
+    風耐性?: number;
+    無耐性?: number;
+    闇耐性?: number;
+    光耐性?: number;
+  };
 }
 
 export const SPSlider: React.FC<SPSliderProps> = ({
@@ -44,13 +75,79 @@ export const SPSlider: React.FC<SPSliderProps> = ({
   reachedTier,
   nextSkillInfo,
   branchBonus,
+  jobSPData,
 }) => {
   const [localValues, setLocalValues] = useState(spValues);
   const [isDragging, setIsDragging] = useState<string | null>(null);
+  const [activeTreeTab, setActiveTreeTab] = useState<'A' | 'B' | 'C'>('A');
 
   useEffect(() => {
     setLocalValues(spValues);
   }, [spValues]);
+
+  // jobSPDataからティア情報を抽出
+  const tiersByBranch = useMemo(() => {
+    if (!jobSPData) return { A: [] as TierInfo[], B: [] as TierInfo[], C: [] as TierInfo[] };
+
+    const result: { A: TierInfo[]; B: TierInfo[]; C: TierInfo[] } = { A: [], B: [], C: [] };
+
+    for (const row of jobSPData) {
+      const stage = row.解法段階;
+      const match = stage.match(/^([A-C])-(\d+)$/);
+      if (match) {
+        const branch = match[1] as 'A' | 'B' | 'C';
+        const tier = parseInt(match[2]);
+        const requiredSP = typeof row.必要SP === 'string' ? parseFloat(row.必要SP) || 0 : row.必要SP || 0;
+        const toNum = (val: string | number | undefined) => {
+          if (val === undefined || val === '') return 0;
+          if (typeof val === 'number') return val;
+          return parseFloat(val) || 0;
+        };
+
+        result[branch].push({
+          tier,
+          branch,
+          requiredSP,
+          skillName: row.解法スキル名,
+          stats: {
+            力: toNum(row.力),
+            体力: toNum(row.体力),
+            魔力: toNum(row.魔力),
+            精神: toNum(row.精神),
+            素早さ: toNum(row.素早さ),
+            器用さ: toNum(row.器用さ),
+            撃力: toNum(row.撃力),
+            守備力: toNum(row.守備力),
+          },
+          resistances: {
+            物理耐性: toNum(row.物理耐性),
+            魔耐性: toNum(row.魔耐性),
+            炎耐性: toNum(row.炎耐性),
+            水耐性: toNum(row.水耐性),
+            雷耐性: toNum(row.雷耐性),
+            風耐性: toNum(row.風耐性),
+            無耐性: toNum(row.無耐性),
+            闇耐性: toNum(row.闇耐性),
+            光耐性: toNum(row.光耐性),
+          },
+        });
+      }
+    }
+
+    // ティア順にソート
+    result.A.sort((a, b) => a.tier - b.tier);
+    result.B.sort((a, b) => a.tier - b.tier);
+    result.C.sort((a, b) => a.tier - b.tier);
+
+    return result;
+  }, [jobSPData]);
+
+  // 最大ティア数を取得
+  const maxTiers = Math.max(
+    tiersByBranch.A.length,
+    tiersByBranch.B.length,
+    tiersByBranch.C.length
+  );
 
   const totalSP = localValues.A + localValues.B + localValues.C;
   const isOverLimit = totalSP > maxSP;
@@ -134,12 +231,13 @@ export const SPSlider: React.FC<SPSliderProps> = ({
         <div className="space-y-4">
           {(['A', 'B', 'C'] as const).map(axis => {
             const percentage = maxSPByBranch[axis] > 0 ? (localValues[axis] / maxSPByBranch[axis]) * 100 : 0;
+            const axisLabel = axis === 'A' ? '上' : axis === 'B' ? '中' : '下';
 
             return (
               <div key={axis} className={`p-3 rounded-lg bg-gray-50 dark:bg-gray-800 ${isOverLimit && localValues[axis] > 0 ? 'ring-2 ring-red-400' : ''}`}>
                 <div className="flex items-center justify-between mb-2">
                   <label className="text-sm font-medium text-gray-700 dark:text-gray-300">
-                    {axis}軸 {localValues[axis]}/{maxSPByBranch[axis]}
+                    {axisLabel} {localValues[axis]}/{maxSPByBranch[axis]}
                   </label>
                   <input
                     type="number"
@@ -209,206 +307,210 @@ export const SPSlider: React.FC<SPSliderProps> = ({
           </button>
         </div>
 
-        {/* SP配分の可視化 */}
-        <div className="mt-4 h-8 flex rounded-lg overflow-hidden border border-gray-300 dark:border-gray-600">
-          {localValues.A > 0 && (
-            <div
-              className="bg-red-500 dark:bg-red-600 flex items-center justify-center text-white text-xs font-medium"
-              style={{ width: `${(localValues.A / totalSP) * 100}%` }}
-            >
-              A: {localValues.A}
-            </div>
-          )}
-          {localValues.B > 0 && (
-            <div
-              className="bg-green-500 dark:bg-green-600 flex items-center justify-center text-white text-xs font-medium"
-              style={{ width: `${(localValues.B / totalSP) * 100}%` }}
-            >
-              B: {localValues.B}
-            </div>
-          )}
-          {localValues.C > 0 && (
-            <div
-              className="bg-blue-500 dark:bg-blue-600 flex items-center justify-center text-white text-xs font-medium"
-              style={{ width: `${(localValues.C / totalSP) * 100}%` }}
-            >
-              C: {localValues.C}
-            </div>
-          )}
-          {totalSP === 0 && (
-            <div className="flex-1 bg-gray-100 dark:bg-gray-700 flex items-center justify-center text-gray-500 text-xs">
-              未配分
-            </div>
-          )}
-        </div>
-
-        {/* 到達段階表示 */}
-        {reachedTier && (
-          <div className="mt-2 text-sm text-gray-600 dark:text-gray-400">
-            到達段階: <span className="font-semibold text-blue-600 dark:text-blue-400">{reachedTier}</span>
-          </div>
-        )}
-
-        {/* 解放済みスキル一覧 */}
-        {unlockedSkills && unlockedSkills.length > 0 && (
-          <div className="mt-4 p-4 bg-gradient-to-br from-green-50 to-emerald-50 dark:from-green-900/20 dark:to-emerald-900/20 rounded-lg border border-green-200 dark:border-green-800">
-            <div className="flex items-center gap-2 mb-3">
-              <svg className="w-5 h-5 text-green-600 dark:text-green-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
-              </svg>
-              <p className="text-sm font-semibold text-green-800 dark:text-green-200">
-                解放済みスキル ({unlockedSkills.length}個)
-              </p>
-            </div>
-            <ul className="space-y-2">
-              {unlockedSkills.map((skill, index) => (
-                <li
-                  key={`${skill.branch}-${skill.tier}-${index}`}
-                  className="flex items-start gap-2 text-sm"
-                >
-                  <span className="flex-shrink-0 w-12 text-xs font-mono text-green-700 dark:text-green-300 bg-green-100 dark:bg-green-900/30 px-2 py-1 rounded">
-                    {skill.branch}-{skill.tier}
-                  </span>
-                  <span className="text-gray-700 dark:text-gray-300 flex-1">
-                    {skill.skillName}
-                  </span>
-                  <span className="flex-shrink-0 text-xs text-green-600 dark:text-green-400">
-                    ✓
-                  </span>
-                </li>
-              ))}
-            </ul>
-          </div>
-        )}
-
-        {/* 未解放スキルのヒント */}
-        {(!unlockedSkills || unlockedSkills.length === 0) && (
-          <div className="mt-4 p-3 bg-gray-50 dark:bg-gray-800/50 rounded-lg border border-gray-200 dark:border-gray-700">
-            <p className="text-xs text-gray-600 dark:text-gray-400">
-              SPを割り振るとスキルが解放されます
-            </p>
-          </div>
-        )}
-
-        {/* 次のスキル解放情報 */}
-        {nextSkillInfo && (
-          <div className="mt-4 p-4 bg-gradient-to-br from-yellow-50 to-amber-50 dark:from-yellow-900/20 dark:to-amber-900/20 rounded-lg border border-yellow-200 dark:border-yellow-800">
-            <div className="flex items-center gap-2 mb-2">
-              <svg className="w-5 h-5 text-yellow-600 dark:text-yellow-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
-              </svg>
-              <p className="text-sm font-semibold text-yellow-800 dark:text-yellow-200">
-                次の解放可能スキル
-              </p>
-            </div>
-            <div className="grid grid-cols-1 gap-2">
-              <div className="flex items-center justify-between">
-                <span className="text-sm text-gray-700 dark:text-gray-300">
-                  <span className="font-mono text-xs bg-yellow-100 dark:bg-yellow-900/30 px-2 py-1 rounded mr-2">
-                    {nextSkillInfo.branch}軸
-                  </span>
-                  {nextSkillInfo.skillName}
-                </span>
-                <span className="text-xs text-yellow-700 dark:text-yellow-300 font-medium">
-                  あと{nextSkillInfo.needMoreSP}SP必要
-                </span>
-              </div>
-              <div className="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-2 mt-1">
-                <div
-                  className="bg-yellow-500 dark:bg-yellow-600 h-2 rounded-full transition-all duration-300"
-                  style={{ width: `${(nextSkillInfo.currentSP / nextSkillInfo.requiredSP) * 100}%` }}
-                />
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* ステータスボーナス表示 */}
-        {branchBonus && (
-          <div className="mt-4 p-4 bg-gradient-to-br from-purple-50 to-indigo-50 dark:from-purple-900/20 dark:to-indigo-900/20 rounded-lg border border-purple-200 dark:border-purple-800">
+        {/* SPツリー表形式表示 */}
+        {jobSPData && maxTiers > 0 && (
+          <div className="mt-4 p-4 bg-gray-50 dark:bg-gray-800/50 rounded-lg border border-gray-200 dark:border-gray-700">
             <div className="flex items-center gap-2 mb-3">
               <svg className="w-5 h-5 text-purple-600 dark:text-purple-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
               </svg>
-              <p className="text-sm font-semibold text-purple-800 dark:text-purple-200">
-                ステータスボーナス
+              <p className="text-sm font-semibold text-gray-800 dark:text-gray-200">
+                SPツリー
               </p>
             </div>
-            <div className="grid grid-cols-3 gap-3">
+
+            {/* スマホ用タブ切り替え（md以下で表示） */}
+            <div className="md:hidden flex gap-1 mb-3">
               {(['A', 'B', 'C'] as const).map((branch) => {
-                const bonus = branchBonus[branch];
-                const hasBonuses = Object.values(bonus).some(val => val > 0);
-                const branchColor = branch === 'A' ? 'red' : branch === 'B' ? 'green' : 'blue';
+                const label = branch === 'A' ? '上' : branch === 'B' ? '中' : '下';
+                const colorClass = branch === 'A'
+                  ? 'bg-red-900/50 text-red-400 border-red-500/50'
+                  : branch === 'B'
+                    ? 'bg-green-900/50 text-green-400 border-green-500/50'
+                    : 'bg-blue-900/50 text-blue-400 border-blue-500/50';
+                const inactiveClass = 'bg-gray-800/30 text-gray-400 border-gray-600/30';
 
                 return (
-                  <div key={branch} className="space-y-1">
-                    <div className={`text-xs font-semibold ${
-                      branch === 'A' ? 'text-red-600 dark:text-red-400' :
-                      branch === 'B' ? 'text-green-600 dark:text-green-400' :
-                      'text-blue-600 dark:text-blue-400'
-                    } mb-1`}>
-                      {branch}軸
-                    </div>
-                    {hasBonuses ? (
-                      <div className="text-xs space-y-1">
-                        {bonus.力 > 0 && (
-                          <div className="flex justify-between">
-                            <span className="text-gray-600 dark:text-gray-400">力:</span>
-                            <span className="font-medium text-gray-800 dark:text-gray-200">+{bonus.力}</span>
-                          </div>
-                        )}
-                        {bonus.体力 > 0 && (
-                          <div className="flex justify-between">
-                            <span className="text-gray-600 dark:text-gray-400">体力:</span>
-                            <span className="font-medium text-gray-800 dark:text-gray-200">+{bonus.体力}</span>
-                          </div>
-                        )}
-                        {bonus.魔力 > 0 && (
-                          <div className="flex justify-between">
-                            <span className="text-gray-600 dark:text-gray-400">魔力:</span>
-                            <span className="font-medium text-gray-800 dark:text-gray-200">+{bonus.魔力}</span>
-                          </div>
-                        )}
-                        {bonus.精神 > 0 && (
-                          <div className="flex justify-between">
-                            <span className="text-gray-600 dark:text-gray-400">精神:</span>
-                            <span className="font-medium text-gray-800 dark:text-gray-200">+{bonus.精神}</span>
-                          </div>
-                        )}
-                        {bonus.素早さ > 0 && (
-                          <div className="flex justify-between">
-                            <span className="text-gray-600 dark:text-gray-400">素早:</span>
-                            <span className="font-medium text-gray-800 dark:text-gray-200">+{bonus.素早さ}</span>
-                          </div>
-                        )}
-                        {bonus.器用さ > 0 && (
-                          <div className="flex justify-between">
-                            <span className="text-gray-600 dark:text-gray-400">器用:</span>
-                            <span className="font-medium text-gray-800 dark:text-gray-200">+{bonus.器用さ}</span>
-                          </div>
-                        )}
-                        {bonus.撃力 > 0 && (
-                          <div className="flex justify-between">
-                            <span className="text-gray-600 dark:text-gray-400">撃力:</span>
-                            <span className="font-medium text-gray-800 dark:text-gray-200">+{bonus.撃力}</span>
-                          </div>
-                        )}
-                        {bonus.守備力 > 0 && (
-                          <div className="flex justify-between">
-                            <span className="text-gray-600 dark:text-gray-400">守備:</span>
-                            <span className="font-medium text-gray-800 dark:text-gray-200">+{bonus.守備力}</span>
-                          </div>
-                        )}
+                  <button
+                    key={branch}
+                    type="button"
+                    onClick={() => setActiveTreeTab(branch)}
+                    className={`flex-1 py-2 text-sm font-semibold rounded border transition-all ${
+                      activeTreeTab === branch ? colorClass : inactiveClass
+                    }`}
+                  >
+                    {label}
+                  </button>
+                );
+              })}
+            </div>
+
+            {/* PC用表ヘッダー（md以上で表示） */}
+            <div className="hidden md:grid grid-cols-3 gap-2 mb-2">
+              <div className="text-xs font-semibold text-red-400 text-center py-1.5 bg-red-900/30 rounded">
+                上
+              </div>
+              <div className="text-xs font-semibold text-green-400 text-center py-1.5 bg-green-900/30 rounded">
+                中
+              </div>
+              <div className="text-xs font-semibold text-blue-400 text-center py-1.5 bg-blue-900/30 rounded">
+                下
+              </div>
+            </div>
+
+            {/* 表本体 */}
+            <div className="space-y-1 max-h-[480px] overflow-y-auto custom-scrollbar">
+              {Array.from({ length: maxTiers }, (_, i) => i + 1).map((tier) => {
+                const tierA = tiersByBranch.A.find(t => t.tier === tier);
+                const tierB = tiersByBranch.B.find(t => t.tier === tier);
+                const tierC = tiersByBranch.C.find(t => t.tier === tier);
+
+                // 各軸が解放済みかどうかを判定
+                const isUnlockedA = tierA && localValues.A >= tierA.requiredSP;
+                const isUnlockedB = tierB && localValues.B >= tierB.requiredSP;
+                const isUnlockedC = tierC && localValues.C >= tierC.requiredSP;
+
+                // セルのスタイルを取得（常にborderを付けてサイズ変化を防ぐ）
+                const getCellStyle = (tierInfo: TierInfo | undefined, isUnlocked: boolean) => {
+                  if (!tierInfo) return 'bg-gray-800/30 text-gray-500 border border-transparent';
+                  if (isUnlocked) {
+                    // 解放済み: 薄い黄緑の背景、明るい白文字
+                    return 'bg-lime-900/40 text-white border border-lime-500/50';
+                  }
+                  // 未解放: グレーアウト、透明なborderでサイズを統一
+                  return 'bg-gray-800/40 text-gray-200 opacity-70 border border-transparent';
+                };
+
+                // ステータスボーナスのフォーマット
+                const formatStats = (stats: TierInfo['stats']) => {
+                  const bonuses: string[] = [];
+                  if (stats.力 && stats.力 > 0) bonuses.push(`力+${stats.力}`);
+                  if (stats.体力 && stats.体力 > 0) bonuses.push(`体力+${stats.体力}`);
+                  if (stats.魔力 && stats.魔力 > 0) bonuses.push(`魔力+${stats.魔力}`);
+                  if (stats.精神 && stats.精神 > 0) bonuses.push(`精神+${stats.精神}`);
+                  if (stats.素早さ && stats.素早さ > 0) bonuses.push(`速+${stats.素早さ}`);
+                  if (stats.器用さ && stats.器用さ > 0) bonuses.push(`器用+${stats.器用さ}`);
+                  if (stats.撃力 && stats.撃力 > 0) bonuses.push(`撃+${stats.撃力}`);
+                  if (stats.守備力 && stats.守備力 > 0) bonuses.push(`守+${stats.守備力}`);
+                  return bonuses.join(' ');
+                };
+
+                // 耐性ボーナスのフォーマット
+                const formatResistances = (resistances: TierInfo['resistances']) => {
+                  const bonuses: string[] = [];
+                  if (resistances.物理耐性 && resistances.物理耐性 !== 0) bonuses.push(`物理${resistances.物理耐性 > 0 ? '+' : ''}${resistances.物理耐性}%`);
+                  if (resistances.魔耐性 && resistances.魔耐性 !== 0) bonuses.push(`魔法${resistances.魔耐性 > 0 ? '+' : ''}${resistances.魔耐性}%`);
+                  if (resistances.炎耐性 && resistances.炎耐性 !== 0) bonuses.push(`炎${resistances.炎耐性 > 0 ? '+' : ''}${resistances.炎耐性}%`);
+                  if (resistances.水耐性 && resistances.水耐性 !== 0) bonuses.push(`水${resistances.水耐性 > 0 ? '+' : ''}${resistances.水耐性}%`);
+                  if (resistances.雷耐性 && resistances.雷耐性 !== 0) bonuses.push(`雷${resistances.雷耐性 > 0 ? '+' : ''}${resistances.雷耐性}%`);
+                  if (resistances.風耐性 && resistances.風耐性 !== 0) bonuses.push(`風${resistances.風耐性 > 0 ? '+' : ''}${resistances.風耐性}%`);
+                  if (resistances.無耐性 && resistances.無耐性 !== 0) bonuses.push(`無${resistances.無耐性 > 0 ? '+' : ''}${resistances.無耐性}%`);
+                  if (resistances.闇耐性 && resistances.闇耐性 !== 0) bonuses.push(`闇${resistances.闇耐性 > 0 ? '+' : ''}${resistances.闇耐性}%`);
+                  if (resistances.光耐性 && resistances.光耐性 !== 0) bonuses.push(`光${resistances.光耐性 > 0 ? '+' : ''}${resistances.光耐性}%`);
+                  return bonuses.join(' ');
+                };
+
+                // セル内容のレンダリング関数
+                const renderCell = (
+                  tierInfo: TierInfo | undefined,
+                  isUnlocked: boolean
+                ) => {
+                  if (!tierInfo) {
+                    return <div className="text-center py-2 text-gray-400">-</div>;
+                  }
+
+                  const statsText = formatStats(tierInfo.stats);
+                  const resistText = formatResistances(tierInfo.resistances);
+                  const hasSkill = !!tierInfo.skillName;
+                  const hasStats = !!statsText;
+                  const hasResist = !!resistText;
+
+                  return (
+                    <div className="py-1.5 px-2">
+                      <div className="flex items-start gap-1">
+                        {isUnlocked && <span className="text-green-400 flex-shrink-0">✓</span>}
+                        <div className="min-w-0 flex-1">
+                          <span className="font-bold text-sm">{tierInfo.requiredSP}</span>
+                          <span className="mx-1 opacity-70">:</span>
+                          {hasSkill && (
+                            <span className="font-medium">{tierInfo.skillName}</span>
+                          )}
+                          {hasSkill && (hasStats || hasResist) && (
+                            <span className="mx-1 opacity-50">/</span>
+                          )}
+                          {hasStats && (
+                            <span className="text-[10px]">{statsText}</span>
+                          )}
+                          {hasStats && hasResist && (
+                            <span className="mx-1 opacity-50">/</span>
+                          )}
+                          {hasResist && (
+                            <span className="text-[10px] text-cyan-400">{resistText}</span>
+                          )}
+                          {!hasSkill && !hasStats && !hasResist && (
+                            <span className="font-medium">-</span>
+                          )}
+                        </div>
                       </div>
-                    ) : (
-                      <p className="text-xs text-gray-500 dark:text-gray-500 italic">
-                        ボーナスなし
-                      </p>
+                    </div>
+                  );
+                };
+
+                // スマホ用：選択されたタブのティアのみ表示
+                const activeTierInfo = activeTreeTab === 'A' ? tierA : activeTreeTab === 'B' ? tierB : tierC;
+                const isActiveUnlocked = activeTreeTab === 'A' ? isUnlockedA : activeTreeTab === 'B' ? isUnlockedB : isUnlockedC;
+
+                // スマホ用：選択された軸にデータがない場合はスキップ
+                const hasActiveData = activeTierInfo !== undefined;
+
+                return (
+                  <div key={tier}>
+                    {/* PC用: 3カラム表示 */}
+                    <div className="hidden md:grid grid-cols-3 gap-2">
+                      <div className={`text-xs rounded transition-all ${getCellStyle(tierA, !!isUnlockedA)}`}>
+                        {renderCell(tierA, !!isUnlockedA)}
+                      </div>
+                      <div className={`text-xs rounded transition-all ${getCellStyle(tierB, !!isUnlockedB)}`}>
+                        {renderCell(tierB, !!isUnlockedB)}
+                      </div>
+                      <div className={`text-xs rounded transition-all ${getCellStyle(tierC, !!isUnlockedC)}`}>
+                        {renderCell(tierC, !!isUnlockedC)}
+                      </div>
+                    </div>
+
+                    {/* スマホ用: 選択されたタブのみ表示 */}
+                    {hasActiveData && (
+                      <div className="md:hidden">
+                        <div className={`text-xs rounded transition-all ${getCellStyle(activeTierInfo, !!isActiveUnlocked)}`}>
+                          {renderCell(activeTierInfo, !!isActiveUnlocked)}
+                        </div>
+                      </div>
                     )}
                   </div>
                 );
               })}
             </div>
+
+            {/* 凡例 */}
+            <div className="mt-3 pt-3 border-t border-gray-200 dark:border-gray-700 flex flex-wrap gap-3 text-xs">
+              <div className="flex items-center gap-1">
+                <div className="w-3 h-3 rounded bg-lime-900/40 border border-lime-500/50"></div>
+                <span className="text-gray-300">解放済み</span>
+              </div>
+              <div className="flex items-center gap-1">
+                <div className="w-3 h-3 rounded bg-gray-800/40 border border-transparent"></div>
+                <span className="text-gray-300">未解放</span>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* jobSPDataがない場合のヒント */}
+        {!jobSPData && (
+          <div className="mt-4 p-3 bg-gray-50 dark:bg-gray-800/50 rounded-lg border border-gray-200 dark:border-gray-700">
+            <p className="text-xs text-gray-600 dark:text-gray-400">
+              SPを割り振るとスキルが解放されます
+            </p>
           </div>
         )}
       </div>

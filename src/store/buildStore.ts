@@ -33,7 +33,8 @@ import type {
   RunestoneData,
   JobConstData,
   JobSPData,
-  UserStatusCalcData
+  UserStatusCalcData,
+  WeaponSkillCalcData
 } from "@/types/data";
 
 // 型変換ヘルパー関数
@@ -174,7 +175,7 @@ export interface RingOption {
 // 敵パラメータの型定義
 export interface EnemyStats {
   defense: number;           // 防御力
-  speciesResistance: number; // 種族耐性（%）
+  attackResistance: number;  // 攻撃耐性（物/魔）（%）
   elementResistance: number; // 属性耐性（%）
 }
 
@@ -242,6 +243,9 @@ interface BuildState {
     jobConst?: JobConstData;
     jobSPData?: Map<string, JobSPData[]>;
     userStatusCalc?: UserStatusCalcData;
+    yaml?: {
+      weaponSkillCalc?: WeaponSkillCalcData;
+    };
   };
 
   // 追加の設定
@@ -250,6 +254,11 @@ interface BuildState {
   selectedFood: Food | null;
   foodEnabled: boolean;
   weaponSkillEnabled: boolean;
+
+  // スキル計算用の選択状態
+  selectedSkillId: string | null;
+  skillLevel: number;
+  customHits: number | undefined;
 
   // 敵パラメータ
   enemyStats: EnemyStats;
@@ -278,6 +287,11 @@ interface BuildState {
   toggleWeaponSkill: (enabled: boolean) => void;
   setEnemyStats: (stats: EnemyStats) => void;
 
+  // スキル選択アクション
+  setSelectedSkillId: (skillId: string | null) => void;
+  setSkillLevel: (level: number) => void;
+  setCustomHits: (hits: number | undefined) => void;
+
   // データ読み込み
   setAvailableJobs: (jobs: Job[]) => void;
   setAvailableEquipment: (equipment: Equipment[]) => void;
@@ -296,6 +310,9 @@ interface BuildState {
     jobConst?: JobConstData;
     jobSPData?: Map<string, JobSPData[]>;
     userStatusCalc?: UserStatusCalcData;
+    yaml?: {
+      weaponSkillCalc?: WeaponSkillCalcData;
+    };
   }) => void;
 
   recalculateStats: () => void;
@@ -330,9 +347,12 @@ export const useBuildStore = create<BuildState>((set, get) => ({
   selectedFood: null,
   foodEnabled: false,
   weaponSkillEnabled: false,
+  selectedSkillId: null,
+  skillLevel: 1,
+  customHits: undefined,
   enemyStats: {
     defense: 0,
-    speciesResistance: 0,
+    attackResistance: 0,
     elementResistance: 0,
   },
   selectedEmblem: null,
@@ -439,6 +459,19 @@ export const useBuildStore = create<BuildState>((set, get) => ({
   toggleWeaponSkill: (enabled) => {
     set({ weaponSkillEnabled: enabled });
     get().recalculateStats();
+  },
+
+  // スキル選択アクション
+  setSelectedSkillId: (skillId) => {
+    set({ selectedSkillId: skillId });
+  },
+
+  setSkillLevel: (level) => {
+    set({ skillLevel: level });
+  },
+
+  setCustomHits: (hits) => {
+    set({ customHits: hits });
   },
 
   setEnemyStats: (stats) => {

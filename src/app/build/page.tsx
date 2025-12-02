@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useMemo } from 'react';
 import { useBuildStore, UserOption, RingOption, Food, BuildPreset, EnemyStats } from '@/store/buildStore';
 import { initializeGameData } from '@/lib/data';
 import { JobSelector } from '@/components/JobSelector';
@@ -12,10 +12,9 @@ import { RunestoneSlot } from '@/components/RunestoneSlot';
 import { StatViewer } from '@/components/StatViewer';
 import { CustomSelect, CustomSelectOption } from '@/components/CustomSelect';
 import { DamageCalculationSection } from '@/components/DamageCalculationSection';
-import { SkillCalculationSection } from '@/components/SkillCalculationSection';
 import { ConfirmDialog } from '@/components/ConfirmDialog';
-import { EquipSlot, Job, Equipment, Skill, StatType, WeaponType, ArmorType, StatEffect, SmithingCounts, ExStats } from '@/types';
-import { FoodData, EmblemData, RunestoneData } from '@/types/data';
+import { EquipSlot, Job, Equipment, Skill, StatType, WeaponType, ArmorType, StatEffect, SmithingCounts, ExStats, ResistanceData, ResistanceBreakdown } from '@/types';
+import { FoodData, EmblemData, RunestoneData, JobSPData, FoodResistance } from '@/types/data';
 import { calculateUnlockedSkills, getReachedTier, getNextSkillInfo, calculateBranchBonus, getMaxSPByBranch } from '@/lib/calc/jobCalculator';
 import {
   convertJobNameToYAML,
@@ -49,6 +48,9 @@ export default function BuildPage() {
   } | undefined>();
 
   const [maxSPByBranch, setMaxSPByBranch] = useState<{A: number, B: number, C: number}>({A: 100, B: 100, C: 100});
+
+  // 生のFoodDataを保持（耐性データ取得用）
+  const [rawFoodData, setRawFoodData] = useState<FoodData[]>([]);
 
   // バリデーションエラー管理用のstate
   const [validationErrors, setValidationErrors] = useState<Array<{
@@ -85,7 +87,7 @@ export default function BuildPage() {
     { id: 1, label: 'SP割り振り', icon: '📊' },
     { id: 2, label: '装備', icon: '⚔️' },
     { id: 3, label: '紋章・ルーンストーン', icon: '💎' },
-    { id: 4, label: '食事・指輪', icon: '🍖' },
+    { id: 4, label: 'バフ設定', icon: '✨' },
     { id: 5, label: '最終ステータス', icon: '📈' },
     { id: 6, label: '結果', icon: '🎯' },
   ];
@@ -146,6 +148,9 @@ export default function BuildPage() {
           jobConst: gameData.yaml.jobConst,
           jobSPData: gameData.csv.jobs, // CSV読み込み時のMap<string, JobSPData[]>をそのまま設定
           userStatusCalc: gameData.yaml.userStatusCalc, // 武器計算式を含む
+          yaml: {
+            weaponSkillCalc: gameData.yaml.weaponSkillCalc, // 武器スキルバフ定義
+          },
         });
 
         // 職業データの変換（CSVから取得したSPデータから適切に変換）
@@ -499,6 +504,9 @@ export default function BuildPage() {
         setAvailableEquipment(equipments);
         setAvailableFoods(foods);
 
+        // 生のFoodDataを保持（耐性データ取得用）
+        setRawFoodData(gameData.csv.foods);
+
         // 紋章とルーンストーンデータを設定
         setAvailableEmblems(gameData.csv.emblems);
         setAvailableRunestones(gameData.csv.runestones);
@@ -633,6 +641,151 @@ export default function BuildPage() {
     currentBuild.spAllocation
   ]);
 
+  // 耐性データの計算
+  const resistanceData = useMemo((): ResistanceData => {
+    // デフォルトの耐性値を初期化
+    const createEmptyBreakdown = (): ResistanceBreakdown => ({
+      fromSP: 0,
+      fromRunestone: 0,
+      fromFood: 0,
+      total: 0
+    });
+
+    const resistance: ResistanceData = {
+      physical: createEmptyBreakdown(),
+      magic: createEmptyBreakdown(),
+      fire: createEmptyBreakdown(),
+      water: createEmptyBreakdown(),
+      thunder: createEmptyBreakdown(),
+      wind: createEmptyBreakdown(),
+      none: createEmptyBreakdown(),
+      dark: createEmptyBreakdown(),
+      light: createEmptyBreakdown()
+    };
+
+    // 耐性タイプのマッピング（CSV/YAML形式 -> 内部形式）
+    // 注意: CSVの「魔力」列はステータス値であり耐性ではない。「魔耐性」列が正しい魔法耐性
+    const resistTypeMap: Record<string, keyof ResistanceData> = {
+      '物理耐性': 'physical',
+      '魔耐性': 'magic',
+      '炎耐性': 'fire',
+      '水耐性': 'water',
+      '雷耐性': 'thunder',
+      '風耐性': 'wind',
+      '無耐性': 'none',
+      '闇耐性': 'dark',
+      '光耐性': 'light',
+      // ルーンストーン・食べ物で使う可能性のある別名（属性のみ、「魔力」はステータスなので除外）
+      '物理': 'physical',
+      '魔法': 'magic',
+      '炎': 'fire',
+      '水': 'water',
+      '雷': 'thunder',
+      '風': 'wind',
+      '無': 'none',
+      '闇': 'dark',
+      '光': 'light'
+    };
+
+    // 1. SP割り当てからの耐性を計算
+    if (currentBuild.job && currentBuild.spAllocation && branchBonus) {
+      const jobSPData = gameData?.jobSPData?.get(currentBuild.job.name);
+      if (jobSPData) {
+        // 各ブランチ（A/B/C）の解放段階から耐性を集計
+        const spAllocation = {
+          A: currentBuild.spAllocation.A || 0,
+          B: currentBuild.spAllocation.B || 0,
+          C: currentBuild.spAllocation.C || 0
+        };
+
+        // 各ブランチごとに耐性を集計
+        (['A', 'B', 'C'] as const).forEach(branch => {
+          const currentSP = spAllocation[branch];
+
+          // 該当ブランチのデータを取得
+          const branchRows = jobSPData.filter(row =>
+            row.解法段階.startsWith(`${branch}-`)
+          );
+
+          // 必要SPが現在値以下の行から耐性を合算
+          branchRows.forEach(row => {
+            const requiredSP = typeof row.必要SP === 'string' ? parseInt(row.必要SP) : row.必要SP;
+            if (requiredSP <= currentSP) {
+              // 各耐性をチェック
+              Object.entries(resistTypeMap).forEach(([jpName, engKey]) => {
+                const value = (row as any)[jpName];
+                if (value !== undefined && value !== '' && value !== 0) {
+                  const numValue = typeof value === 'string' ? parseFloat(value) : value;
+                  if (!isNaN(numValue)) {
+                    resistance[engKey].fromSP += numValue;
+                  }
+                }
+              });
+            }
+          });
+        });
+      }
+    }
+
+    // 2. ルーンストーンからの耐性を計算
+    if (selectedRunestones && selectedRunestones.length > 0) {
+      selectedRunestones.forEach(rune => {
+        // 耐性1〜6を確認
+        for (let i = 1; i <= 6; i++) {
+          const resistData = (rune as any)[`耐性${i}`];
+          if (resistData && resistData.type && resistData.value) {
+            const mappedKey = resistTypeMap[resistData.type];
+            if (mappedKey) {
+              resistance[mappedKey].fromRunestone += resistData.value;
+            }
+          }
+        }
+      });
+    }
+
+    // 3. 食べ物からの耐性を計算
+    if (foodEnabled && selectedFood) {
+      // 食べ物の元データを取得（rawFoodDataから）
+      const foodData = availableFoods.find(f => f.id === selectedFood.id);
+      if (foodData) {
+        // 生のFoodDataから耐性を取得
+        const originalFoodData = rawFoodData.find(f => f.アイテム名 === foodData.name);
+        if (originalFoodData) {
+          // 耐性1〜8を確認
+          for (let i = 1; i <= 8; i++) {
+            const resistData = (originalFoodData as any)[`耐性${i}`];
+            if (resistData && resistData.type && resistData.value) {
+              const mappedKey = resistTypeMap[resistData.type];
+              if (mappedKey) {
+                resistance[mappedKey].fromFood += resistData.value;
+              }
+            }
+          }
+        }
+      }
+    }
+
+    // 各耐性の合計を計算
+    (Object.keys(resistance) as Array<keyof ResistanceData>).forEach(key => {
+      resistance[key].total =
+        resistance[key].fromSP +
+        resistance[key].fromRunestone +
+        resistance[key].fromFood;
+    });
+
+    return resistance;
+  }, [
+    currentBuild.job,
+    currentBuild.spAllocation,
+    branchBonus,
+    gameData,
+    selectedRunestones,
+    foodEnabled,
+    selectedFood,
+    availableFoods,
+    rawFoodData
+  ]);
+
   if (isLoading) {
     return (
       <main className="p-8">
@@ -692,24 +845,24 @@ export default function BuildPage() {
   };
 
   return (
-    <main className="container mx-auto px-4 max-w-7xl">
+    <main className="container mx-auto px-4 max-w-7xl py-8 md:py-12">
       {/* ページヘッダー */}
       <div className="mb-8">
-        <div className="flex items-center justify-between mb-4">
-          <h1 className="text-5xl md:text-6xl font-thin text-gradient from-white to-gray-300">
-            キャラクタービルド
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-4">
+          <h1 className="text-3xl sm:text-4xl md:text-5xl font-thin text-gradient from-white to-gray-300">
+            DA Build Calculator
           </h1>
           <button
             onClick={() => setShowPresetPanel(!showPresetPanel)}
-            className="flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors"
+            className="flex items-center justify-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors text-sm sm:text-base w-full sm:w-auto"
           >
-            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <svg className="w-5 h-5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 8h14M5 8a2 2 0 110-4h14a2 2 0 110 4M5 8v10a2 2 0 002 2h10a2 2 0 002-2V8m-9 4h4" />
             </svg>
-            プリセット {presets.length > 0 && `(${presets.length})`}
+            <span>プリセット {presets.length > 0 && `(${presets.length})`}</span>
           </button>
         </div>
-        <p className="text-lg text-gray-400 line-clamp-2">
+        <p className="text-base sm:text-lg text-gray-400 line-clamp-2">
           職業・装備・SPを設定して、最強のキャラクターを構築しよう
         </p>
       </div>
@@ -730,7 +883,7 @@ export default function BuildPage() {
           </div>
 
           {/* 新規プリセット保存 */}
-          <div className="flex gap-3 mb-6">
+          <div className="flex flex-col sm:flex-row gap-3 mb-6">
             <input
               type="text"
               value={presetName}
@@ -746,12 +899,12 @@ export default function BuildPage() {
                 }
               }}
               disabled={!presetName.trim()}
-              className="px-4 py-2 bg-green-600 hover:bg-green-700 disabled:bg-gray-600 disabled:cursor-not-allowed text-white rounded-lg transition-colors flex items-center gap-2"
+              className="px-4 py-2 bg-green-600 hover:bg-green-700 disabled:bg-gray-600 disabled:cursor-not-allowed text-white rounded-lg transition-colors flex items-center justify-center gap-2 w-full sm:w-auto"
             >
-              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <svg className="w-5 h-5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7H5a2 2 0 00-2 2v9a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-3m-1 4l-3 3m0 0l-3-3m3 3V4" />
               </svg>
-              保存
+              <span>保存</span>
             </button>
           </div>
 
@@ -765,11 +918,11 @@ export default function BuildPage() {
               <p className="text-sm mt-1">現在のビルドを保存してみましょう</p>
             </div>
           ) : (
-            <div className="space-y-3 max-h-80 overflow-y-auto">
+            <div className="space-y-3 max-h-80 overflow-y-auto custom-scrollbar">
               {presets.map((preset) => (
                 <div
                   key={preset.id}
-                  className="flex items-center justify-between p-4 bg-gray-700 rounded-lg hover:bg-gray-650 transition-colors"
+                  className="flex flex-col sm:flex-row sm:items-center sm:justify-between p-4 bg-gray-700 rounded-lg hover:bg-gray-650 transition-colors gap-3"
                 >
                   <div className="flex-1 min-w-0">
                     {editingPresetId === preset.id ? (
@@ -791,20 +944,22 @@ export default function BuildPage() {
                     ) : (
                       <>
                         <h3 className="font-medium text-white truncate">{preset.name}</h3>
-                        <p className="text-sm text-gray-400">
+                        <p className="text-xs sm:text-sm text-gray-400">
                           {preset.build.job?.name || '未設定'} Lv.{preset.build.level}
-                          {' - '}
-                          {new Date(preset.updatedAt).toLocaleString('ja-JP', {
-                            month: 'short',
-                            day: 'numeric',
-                            hour: '2-digit',
-                            minute: '2-digit'
-                          })}
+                          <span className="hidden sm:inline"> - </span>
+                          <span className="block sm:inline">
+                            {new Date(preset.updatedAt).toLocaleString('ja-JP', {
+                              month: 'short',
+                              day: 'numeric',
+                              hour: '2-digit',
+                              minute: '2-digit'
+                            })}
+                          </span>
                         </p>
                       </>
                     )}
                   </div>
-                  <div className="flex items-center gap-2 ml-4">
+                  <div className="flex items-center justify-end gap-1 sm:gap-2 flex-shrink-0">
                     {editingPresetId === preset.id ? (
                       <>
                         <button
@@ -1057,6 +1212,7 @@ export default function BuildPage() {
                 unlockedSkills={unlockedSkills}
                 nextSkillInfo={nextSkillInfo}
                 branchBonus={branchBonus}
+                jobSPData={gameData?.jobSPData?.get(currentBuild.job.name)}
                 reachedTier={(() => {
                   // 各ブランチの最大到達段階を取得
                   if (!currentBuild.job || !gameData?.jobSPData) return undefined;
@@ -1197,13 +1353,154 @@ export default function BuildPage() {
           </div>
         )}
 
-        {/* タブ4: 食事・指輪 */}
+        {/* タブ4: バフ設定 */}
         {activeTab === 4 && (
           <div className="glass-card p-8">
             <h2 className="text-2xl font-semibold mb-6 flex items-center gap-2">
-              <span className="text-3xl">🍖</span>
-              <span className="truncate">食事・指輪</span>
+              <span className="text-3xl">✨</span>
+              <span className="truncate">バフ設定</span>
             </h2>
+
+            {/* 武器スキルバフ */}
+            <div className="mb-6">
+              <label className="flex items-center cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={weaponSkillEnabled}
+                  onChange={(e) => toggleWeaponSkill(e.target.checked)}
+                  className="checkbox-primary mr-3"
+                  disabled={!currentBuild.equipment.weapon}
+                />
+                <span className={`font-medium ${currentBuild.equipment.weapon ? 'text-gray-700 dark:text-gray-300' : 'text-gray-400 dark:text-gray-500'}`}>
+                  武器スキルバフ
+                </span>
+              </label>
+              {!currentBuild.equipment.weapon && (
+                <p className="mt-2 ml-6 text-xs text-gray-500">武器を装備すると有効化できます</p>
+              )}
+              {weaponSkillEnabled && (() => {
+                // WeaponSkillCalc.yaml から武器スキル・職業スキルを取得
+                const weaponSkills = gameData?.yaml?.weaponSkillCalc?.WeaponSkills || {};
+                const jobSkills = gameData?.yaml?.weaponSkillCalc?.JobSkills || {};
+
+                // 現在装備している武器名
+                const equippedWeaponName = currentBuild.equipment.weapon?.name || '';
+
+                // 解放済みスキル名リスト（SP振り分けで解放）
+                const unlockedSkillNameList = unlockedSkills.map(s => s.skillName);
+
+                // TargetStatのマッピング（YAML形式→表示用日本語）
+                const targetStatMap: Record<string, string> = {
+                  'Power': '力',
+                  'Magic': '魔力',
+                  'HP': 'HP',
+                  'Mind': '精神',
+                  'Agility': '素早さ',
+                  'Dex': '器用',
+                  'CritDamage': '会心ダメージ',
+                  'Defense': '守備力',
+                  'Speed': '速度',
+                };
+
+                // 武器名一致でフィルタリング（部分一致判定）
+                const matchedWeaponSkills = Object.entries(weaponSkills)
+                  .filter(([key, def]) => {
+                    if (!def.WeaponNames || def.WeaponNames.length === 0) return false;
+                    return def.WeaponNames.some(wn => equippedWeaponName.includes(wn));
+                  })
+                  .map(([key, def]) => ({
+                    name: def.Name,
+                    buffs: Object.entries(def.Buffs).map(([stat, formula]) => ({
+                      stat: targetStatMap[stat] || stat,
+                      formula: formula as string,
+                    })),
+                    maxLevel: def.MaxLevel,
+                  }));
+
+                // 職業スキル解放でフィルタリング
+                const matchedJobSkills = Object.entries(jobSkills)
+                  .filter(([key, def]) => {
+                    if (!def.RequiredSkills || def.RequiredSkills.length === 0) return false;
+                    // 必要スキルのいずれかが解放されていればOK
+                    return def.RequiredSkills.some(rs => unlockedSkillNameList.includes(rs));
+                  })
+                  .map(([key, def]) => ({
+                    name: def.Name,
+                    jobName: def.JobName,
+                    buffs: Object.entries(def.Buffs).map(([stat, formula]) => ({
+                      stat: targetStatMap[stat] || stat,
+                      formula: formula as string,
+                    })),
+                    maxLevel: def.MaxLevel,
+                  }));
+
+                const hasAnySkills = matchedWeaponSkills.length > 0 || matchedJobSkills.length > 0;
+
+                return hasAnySkills ? (
+                  <div className="mt-3 ml-6 p-4 glass-card-secondary rounded-lg animate-fadeIn">
+                    {/* 武器名ベースのスキル */}
+                    {matchedWeaponSkills.length > 0 && (
+                      <>
+                        <p className="text-sm text-gray-400 mb-2">
+                          <span className="text-amber-400">⚔️ 武器効果</span>
+                          <span className="text-gray-500 ml-2">({equippedWeaponName})</span>
+                        </p>
+                        <div className="space-y-2 mb-4">
+                          {matchedWeaponSkills.map((skill, index) => (
+                            <div key={`weapon-${index}`} className="p-3 bg-slate-700/50 rounded-lg border border-amber-600/30">
+                              <div className="flex items-center justify-between">
+                                <span className="font-medium text-amber-400">{skill.name}</span>
+                                <span className="text-xs text-gray-500">最大Lv.{skill.maxLevel}</span>
+                              </div>
+                              <div className="mt-2 space-y-1">
+                                {skill.buffs.map((buff, bi) => (
+                                  <p key={bi} className="text-xs text-cyan-400">
+                                    {buff.stat}: <span className="text-gray-400">{buff.formula}</span>
+                                  </p>
+                                ))}
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </>
+                    )}
+
+                    {/* 職業スキル解放ベースのスキル */}
+                    {matchedJobSkills.length > 0 && (
+                      <>
+                        <p className="text-sm text-gray-400 mb-2">
+                          <span className="text-emerald-400">📊 SP解放スキル効果</span>
+                        </p>
+                        <div className="space-y-2">
+                          {matchedJobSkills.map((skill, index) => (
+                            <div key={`job-${index}`} className="p-3 bg-slate-700/50 rounded-lg border border-emerald-600/30">
+                              <div className="flex items-center justify-between">
+                                <span className="font-medium text-emerald-400">{skill.name}</span>
+                                <span className="text-xs text-gray-500">最大Lv.{skill.maxLevel}</span>
+                              </div>
+                              <p className="text-xs text-gray-500 mt-1">職業: {skill.jobName}</p>
+                              <div className="mt-2 space-y-1">
+                                {skill.buffs.map((buff, bi) => (
+                                  <p key={bi} className="text-xs text-cyan-400">
+                                    {buff.stat}: <span className="text-gray-400">{buff.formula}</span>
+                                  </p>
+                                ))}
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </>
+                    )}
+                  </div>
+                ) : (
+                  <div className="mt-3 ml-6 p-4 glass-card-secondary rounded-lg animate-fadeIn">
+                    <p className="text-sm text-gray-500">
+                      現在の装備・SP振り分けで有効な武器スキルバフはありません
+                    </p>
+                  </div>
+                );
+              })()}
+            </div>
 
             {/* リングバフ */}
             <div className="mb-6">
@@ -1270,7 +1567,7 @@ export default function BuildPage() {
                         value: food.id,
                         label: food.name,
                         icon: getFoodIcon(food.name),
-                        description: food.effects.map(e => 
+                        description: food.effects.map(e =>
                           `${e.stat} +${e.value}${e.isPercent ? '%' : ''}`
                         ).join(', ')
                       }))
@@ -1305,6 +1602,7 @@ export default function BuildPage() {
               </h2>
               <StatViewer
                 stats={calculatedStats}
+                resistance={resistanceData}
                 showBreakdown={true}
               />
             </div>
@@ -1424,10 +1722,10 @@ export default function BuildPage() {
                 <span>敵パラメータ</span>
               </h2>
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                {/* 防御力 */}
+                {/* 守備力 */}
                 <div>
                   <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                    防御力
+                    守備力
                   </label>
                   <input
                     type="number"
@@ -1440,20 +1738,20 @@ export default function BuildPage() {
                     min={0}
                     placeholder="0"
                   />
-                  <p className="text-xs text-gray-500 mt-1">ダメージから減算</p>
+                  <p className="text-xs text-gray-500 mt-1">守備力/2をダメージから減算</p>
                 </div>
 
-                {/* 種族耐性 */}
+                {/* 攻撃耐性（物/魔） */}
                 <div>
                   <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                    種族耐性 (%)
+                    攻撃耐性（物/魔） (%)
                   </label>
                   <input
                     type="number"
-                    value={enemyStats.speciesResistance}
+                    value={enemyStats.attackResistance}
                     onChange={(e) => setEnemyStats({
                       ...enemyStats,
-                      speciesResistance: Math.max(-100, Math.min(100, parseInt(e.target.value) || 0))
+                      attackResistance: Math.max(-100, Math.min(100, parseInt(e.target.value) || 0))
                     })}
                     className="input-primary w-full"
                     min={-100}
@@ -1484,42 +1782,17 @@ export default function BuildPage() {
                 </div>
               </div>
 
-              {/* プリセットボタン */}
-              <div className="mt-4 flex flex-wrap gap-2">
-                <span className="text-sm text-gray-500 mr-2">プリセット:</span>
-                {[
-                  { name: '弱い敵', def: 50, sp: 0, el: 0 },
-                  { name: '通常', def: 100, sp: 10, el: 10 },
-                  { name: '強敵', def: 200, sp: 20, el: 20 },
-                  { name: 'ボス', def: 300, sp: 30, el: 30 },
-                ].map((preset) => (
-                  <button
-                    key={preset.name}
-                    onClick={() => setEnemyStats({
-                      defense: preset.def,
-                      speciesResistance: preset.sp,
-                      elementResistance: preset.el,
-                    })}
-                    className="px-3 py-1 text-xs bg-gray-700 hover:bg-gray-600 rounded transition-colors"
-                  >
-                    {preset.name}
-                  </button>
-                ))}
-              </div>
             </div>
 
-            {/* 火力計算セクション */}
+            {/* 火力計算セクション（通常攻撃・スキル統合） */}
             <DamageCalculationSection />
-
-            {/* スキル計算セクション */}
-            <SkillCalculationSection />
           </div>
         )}
       </div>
 
 
       {/* タブナビゲーションボタン */}
-      <div className="flex justify-between mt-6">
+      <div className="flex justify-between mt-6 mb-8">
         <button
           onClick={() => setActiveTab(Math.max(0, activeTab - 1))}
           disabled={activeTab === 0}

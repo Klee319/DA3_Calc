@@ -18,24 +18,6 @@ import { mapUserStatsToVariables } from './placeholderMapping';
 import { round, roundUp, roundDown, roundByType, roundMultiHitDamage } from '../calc/utils/mathUtils';
 
 /**
- * 追撃（追加攻撃）の定義
- */
-export interface AdditionalAttackDefinition {
-  /** 追撃の種類 */
-  type: 'percentage' | 'mp-based' | 'resistance-based' | 'speed-based';
-  /** 倍率（%表記なので、22%は0.22） */
-  multiplier: number;
-  /** 基本回数 */
-  baseCount?: number;
-  /** 追撃計算式（高度な計算が必要な場合） */
-  formula?: string;
-  /** 防御貫通フラグ */
-  ignoreDefense?: boolean;
-  /** PvP時の回数変更 */
-  pvpCount?: number;
-}
-
-/**
  * ダメージ計算のメイン関数
  * 基礎ダメージ → 職業補正 → 会心 → スキル倍率 → 最終ダメージの順で計算
  */
@@ -127,34 +109,8 @@ export function calculateDamage(
     // 総ダメージ（多段ヒット考慮）
     const totalDamage = hitDamage * hits;
 
-    // 追撃ダメージを計算
-    // 武器名はinputに含まれないため、オプションとして追加する必要があるが、
-    // 現時点では武器名が指定できる仕組みがないため、追撃を適用する場合は
-    // 別途武器名を指定する必要がある
-    let additionalDamage = 0;
-    const weaponName = input.weaponName || ''; // inputに weaponName プロパティを追加予定
-
-    if (weaponName) {
-      // userStatsに必要なプロパティを渡す
-      const additionalStats = {
-        speed: (input.userStats.final as any).speed || (input.userStats.final as any).AGI || 0,
-        mp: (input.userStats.final as any).mp || (input.userStats.final as any).MP || 0,
-        waterResistance: (input.userStats.final as any).waterResistance || 0,
-      };
-
-      // 追撃の基準は「基礎ダメージ」（会心/スキル適用前）とする
-      additionalDamage = calculateAdditionalAttacks(
-        correctedDamage, // 職業補正適用後のダメージ
-        weaponName,
-        additionalStats,
-        false // PvPモードは現時点でfalse固定
-      );
-    }
-
     // 最終ダメージ（敵防御・耐性適用）
-    const finalDamageWithoutAdditional = calculateFinalDamage(totalDamage, input.enemy.defense || 0);
-    const finalAdditionalDamage = calculateFinalDamage(additionalDamage, input.enemy.defense || 0);
-    const finalDamage = finalDamageWithoutAdditional + finalAdditionalDamage;
+    const finalDamage = calculateFinalDamage(totalDamage, input.enemy.defense || 0);
 
     // 結果の構築
     const result: DamageResult = {
@@ -164,7 +120,6 @@ export function calculateDamage(
       hits: hits,
       hitDamage: hitDamage,
       totalDamage: totalDamage,
-      additionalDamage: additionalDamage, // 追撃ダメージを追加
       finalDamage: finalDamage,
       mp: mp,
       ct: ct
@@ -436,210 +391,6 @@ export function applyCritDamage(
     const critDamageValue = roundDown(damage * (1 + critDamage / 100));
     return roundDown(damage * (1 - critRate / 100) + critDamageValue * (critRate / 100));
   }
-}
-
-/**
- * ダメージ補正の適用
- */
-export function applyDamageCorrection(
-  damage: number,
-  correctionMode: 'min' | 'max' | 'avg'
-): number {
-  const minCorrection = 0.8;
-  const maxCorrection = 1.2;
-
-  if (correctionMode === 'min') {
-    return roundDown(damage * minCorrection);
-  } else if (correctionMode === 'max') {
-    return roundDown(damage * maxCorrection);
-  } else {
-    // 平均値
-    return damage;
-  }
-}
-
-/**
- * 追撃ダメージを計算
- * 仕様書 §3 に基づく
- *
- * @param baseDamage 元の攻撃ダメージ
- * @param weaponName 武器名
- * @param userStats ユーザーステータス
- * @param isPvP PvPモードかどうか
- * @returns 追撃の総ダメージ
- */
-export function calculateAdditionalAttacks(
-  baseDamage: number,
-  weaponName: string,
-  userStats: {
-    speed?: number;
-    mp?: number;
-    waterResistance?: number;
-  },
-  isPvP: boolean = false
-): number {
-  // 武器名から追撃定義を取得
-  const additionalAttackDef = getAdditionalAttackDefinition(weaponName);
-
-  if (!additionalAttackDef) {
-    return 0; // 追撃なし
-  }
-
-  let totalAdditionalDamage = 0;
-
-  switch (additionalAttackDef.type) {
-    case 'percentage': {
-      // 基本パターン: 元の攻撃 × 倍率 × 回数
-      const count = isPvP && additionalAttackDef.pvpCount !== undefined
-        ? additionalAttackDef.pvpCount
-        : (additionalAttackDef.baseCount || 1);
-
-      totalAdditionalDamage = roundDown(
-        baseDamage * additionalAttackDef.multiplier * count
-      );
-      break;
-    }
-
-    case 'speed-based': {
-      // ゼクロ弓パターン: 元の攻撃 × 22% × (速度 × 0.011 + 2)
-      const speedMultiplier = (userStats.speed || 0) * 0.011 + 2;
-      totalAdditionalDamage = roundDown(
-        baseDamage * additionalAttackDef.multiplier * speedMultiplier
-      );
-      break;
-    }
-
-    case 'resistance-based': {
-      // 夏武器パターン: floor(水耐性 / 5) × 元の攻撃 × 22%
-      const attackCount = roundDown((userStats.waterResistance || 0) / 5);
-      totalAdditionalDamage = roundDown(
-        baseDamage * additionalAttackDef.multiplier * attackCount
-      );
-      break;
-    }
-
-    case 'mp-based': {
-      // 盗賊斧パターン: 現在MP × 0.2 × 回数
-      const count = additionalAttackDef.baseCount || 1;
-      totalAdditionalDamage = roundDown(
-        (userStats.mp || 0) * additionalAttackDef.multiplier * count
-      );
-      break;
-    }
-
-    default:
-      totalAdditionalDamage = 0;
-  }
-
-  return totalAdditionalDamage;
-}
-
-/**
- * 武器名から追撃定義を取得
- *
- * @param weaponName 武器名
- * @returns 追撃定義（追撃がない場合はnull）
- */
-function getAdditionalAttackDefinition(
-  weaponName: string
-): AdditionalAttackDefinition | null {
-  // 武器名と追撃定義のマッピング
-  const additionalAttackMap: Record<string, AdditionalAttackDefinition> = {
-    // 剣改: 元の攻撃 × 22% × 回数
-    '剣改': {
-      type: 'percentage',
-      multiplier: 0.22,
-      baseCount: 1, // 実際の回数はWeaponCalc.yamlから取得すべき
-    },
-
-    // ジェミニ: 元の攻撃 × 30%
-    'ジェミニ': {
-      type: 'percentage',
-      multiplier: 0.30,
-      baseCount: 1,
-    },
-
-    // 幻影大剣: 元の攻撃 × 30%
-    '幻影大剣': {
-      type: 'percentage',
-      multiplier: 0.30,
-      baseCount: 1,
-    },
-
-    // ゼクロ弓: 元の攻撃 × 22% × ({UserSpeed} * 0.011 + 2)
-    'ゼクロ弓': {
-      type: 'speed-based',
-      multiplier: 0.22,
-    },
-
-    // 夏武器: floor(水耐性 / 5) × 元の攻撃 × 22%
-    '夏武器': {
-      type: 'resistance-based',
-      multiplier: 0.22,
-    },
-
-    // ベス剣: 元の攻撃 × 10% × 4回 (PvP時は1回)
-    'ベス剣': {
-      type: 'percentage',
-      multiplier: 0.10,
-      baseCount: 4,
-      pvpCount: 1,
-    },
-
-    // 盗賊斧: 現在MP × 0.2 × 回数
-    '盗賊斧': {
-      type: 'mp-based',
-      multiplier: 0.2,
-      baseCount: 1,
-    },
-
-    // 炎牙: 元の攻撃 × 5% × 回数（防御貫通）
-    '炎牙': {
-      type: 'percentage',
-      multiplier: 0.05,
-      baseCount: 1,
-      ignoreDefense: true,
-    },
-  };
-
-  return additionalAttackMap[weaponName] || null;
-}
-
-/**
- * 最終ダメージを計算（追撃を含む）
- *
- * @param baseDamage 基礎ダメージ
- * @param weaponName 武器名
- * @param userStats ユーザーステータス
- * @param isPvP PvPモードかどうか
- * @returns 基礎ダメージ、追撃ダメージ、総ダメージを含むオブジェクト
- */
-export function calculateFinalDamageWithAdditional(
-  baseDamage: number,
-  weaponName: string,
-  userStats: {
-    speed?: number;
-    mp?: number;
-    waterResistance?: number;
-  },
-  isPvP: boolean = false
-): {
-  baseDamage: number;
-  additionalDamage: number;
-  totalDamage: number;
-} {
-  const additionalDamage = calculateAdditionalAttacks(
-    baseDamage,
-    weaponName,
-    userStats,
-    isPvP
-  );
-
-  return {
-    baseDamage,
-    additionalDamage,
-    totalDamage: baseDamage + additionalDamage,
-  };
 }
 
 /**

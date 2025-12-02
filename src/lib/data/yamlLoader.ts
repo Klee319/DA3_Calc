@@ -5,6 +5,7 @@ import {
   WeaponCalcData,
   UserStatusCalcData,
   SkillCalcData,
+  WeaponSkillCalcData,
   AllSkillCalcData,
   SkillBookData,
   JobSkillData,
@@ -91,13 +92,11 @@ async function loadYamlFile<T>(path: string, replaceParams: boolean = false): Pr
       throw new Error(`Failed to load ${path}: ${response.statusText}`);
     }
     const text = await response.text();
-    console.log(`Loaded YAML text from ${path}, length: ${text.length}`);
-    
+
     // YAMLのパースを試みる
     let data: T;
     try {
       data = yaml.load(text) as T;
-      console.log(`Successfully parsed YAML from ${path}`);
       
       // パラメータ置き換えが必要な場合
       if (replaceParams) {
@@ -169,6 +168,13 @@ export async function loadSkillCalc(): Promise<SkillCalcData> {
 }
 
 /**
+ * WeaponSkillCalc.yamlを読み込む（武器スキルバフ定義）
+ */
+export async function loadWeaponSkillCalc(): Promise<WeaponSkillCalcData> {
+  return loadYamlFile<WeaponSkillCalcData>('/data/formula/WeaponSkillCalc.yaml', true);
+}
+
+/**
  * SkillCalcフォルダ内の全YAMLファイルを読み込む
  */
 export async function loadAllSkillCalcData(): Promise<AllSkillCalcData> {
@@ -210,14 +216,6 @@ export async function loadAllSkillCalcData(): Promise<AllSkillCalcData> {
   const safeFirstJob = firstJob || {};
   const safeSecondJob = secondJob || {};
   const safeThirdJob = thirdJob || {};
-
-  console.log('Loaded SkillCalc data:', {
-    skillBook: Object.keys(safeSkillBook).length,
-    specialJob: Object.keys(safeSpecialJob).length,
-    firstJob: Object.keys(safeFirstJob).length,
-    secondJob: Object.keys(safeSecondJob).length,
-    thirdJob: Object.keys(safeThirdJob).length,
-  });
 
   return {
     skillBook: safeSkillBook,
@@ -453,7 +451,7 @@ export function extractSkillsFromCalcData(skillCalc: SkillCalcData): Skill[] {
  * 各ファイルにフォールバック処理を適用し、個別のエラーが全体に影響しないようにする
  */
 export async function loadAllYamlData() {
-  const [eqConst, jobConst, weaponCalc, userStatusCalc, skillCalc] = await Promise.all([
+  const [eqConst, jobConst, weaponCalc, userStatusCalc, skillCalc, weaponSkillCalc] = await Promise.all([
     withFallback(
       () => loadEqConst(),
       {} as EqConstData,
@@ -480,6 +478,11 @@ export async function loadAllYamlData() {
       () => loadSkillCalc(),
       {} as SkillCalcData,
       'Info: SkillCalc.yaml not found (migrated to SkillCalc folder)'
+    ),
+    withFallback(
+      () => loadWeaponSkillCalc(),
+      {} as WeaponSkillCalcData,
+      'Warning: Failed to load WeaponSkillCalc.yaml'
     )
   ]);
 
@@ -488,6 +491,7 @@ export async function loadAllYamlData() {
     jobConst,
     weaponCalc,
     userStatusCalc,
-    skillCalc
+    skillCalc,
+    weaponSkillCalc
   };
 }

@@ -1,11 +1,12 @@
 'use client';
 
 import React, { useState } from 'react';
-import { CalculatedStats, StatType } from '@/types';
+import { CalculatedStats, StatType, ResistanceData } from '@/types';
 import { Tooltip } from '@/components/ui/Tooltip';
 
 interface StatViewerProps {
   stats: CalculatedStats;
+  resistance?: ResistanceData;
   className?: string;
   showBreakdown?: boolean;
 }
@@ -160,6 +161,7 @@ const StatCard: React.FC<StatCardProps> = ({
 
 export const StatViewer: React.FC<StatViewerProps> = ({
   stats,
+  resistance,
   className = '',
   showBreakdown = false,
 }) => {
@@ -305,41 +307,199 @@ export const StatViewer: React.FC<StatViewerProps> = ({
         })}
       </div>
 
-      {/* サマリー表示 */}
+      {/* 耐性表示 */}
       <div className="mt-6 p-4 bg-gray-50 dark:bg-gray-800 rounded-lg">
         <h4 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-3">
-          ステータスサマリー
+          耐性
         </h4>
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
+        <div className="space-y-4">
+          {/* 攻撃耐性 */}
           <div>
-            <span className="text-gray-600 dark:text-gray-400">総合力:</span>
-            <span className="ml-2 font-semibold text-gray-800 dark:text-gray-200">
-              {Object.values(stats.total).reduce((sum, val) => sum + (val || 0), 0).toLocaleString()}
-            </span>
+            <h5 className="text-xs font-medium text-gray-500 dark:text-gray-400 mb-2">攻撃</h5>
+            <div className="grid grid-cols-2 gap-4">
+              <Tooltip
+                content={resistance ? (
+                  <div className="space-y-1">
+                    <div className="font-semibold mb-1">物理耐性の内訳</div>
+                    {resistance.physical.fromSP !== 0 && <div className="flex justify-between"><span>SP:</span><span>{resistance.physical.fromSP}%</span></div>}
+                    {resistance.physical.fromRunestone !== 0 && <div className="flex justify-between"><span>ルーンストーン:</span><span>{resistance.physical.fromRunestone}%</span></div>}
+                    {resistance.physical.fromFood !== 0 && <div className="flex justify-between"><span>食べ物:</span><span>{resistance.physical.fromFood}%</span></div>}
+                  </div>
+                ) : null}
+                position="top"
+              >
+                <div className="flex items-center justify-between p-2 bg-white dark:bg-gray-700 rounded border border-gray-200 dark:border-gray-600 cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-600 transition-colors">
+                  <span className="text-gray-600 dark:text-gray-300">物理</span>
+                  <span className={`font-semibold ${(resistance?.physical.total || 0) > 0 ? 'text-blue-600 dark:text-blue-400' : 'text-gray-500 dark:text-gray-400'}`}>
+                    {resistance?.physical.total || 0}%
+                  </span>
+                </div>
+              </Tooltip>
+              <Tooltip
+                content={resistance ? (
+                  <div className="space-y-1">
+                    <div className="font-semibold mb-1">魔法耐性の内訳</div>
+                    {resistance.magic.fromSP !== 0 && <div className="flex justify-between"><span>SP:</span><span>{resistance.magic.fromSP}%</span></div>}
+                    {resistance.magic.fromRunestone !== 0 && <div className="flex justify-between"><span>ルーンストーン:</span><span>{resistance.magic.fromRunestone}%</span></div>}
+                    {resistance.magic.fromFood !== 0 && <div className="flex justify-between"><span>食べ物:</span><span>{resistance.magic.fromFood}%</span></div>}
+                  </div>
+                ) : null}
+                position="top"
+              >
+                <div className="flex items-center justify-between p-2 bg-white dark:bg-gray-700 rounded border border-gray-200 dark:border-gray-600 cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-600 transition-colors">
+                  <span className="text-gray-600 dark:text-gray-300">魔法</span>
+                  <span className={`font-semibold ${(resistance?.magic.total || 0) > 0 ? 'text-purple-600 dark:text-purple-400' : 'text-gray-500 dark:text-gray-400'}`}>
+                    {resistance?.magic.total || 0}%
+                  </span>
+                </div>
+              </Tooltip>
+            </div>
           </div>
+
+          {/* 属性耐性 */}
           <div>
-            <span className="text-gray-600 dark:text-gray-400">装備補正:</span>
-            <span className="ml-2 font-semibold text-green-600 dark:text-green-400">
-              +{Object.values(stats.fromEquipment).reduce((sum, val) => sum + (val || 0), 0).toLocaleString()}
-            </span>
-          </div>
-          <div>
-            <span className="text-gray-600 dark:text-gray-400">SP割り当て:</span>
-            <span className="ml-2 font-semibold text-blue-600 dark:text-blue-400">
-              +{Object.values(stats.fromSkills).reduce((sum, val) => sum + (val || 0), 0).toLocaleString()}
-            </span>
-          </div>
-          <div>
-            <span className="text-gray-600 dark:text-gray-400">%補正:</span>
-            <span className="ml-2 font-semibold text-orange-600 dark:text-orange-400">
-              +{Object.values(stats.fromPercent || {}).reduce((sum, val) => sum + (val || 0), 0).toLocaleString()}
-            </span>
-          </div>
-          <div>
-            <span className="text-gray-600 dark:text-gray-400">バフ補正:</span>
-            <span className="ml-2 font-semibold text-purple-600 dark:text-purple-400">
-              +{Object.values(stats.fromBuffs).reduce((sum, val) => sum + (val || 0), 0).toLocaleString()}
-            </span>
+            <h5 className="text-xs font-medium text-gray-500 dark:text-gray-400 mb-2">属性</h5>
+            <div className="grid grid-cols-4 sm:grid-cols-7 gap-2">
+              {/* 炎耐性 */}
+              <Tooltip
+                content={resistance ? (
+                  <div className="space-y-1">
+                    <div className="font-semibold mb-1">炎耐性の内訳</div>
+                    {resistance.fire.fromSP !== 0 && <div className="flex justify-between"><span>SP:</span><span>{resistance.fire.fromSP}%</span></div>}
+                    {resistance.fire.fromRunestone !== 0 && <div className="flex justify-between"><span>ルーンストーン:</span><span>{resistance.fire.fromRunestone}%</span></div>}
+                    {resistance.fire.fromFood !== 0 && <div className="flex justify-between"><span>食べ物:</span><span>{resistance.fire.fromFood}%</span></div>}
+                  </div>
+                ) : null}
+                position="top"
+              >
+                <div className="flex flex-col items-center p-2 bg-white dark:bg-gray-700 rounded border border-gray-200 dark:border-gray-600 cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-600 transition-colors">
+                  <span className="text-red-500 dark:text-red-400 text-sm">炎</span>
+                  <span className={`text-sm font-semibold ${(resistance?.fire.total || 0) > 0 ? 'text-red-600 dark:text-red-400' : 'text-gray-500 dark:text-gray-400'}`}>
+                    {resistance?.fire.total || 0}%
+                  </span>
+                </div>
+              </Tooltip>
+
+              {/* 水耐性 */}
+              <Tooltip
+                content={resistance ? (
+                  <div className="space-y-1">
+                    <div className="font-semibold mb-1">水耐性の内訳</div>
+                    {resistance.water.fromSP !== 0 && <div className="flex justify-between"><span>SP:</span><span>{resistance.water.fromSP}%</span></div>}
+                    {resistance.water.fromRunestone !== 0 && <div className="flex justify-between"><span>ルーンストーン:</span><span>{resistance.water.fromRunestone}%</span></div>}
+                    {resistance.water.fromFood !== 0 && <div className="flex justify-between"><span>食べ物:</span><span>{resistance.water.fromFood}%</span></div>}
+                  </div>
+                ) : null}
+                position="top"
+              >
+                <div className="flex flex-col items-center p-2 bg-white dark:bg-gray-700 rounded border border-gray-200 dark:border-gray-600 cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-600 transition-colors">
+                  <span className="text-blue-500 dark:text-blue-400 text-sm">水</span>
+                  <span className={`text-sm font-semibold ${(resistance?.water.total || 0) > 0 ? 'text-blue-600 dark:text-blue-400' : 'text-gray-500 dark:text-gray-400'}`}>
+                    {resistance?.water.total || 0}%
+                  </span>
+                </div>
+              </Tooltip>
+
+              {/* 雷耐性 */}
+              <Tooltip
+                content={resistance ? (
+                  <div className="space-y-1">
+                    <div className="font-semibold mb-1">雷耐性の内訳</div>
+                    {resistance.thunder.fromSP !== 0 && <div className="flex justify-between"><span>SP:</span><span>{resistance.thunder.fromSP}%</span></div>}
+                    {resistance.thunder.fromRunestone !== 0 && <div className="flex justify-between"><span>ルーンストーン:</span><span>{resistance.thunder.fromRunestone}%</span></div>}
+                    {resistance.thunder.fromFood !== 0 && <div className="flex justify-between"><span>食べ物:</span><span>{resistance.thunder.fromFood}%</span></div>}
+                  </div>
+                ) : null}
+                position="top"
+              >
+                <div className="flex flex-col items-center p-2 bg-white dark:bg-gray-700 rounded border border-gray-200 dark:border-gray-600 cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-600 transition-colors">
+                  <span className="text-yellow-500 dark:text-yellow-400 text-sm">雷</span>
+                  <span className={`text-sm font-semibold ${(resistance?.thunder.total || 0) > 0 ? 'text-yellow-600 dark:text-yellow-400' : 'text-gray-500 dark:text-gray-400'}`}>
+                    {resistance?.thunder.total || 0}%
+                  </span>
+                </div>
+              </Tooltip>
+
+              {/* 風耐性 */}
+              <Tooltip
+                content={resistance ? (
+                  <div className="space-y-1">
+                    <div className="font-semibold mb-1">風耐性の内訳</div>
+                    {resistance.wind.fromSP !== 0 && <div className="flex justify-between"><span>SP:</span><span>{resistance.wind.fromSP}%</span></div>}
+                    {resistance.wind.fromRunestone !== 0 && <div className="flex justify-between"><span>ルーンストーン:</span><span>{resistance.wind.fromRunestone}%</span></div>}
+                    {resistance.wind.fromFood !== 0 && <div className="flex justify-between"><span>食べ物:</span><span>{resistance.wind.fromFood}%</span></div>}
+                  </div>
+                ) : null}
+                position="top"
+              >
+                <div className="flex flex-col items-center p-2 bg-white dark:bg-gray-700 rounded border border-gray-200 dark:border-gray-600 cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-600 transition-colors">
+                  <span className="text-green-500 dark:text-green-400 text-sm">風</span>
+                  <span className={`text-sm font-semibold ${(resistance?.wind.total || 0) > 0 ? 'text-green-600 dark:text-green-400' : 'text-gray-500 dark:text-gray-400'}`}>
+                    {resistance?.wind.total || 0}%
+                  </span>
+                </div>
+              </Tooltip>
+
+              {/* 無耐性 */}
+              <Tooltip
+                content={resistance ? (
+                  <div className="space-y-1">
+                    <div className="font-semibold mb-1">無耐性の内訳</div>
+                    {resistance.none.fromSP !== 0 && <div className="flex justify-between"><span>SP:</span><span>{resistance.none.fromSP}%</span></div>}
+                    {resistance.none.fromRunestone !== 0 && <div className="flex justify-between"><span>ルーンストーン:</span><span>{resistance.none.fromRunestone}%</span></div>}
+                    {resistance.none.fromFood !== 0 && <div className="flex justify-between"><span>食べ物:</span><span>{resistance.none.fromFood}%</span></div>}
+                  </div>
+                ) : null}
+                position="top"
+              >
+                <div className="flex flex-col items-center p-2 bg-white dark:bg-gray-700 rounded border border-gray-200 dark:border-gray-600 cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-600 transition-colors">
+                  <span className="text-gray-500 dark:text-gray-400 text-sm">無</span>
+                  <span className={`text-sm font-semibold ${(resistance?.none.total || 0) > 0 ? 'text-gray-600 dark:text-gray-300' : 'text-gray-500 dark:text-gray-400'}`}>
+                    {resistance?.none.total || 0}%
+                  </span>
+                </div>
+              </Tooltip>
+
+              {/* 闇耐性 */}
+              <Tooltip
+                content={resistance ? (
+                  <div className="space-y-1">
+                    <div className="font-semibold mb-1">闇耐性の内訳</div>
+                    {resistance.dark.fromSP !== 0 && <div className="flex justify-between"><span>SP:</span><span>{resistance.dark.fromSP}%</span></div>}
+                    {resistance.dark.fromRunestone !== 0 && <div className="flex justify-between"><span>ルーンストーン:</span><span>{resistance.dark.fromRunestone}%</span></div>}
+                    {resistance.dark.fromFood !== 0 && <div className="flex justify-between"><span>食べ物:</span><span>{resistance.dark.fromFood}%</span></div>}
+                  </div>
+                ) : null}
+                position="top"
+              >
+                <div className="flex flex-col items-center p-2 bg-white dark:bg-gray-700 rounded border border-gray-200 dark:border-gray-600 cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-600 transition-colors">
+                  <span className="text-purple-700 dark:text-purple-400 text-sm">闇</span>
+                  <span className={`text-sm font-semibold ${(resistance?.dark.total || 0) > 0 ? 'text-purple-700 dark:text-purple-400' : 'text-gray-500 dark:text-gray-400'}`}>
+                    {resistance?.dark.total || 0}%
+                  </span>
+                </div>
+              </Tooltip>
+
+              {/* 光耐性 */}
+              <Tooltip
+                content={resistance ? (
+                  <div className="space-y-1">
+                    <div className="font-semibold mb-1">光耐性の内訳</div>
+                    {resistance.light.fromSP !== 0 && <div className="flex justify-between"><span>SP:</span><span>{resistance.light.fromSP}%</span></div>}
+                    {resistance.light.fromRunestone !== 0 && <div className="flex justify-between"><span>ルーンストーン:</span><span>{resistance.light.fromRunestone}%</span></div>}
+                    {resistance.light.fromFood !== 0 && <div className="flex justify-between"><span>食べ物:</span><span>{resistance.light.fromFood}%</span></div>}
+                  </div>
+                ) : null}
+                position="top"
+              >
+                <div className="flex flex-col items-center p-2 bg-white dark:bg-gray-700 rounded border border-gray-200 dark:border-gray-600 cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-600 transition-colors">
+                  <span className="text-amber-500 dark:text-amber-400 text-sm">光</span>
+                  <span className={`text-sm font-semibold ${(resistance?.light.total || 0) > 0 ? 'text-amber-600 dark:text-amber-400' : 'text-gray-500 dark:text-gray-400'}`}>
+                    {resistance?.light.total || 0}%
+                  </span>
+                </div>
+              </Tooltip>
+            </div>
           </div>
         </div>
       </div>

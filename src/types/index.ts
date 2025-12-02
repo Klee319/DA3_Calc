@@ -144,20 +144,48 @@ export interface CharacterBuild {
 
 // 敵ステータス定義
 export interface EnemyStats {
-  defense: number;
-  speciesResistance: number; // 種族耐性 (%)
+  defense: number;           // 守備力
+  attackResistance: number;  // 攻撃耐性（物/魔） (%)
   elementResistance: number; // 属性耐性 (%)
 }
 
 // ダメージ計算の詳細情報
 export interface DamageCalculationDetails {
-  baseDamage: number;        // 基礎ダメージ
-  skillMultiplier: number;   // スキル倍率
-  jobCorrected: number;      // 職業補正適用後
-  enemyDefReduction: number; // 防御力による減少
-  typeResistance: number;    // 種族耐性による減少率
-  elementResistance: number; // 属性耐性による減少率
-  finalDamage: number;       // 最終ダメージ
+  baseDamage: number;          // 基礎ダメージ
+  skillMultiplier: number;     // スキル倍率
+  jobCorrected: number;        // 職業補正適用後
+  enemyDefReduction: number;   // 守備力による減少（守備力/2）
+  attackResistance: number;    // 攻撃耐性（物/魔）による減少率
+  elementResistance: number;   // 属性耐性による減少率
+  finalDamage: number;         // 最終ダメージ
+}
+
+// 耐性種別
+export type AttackResistType = 'physical' | 'magic';
+export type ElementResistType = 'fire' | 'water' | 'thunder' | 'wind' | 'none' | 'dark' | 'light';
+export type ResistType = AttackResistType | ElementResistType;
+
+// 耐性値（各ソースから）
+export interface ResistanceBreakdown {
+  fromSP: number;           // SP割り当てから
+  fromRunestone: number;    // ルーンストーンから
+  fromFood: number;         // 食べ物から
+  total: number;            // 合計
+}
+
+// 全耐性データ
+export interface ResistanceData {
+  // 攻撃耐性
+  physical: ResistanceBreakdown;  // 物理耐性
+  magic: ResistanceBreakdown;     // 魔耐性
+  // 属性耐性
+  fire: ResistanceBreakdown;      // 炎耐性
+  water: ResistanceBreakdown;     // 水耐性
+  thunder: ResistanceBreakdown;   // 雷耐性
+  wind: ResistanceBreakdown;      // 風耐性
+  none: ResistanceBreakdown;      // 無耐性
+  dark: ResistanceBreakdown;      // 闇耐性
+  light: ResistanceBreakdown;     // 光耐性
 }
 
 // 計算済みステータス

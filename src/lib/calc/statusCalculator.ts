@@ -156,7 +156,7 @@ export function calculateStatus(
     }
 
     // 4. リング収束計算（有効な場合）
-    // YAMLの式: repeat( 40 + round(SumEquipment.<Stat>) * 0.1, until_converged )
+    // YAMLの式: repeat( BaseValue + round(SumEquipment.<Stat>) * Multiplier, until_converged )
     let finalStats = afterUserPercent;
     let ringResult = undefined;
 
@@ -164,7 +164,9 @@ export function calculateStatus(
       const convergence = applyRingConvergenceAdditive(
         afterUserPercent,
         input.ring.ringType,
-        input.ring.equipmentTotal
+        input.ring.equipmentTotal,
+        100, // maxIterations
+        userStatusFormulas
       );
       finalStats = convergence.final;
       ringResult = {
@@ -501,22 +503,32 @@ export function applyUserPercentBonus(
 
 /**
  * リング収束計算
- * YAMLの式: 40 + repeat( round(SumEquipment.<Stat>) * 1.1, until_converged )
  *
- * 1. 装備ステータスに40を加算
- * 2. round(値 * 1.1) を収束するまで繰り返す（変化がなくなるまで）
+ * 基準値 = 装備値 + BaseValue (デフォルト: 40)
+ * 1回目: 基準値 + (装備値 * Multiplier) = currentValue (デフォルト Multiplier: 0.1)
+ * 2回目以降: 基準値 + round(currentValue * Multiplier) を繰り返し、変化がなくなるまで
+ *
+ * 例: 装備1000の場合（BaseValue=40, Multiplier=0.1）
+ *   基準値 = 1000 + 40 = 1040
+ *   1回目: 1040 + (1000 * 0.1) = 1040 + 100 = 1140
+ *   2回目: 1040 + round(1140 * 0.1) = 1040 + 114 = 1154
+ *   3回目: 1040 + round(1154 * 0.1) = 1040 + 115 = 1155
+ *   4回目: 1040 + round(1155 * 0.1) = 1040 + 116 = 1156
+ *   5回目: 1040 + round(1156 * 0.1) = 1040 + 116 = 1156 (収束)
  *
  * @param base 基礎ステータス（%補正適用後）
  * @param ringType リング種類（power/magic/speed）
  * @param equipmentTotal 装備合計ステータス
  * @param maxIterations 最大反復回数（デフォルト: 100）
+ * @param userStatusFormulas YAMLから読み込んだ計算式（オプション）
  * @returns 収束結果
  */
 export function applyRingConvergenceAdditive(
   base: StatBlock,
   ringType: 'power' | 'magic' | 'speed',
   equipmentTotal: StatBlock,
-  maxIterations: number = 100
+  maxIterations: number = 100,
+  userStatusFormulas?: UserStatusCalcData
 ): { final: StatBlock; iterations: number; delta: StatBlock } {
   // リングタイプに対応するステータスキー
   const targetStatKey = ringType === 'power' ? 'Power' :
@@ -537,20 +549,32 @@ export function applyRingConvergenceAdditive(
   let current = cloneStats(base);
   let iterations = 0;
 
-  // Step 1: 装備ステータスに40を加算した値を初期値とする
-  let ringValue = equipValue + 40;
+  // YAMLからBaseValueとMultiplierを取得（デフォルト値: 40, 0.1）
+  const ringBaseValue = userStatusFormulas?.RingConvergence?.BaseValue ?? 40;
+  const ringMultiplier = userStatusFormulas?.RingConvergence?.Multiplier ?? 0.1;
 
-  // Step 2: round(値 * 1.1) を収束するまで繰り返す
+  // 基準値 = 装備値 + BaseValue
+  const baseRingValue = equipValue + ringBaseValue;
+
+  // 1回目: 基準値 + (装備値 * Multiplier)
+  let currentValue = baseRingValue + equipValue * ringMultiplier;
+  iterations++;
+
+  // 2回目以降: 基準値 + round(currentValue * Multiplier) を繰り返し
   for (let i = 0; i < maxIterations; i++) {
+    const nextValue = baseRingValue + round(currentValue * ringMultiplier);
     iterations++;
-    const newValue = round(ringValue * 1.1);
 
     // 変化がなければ収束
-    if (newValue === ringValue) {
+    if (nextValue === Math.floor(currentValue)) {
+      currentValue = nextValue;
       break;
     }
-    ringValue = newValue;
+    currentValue = nextValue;
   }
+
+  // リング効果（最終値）を整数化
+  const ringValue = Math.floor(currentValue);
 
   // リング効果を基礎ステータスに加算
   const baseValue = (current as any)[targetStatKey] || 0;

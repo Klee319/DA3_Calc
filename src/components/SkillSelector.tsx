@@ -209,7 +209,7 @@ export const SkillSelector: React.FC<SkillSelectorProps> = ({
       </div>
 
       {/* スキルリスト */}
-      <div className="space-y-2 max-h-96 overflow-y-auto">
+      <div className="space-y-2 max-h-96 overflow-y-auto custom-scrollbar">
         {filteredSkills.length === 0 ? (
           <div className="text-center py-8 text-gray-500 dark:text-gray-400">
             該当するスキルがありません

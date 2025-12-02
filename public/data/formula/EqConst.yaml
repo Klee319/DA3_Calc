@@ -7,10 +7,12 @@ Armor:
   Forge:
     Defence: 1
     Other: 2
+    MaxTotal: 12  # 叩き回数の合計上限
   Reinforcement:
     MAX: 40
     Defence: 2
     Other: 2
+  ExponentPower: 0.2  # Used in armor calculation formula: baseWithTataki^0.2
   Rank:
     SSS: 8
     SS: 7
@@ -25,6 +27,7 @@ Armor:
 
 #アクセ
 Accessory:
+  ScalingDivisor: 550  # Used in accessory formula: (level * rankBonus / 550)
   Rank:
     SSS: 55
     SS: 50
@@ -78,6 +81,7 @@ Weapon:
   Reinforcement:
     Denominator: 320
     MAX: 80
+    MaxSmithingCount: 12  # 武器叩き回数の合計上限
     AttackP: 2
     CritD: 1
     CritR: 0.5

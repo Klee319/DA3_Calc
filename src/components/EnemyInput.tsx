@@ -7,12 +7,12 @@ import { Tooltip } from '@/components/ui/Tooltip';
 interface EnemyInputProps {
   enemyStats: {
     defense: number;
-    speciesResistance: number;
+    attackResistance: number;
     elementResistance: number;
   };
   onStatsChange: (stats: {
     defense: number;
-    speciesResistance: number;
+    attackResistance: number;
     elementResistance: number;
   }) => void;
   disabled?: boolean;
@@ -22,7 +22,7 @@ interface EnemyInputProps {
 interface ResistancePresetProps {
   name: string;
   defense: number;
-  speciesResistance: number;
+  attackResistance: number;
   elementResistance: number;
   onClick: () => void;
 }
@@ -30,7 +30,7 @@ interface ResistancePresetProps {
 const ResistancePreset: React.FC<ResistancePresetProps> = ({
   name,
   defense,
-  speciesResistance,
+  attackResistance,
   elementResistance,
   onClick,
 }) => {
@@ -42,7 +42,7 @@ const ResistancePreset: React.FC<ResistancePresetProps> = ({
     >
       <div className="font-medium text-gray-800 dark:text-gray-200">{name}</div>
       <div className="text-xs text-gray-600 dark:text-gray-400 mt-1">
-        防御: {defense} / 種族: {speciesResistance}% / 属性: {elementResistance}%
+        守備: {defense} / 攻耐性: {attackResistance}% / 属性: {elementResistance}%
       </div>
     </button>
   );
@@ -63,10 +63,10 @@ export const EnemyInput: React.FC<EnemyInputProps> = ({
     });
   };
 
-  const handleSpeciesResistanceChange = (value: number) => {
+  const handleAttackResistanceChange = (value: number) => {
     onStatsChange({
       ...enemyStats,
-      speciesResistance: Math.max(-100, Math.min(100, value)),
+      attackResistance: Math.max(-100, Math.min(100, value)),
     });
   };
 
@@ -79,7 +79,7 @@ export const EnemyInput: React.FC<EnemyInputProps> = ({
 
   const applyPreset = (preset: {
     defense: number;
-    speciesResistance: number;
+    attackResistance: number;
     elementResistance: number;
   }) => {
     onStatsChange(preset);
@@ -88,13 +88,13 @@ export const EnemyInput: React.FC<EnemyInputProps> = ({
 
   // プリセットデータ
   const presets = [
-    { name: '弱い敵', defense: 50, speciesResistance: 0, elementResistance: 0 },
-    { name: '通常の敵', defense: 100, speciesResistance: 10, elementResistance: 10 },
-    { name: '強敵', defense: 200, speciesResistance: 20, elementResistance: 20 },
-    { name: 'ボス', defense: 300, speciesResistance: 30, elementResistance: 30 },
-    { name: '裏ボス', defense: 500, speciesResistance: 50, elementResistance: 40 },
-    { name: '耐性持ち', defense: 150, speciesResistance: 80, elementResistance: 80 },
-    { name: '弱点持ち', defense: 150, speciesResistance: -30, elementResistance: -50 },
+    { name: '弱い敵', defense: 50, attackResistance: 0, elementResistance: 0 },
+    { name: '通常の敵', defense: 100, attackResistance: 10, elementResistance: 10 },
+    { name: '強敵', defense: 200, attackResistance: 20, elementResistance: 20 },
+    { name: 'ボス', defense: 300, attackResistance: 30, elementResistance: 30 },
+    { name: '裏ボス', defense: 500, attackResistance: 50, elementResistance: 40 },
+    { name: '耐性持ち', defense: 150, attackResistance: 80, elementResistance: 80 },
+    { name: '弱点持ち', defense: 150, attackResistance: -30, elementResistance: -50 },
   ];
 
   const getResistanceColor = (value: number): string => {
@@ -141,7 +141,7 @@ export const EnemyInput: React.FC<EnemyInputProps> = ({
                 key={index}
                 name={preset.name}
                 defense={preset.defense}
-                speciesResistance={preset.speciesResistance}
+                attackResistance={preset.attackResistance}
                 elementResistance={preset.elementResistance}
                 onClick={() => applyPreset(preset)}
               />
@@ -151,13 +151,13 @@ export const EnemyInput: React.FC<EnemyInputProps> = ({
       )}
 
       <div className="space-y-4">
-        {/* 防御力 */}
+        {/* 守備力 */}
         <div>
           <div className="flex items-center gap-2 mb-2">
             <label className="text-sm font-medium text-gray-700 dark:text-gray-300">
-              防御力
+              守備力
             </label>
-            <Tooltip content="物理・魔法ダメージを軽減する基本的な防御値です">
+            <Tooltip content="物理・魔法ダメージを軽減する基本的な守備値です。ダメージから守備力の半分が減算されます">
               <svg className="w-4 h-4 text-gray-400" fill="currentColor" viewBox="0 0 20 20">
                 <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clipRule="evenodd" />
               </svg>
@@ -170,40 +170,40 @@ export const EnemyInput: React.FC<EnemyInputProps> = ({
             max={9999}
             disabled={disabled}
             showStepper={true}
-            placeholder="防御力を入力"
+            placeholder="守備力を入力"
           />
           <div className="mt-1 text-xs text-gray-500 dark:text-gray-400">
-            ダメージ計算式: (攻撃力 - 防御力) × 各種倍率
+            ダメージ計算式: (攻撃力 - 守備力/2) × 各種倍率
           </div>
         </div>
 
-        {/* 種族耐性 */}
+        {/* 攻撃耐性（物/魔） */}
         <div>
           <div className="flex items-center gap-2 mb-2">
             <label className="text-sm font-medium text-gray-700 dark:text-gray-300">
-              種族耐性 (%)
+              攻撃耐性（物/魔） (%)
             </label>
-            <Tooltip content="特定の種族からのダメージに対する耐性。正の値で軽減、負の値で弱点となります">
+            <Tooltip content="物理・魔法攻撃に対する耐性。正の値で軽減、負の値で弱点となります">
               <svg className="w-4 h-4 text-gray-400" fill="currentColor" viewBox="0 0 20 20">
                 <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clipRule="evenodd" />
               </svg>
             </Tooltip>
           </div>
           <NumberInput
-            value={enemyStats.speciesResistance}
-            onChange={handleSpeciesResistanceChange}
+            value={enemyStats.attackResistance}
+            onChange={handleAttackResistanceChange}
             min={-100}
             max={100}
             disabled={disabled}
             showStepper={true}
-            error={enemyStats.speciesResistance > 100 ? '最大100%です' : enemyStats.speciesResistance < -100 ? '最小-100%です' : undefined}
-            placeholder="種族耐性を入力"
+            error={enemyStats.attackResistance > 100 ? '最大100%です' : enemyStats.attackResistance < -100 ? '最小-100%です' : undefined}
+            placeholder="攻撃耐性を入力"
           />
-          <div className={`mt-1 text-xs ${getResistanceColor(enemyStats.speciesResistance)}`}>
-            {enemyStats.speciesResistance}% {getResistanceLabel(enemyStats.speciesResistance)}
-            {enemyStats.speciesResistance !== 0 && (
+          <div className={`mt-1 text-xs ${getResistanceColor(enemyStats.attackResistance)}`}>
+            {enemyStats.attackResistance}% {getResistanceLabel(enemyStats.attackResistance)}
+            {enemyStats.attackResistance !== 0 && (
               <span className="ml-2 text-gray-500">
-                (ダメージ × {(100 - enemyStats.speciesResistance) / 100})
+                (ダメージ × {(100 - enemyStats.attackResistance) / 100})
               </span>
             )}
           </div>
@@ -251,13 +251,13 @@ export const EnemyInput: React.FC<EnemyInputProps> = ({
           <div className="flex justify-between">
             <span className="text-gray-600 dark:text-gray-400">基本ダメージ:</span>
             <span className="font-medium text-gray-800 dark:text-gray-200">
-              攻撃力 - {enemyStats.defense}
+              攻撃力 - {Math.floor(enemyStats.defense / 2)} (守備力{enemyStats.defense}/2)
             </span>
           </div>
           <div className="flex justify-between">
-            <span className="text-gray-600 dark:text-gray-400">種族耐性補正:</span>
-            <span className={`font-medium ${getResistanceColor(enemyStats.speciesResistance)}`}>
-              × {((100 - enemyStats.speciesResistance) / 100).toFixed(2)}
+            <span className="text-gray-600 dark:text-gray-400">攻撃耐性補正:</span>
+            <span className={`font-medium ${getResistanceColor(enemyStats.attackResistance)}`}>
+              × {((100 - enemyStats.attackResistance) / 100).toFixed(2)}
             </span>
           </div>
           <div className="flex justify-between">
@@ -270,7 +270,7 @@ export const EnemyInput: React.FC<EnemyInputProps> = ({
             <div className="flex justify-between">
               <span className="text-gray-700 dark:text-gray-300 font-medium">総合倍率:</span>
               <span className="font-bold text-lg text-blue-600 dark:text-blue-400">
-                × {(((100 - enemyStats.speciesResistance) / 100) * ((100 - enemyStats.elementResistance) / 100)).toFixed(3)}
+                × {(((100 - enemyStats.attackResistance) / 100) * ((100 - enemyStats.elementResistance) / 100)).toFixed(3)}
               </span>
             </div>
           </div>
