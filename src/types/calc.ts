@@ -272,6 +272,7 @@ export interface CalculatedStats {
   bonusPercent: {
     job: StatBlock;
     emblem: StatBlock;
+    user?: StatBlock;  // タロット%ボーナス等
     total: StatBlock;
   };
 

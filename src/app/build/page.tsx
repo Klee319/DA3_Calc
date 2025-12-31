@@ -13,8 +13,9 @@ import { StatViewer } from '@/components/StatViewer';
 import { CustomSelect, CustomSelectOption } from '@/components/CustomSelect';
 import { DamageCalculationSection } from '@/components/DamageCalculationSection';
 import { ConfirmDialog } from '@/components/ConfirmDialog';
+import { TarotSlot } from '@/components/TarotSlot';
 import { EquipSlot, Job, Equipment, Skill, StatType, WeaponType, ArmorType, StatEffect, SmithingCounts, ExStats, ResistanceData, ResistanceBreakdown } from '@/types';
-import { FoodData, EmblemData, RunestoneData, JobSPData, FoodResistance } from '@/types/data';
+import { FoodData, EmblemData, RunestoneData, JobSPData, FoodResistance, TarotCardDefinition, TarotCalcData } from '@/types/data';
 import { calculateUnlockedSkills, getReachedTier, getNextSkillInfo, calculateBranchBonus, getMaxSPByBranch } from '@/lib/calc/jobCalculator';
 import {
   convertJobNameToYAML,
@@ -85,11 +86,13 @@ export default function BuildPage() {
   const tabs = [
     { id: 0, label: '職業', icon: '👤' },
     { id: 1, label: 'SP割り振り', icon: '📊' },
-    { id: 2, label: '装備', icon: '⚔️' },
-    { id: 3, label: '紋章・ルーンストーン', icon: '💎' },
-    { id: 4, label: 'バフ設定', icon: '✨' },
-    { id: 5, label: '最終ステータス', icon: '📈' },
-    { id: 6, label: '結果', icon: '🎯' },
+    { id: 2, label: '武器', icon: '⚔️' },
+    { id: 3, label: '防具', icon: '🛡️' },
+    { id: 4, label: 'アクセサリー', icon: '💍' },
+    { id: 5, label: '紋章・タロット', icon: '🃏' },
+    { id: 6, label: 'バフ設定', icon: '✨' },
+    { id: 7, label: '最終ステータス', icon: '📈' },
+    { id: 8, label: '結果', icon: '🎯' },
   ];
 
   const {
@@ -134,6 +137,14 @@ export default function BuildPage() {
     deletePreset,
     updatePreset,
     loadPresetsFromStorage,
+    // タロット関連
+    tarotCards,
+    tarotCalcData,
+    selectedTarot,
+    setTarotCards,
+    setTarotCalcData,
+    setSelectedTarot,
+    tarotBonusStats,
   } = useBuildStore();
 
   // データ初期化
@@ -510,6 +521,14 @@ export default function BuildPage() {
         // 紋章とルーンストーンデータを設定
         setAvailableEmblems(gameData.csv.emblems);
         setAvailableRunestones(gameData.csv.runestones);
+
+        // タロットデータを読み込み（CSV/YAMLから）
+        if (gameData.csv.tarots && gameData.csv.tarots.length > 0) {
+          setTarotCards(gameData.csv.tarots);
+        }
+        if (gameData.yaml.tarotCalc) {
+          setTarotCalcData(gameData.yaml.tarotCalc);
+        }
 
         // プリセットをlocalStorageから読み込み
         loadPresetsFromStorage();
@@ -1238,15 +1257,15 @@ export default function BuildPage() {
           </div>
         )}
 
-        {/* タブ2: 装備 */}
+        {/* タブ2: 武器 */}
         {activeTab === 2 && (
           <div className="glass-card p-8">
             <h2 className="text-2xl font-semibold mb-6 flex items-center gap-2">
               <span className="text-3xl">⚔️</span>
-              <span className="truncate">装備</span>
+              <span className="truncate">武器</span>
             </h2>
             <div className="space-y-3">
-              {equipmentSlots.map(({ slot, name }) => {
+              {equipmentSlots.filter(({ slot }) => slot === 'weapon').map(({ slot, name }) => {
                 const currentEquipment = currentBuild.equipment[slot];
                 return (
                   <EquipmentSlot
@@ -1260,22 +1279,18 @@ export default function BuildPage() {
                         let defaultRank = 'SSS';
                         let defaultEnhancement = 0;
 
-                        if (slot === 'weapon') {
-                          // 検証武器かどうかを判定
-                          const isVerificationWeapon = equipment.sourceData?.type === 'weapon' &&
-                            equipment.sourceData.data?.アイテム名?.includes('検証');
+                        // 検証武器かどうかを判定
+                        const isVerificationWeapon = equipment.sourceData?.type === 'weapon' &&
+                          equipment.sourceData.data?.アイテム名?.includes('検証');
 
-                          if (isVerificationWeapon) {
-                            // 検証武器: ランクF固定、強化なし
-                            defaultRank = 'F';
-                            defaultEnhancement = 0;
-                          } else {
-                            // 通常武器: ランクSSS、強化値80
-                            defaultRank = 'SSS';
-                            defaultEnhancement = 80;
-                          }
-                        } else if (['head', 'body', 'leg'].includes(slot)) {
-                          defaultEnhancement = 40;
+                        if (isVerificationWeapon) {
+                          // 検証武器: ランクF固定、強化なし
+                          defaultRank = 'F';
+                          defaultEnhancement = 0;
+                        } else {
+                          // 通常武器: ランクSSS、強化値80
+                          defaultRank = 'SSS';
+                          defaultEnhancement = 80;
                         }
                         setEquipment(slot, {
                           ...equipment,
@@ -1310,9 +1325,9 @@ export default function BuildPage() {
                         setEquipment(slot, { ...currentEquipment, smithingCounts: counts });
                       }
                     }}
-                    hasAlchemy={slot === 'weapon' ? (currentEquipment?.alchemyEnabled || false) : false}
+                    hasAlchemy={currentEquipment?.alchemyEnabled || false}
                     onAlchemyChange={(enabled) => {
-                      if (currentEquipment && slot === 'weapon') {
+                      if (currentEquipment) {
                         setEquipment(slot, { ...currentEquipment, alchemyEnabled: enabled });
                       }
                     }}
@@ -1331,8 +1346,150 @@ export default function BuildPage() {
           </div>
         )}
 
-        {/* タブ3: 紋章・ルーンストーン */}
+        {/* タブ3: 防具 */}
         {activeTab === 3 && (
+          <div className="glass-card p-8">
+            <h2 className="text-2xl font-semibold mb-6 flex items-center gap-2">
+              <span className="text-3xl">🛡️</span>
+              <span className="truncate">防具</span>
+            </h2>
+            <div className="space-y-3">
+              {equipmentSlots.filter(({ slot }) => ['head', 'body', 'leg'].includes(slot)).map(({ slot, name }) => {
+                const currentEquipment = currentBuild.equipment[slot];
+                return (
+                  <EquipmentSlot
+                    key={slot}
+                    slot={slot}
+                    equipment={currentEquipment || null}
+                    availableEquipment={getFilteredEquipment(slot)}
+                    onEquipmentChange={(equipment) => {
+                      if (equipment) {
+                        // 新しい装備を選択した場合、デフォルト値を設定
+                        const defaultRank = 'SSS';
+                        const defaultEnhancement = 40;
+                        setEquipment(slot, {
+                          ...equipment,
+                          rank: equipment.rank || defaultRank as Equipment['rank'],
+                          enhancementLevel: equipment.enhancementLevel ?? defaultEnhancement,
+                        });
+                      } else {
+                        setEquipment(slot, equipment);
+                      }
+                    }}
+                    rank={currentEquipment?.rank || 'SSS'}
+                    onRankChange={(rank) => {
+                      if (currentEquipment) {
+                        setEquipment(slot, { ...currentEquipment, rank: rank as Equipment['rank'] });
+                      }
+                    }}
+                    enhancementLevel={currentEquipment?.enhancementLevel || 0}
+                    onEnhancementChange={(level) => {
+                      if (currentEquipment) {
+                        setEquipment(slot, { ...currentEquipment, enhancementLevel: level });
+                      }
+                    }}
+                    smithingCount={currentEquipment?.smithingCount || 0}
+                    onSmithingCountChange={(count) => {
+                      if (currentEquipment) {
+                        setEquipment(slot, { ...currentEquipment, smithingCount: count });
+                      }
+                    }}
+                    smithingCounts={currentEquipment?.smithingCounts || {}}
+                    onSmithingCountsChange={(counts: SmithingCounts) => {
+                      if (currentEquipment) {
+                        setEquipment(slot, { ...currentEquipment, smithingCounts: counts });
+                      }
+                    }}
+                    hasAlchemy={false}
+                    onAlchemyChange={() => {}}
+                    exStats={currentEquipment?.exStats || {}}
+                    onExStatsChange={(exStats) => {
+                      if (currentEquipment) {
+                        setEquipment(slot, { ...currentEquipment, exStats });
+                      }
+                    }}
+                    eqConst={gameData?.eqConst}
+                    disabled={!currentBuild.job}
+                  />
+                );
+              })}
+            </div>
+          </div>
+        )}
+
+        {/* タブ4: アクセサリー */}
+        {activeTab === 4 && (
+          <div className="glass-card p-8">
+            <h2 className="text-2xl font-semibold mb-6 flex items-center gap-2">
+              <span className="text-3xl">💍</span>
+              <span className="truncate">アクセサリー</span>
+            </h2>
+            <div className="space-y-3">
+              {equipmentSlots.filter(({ slot }) => ['accessory1', 'accessory2'].includes(slot)).map(({ slot, name }) => {
+                const currentEquipment = currentBuild.equipment[slot];
+                return (
+                  <EquipmentSlot
+                    key={slot}
+                    slot={slot}
+                    equipment={currentEquipment || null}
+                    availableEquipment={getFilteredEquipment(slot)}
+                    onEquipmentChange={(equipment) => {
+                      if (equipment) {
+                        // 新しい装備を選択した場合、デフォルト値を設定
+                        const defaultRank = 'SSS';
+                        const defaultEnhancement = 0;
+                        setEquipment(slot, {
+                          ...equipment,
+                          rank: equipment.rank || defaultRank as Equipment['rank'],
+                          enhancementLevel: equipment.enhancementLevel ?? defaultEnhancement,
+                        });
+                      } else {
+                        setEquipment(slot, equipment);
+                      }
+                    }}
+                    rank={currentEquipment?.rank || 'SSS'}
+                    onRankChange={(rank) => {
+                      if (currentEquipment) {
+                        setEquipment(slot, { ...currentEquipment, rank: rank as Equipment['rank'] });
+                      }
+                    }}
+                    enhancementLevel={currentEquipment?.enhancementLevel || 0}
+                    onEnhancementChange={(level) => {
+                      if (currentEquipment) {
+                        setEquipment(slot, { ...currentEquipment, enhancementLevel: level });
+                      }
+                    }}
+                    smithingCount={currentEquipment?.smithingCount || 0}
+                    onSmithingCountChange={(count) => {
+                      if (currentEquipment) {
+                        setEquipment(slot, { ...currentEquipment, smithingCount: count });
+                      }
+                    }}
+                    smithingCounts={currentEquipment?.smithingCounts || {}}
+                    onSmithingCountsChange={(counts: SmithingCounts) => {
+                      if (currentEquipment) {
+                        setEquipment(slot, { ...currentEquipment, smithingCounts: counts });
+                      }
+                    }}
+                    hasAlchemy={false}
+                    onAlchemyChange={() => {}}
+                    exStats={currentEquipment?.exStats || {}}
+                    onExStatsChange={(exStats) => {
+                      if (currentEquipment) {
+                        setEquipment(slot, { ...currentEquipment, exStats });
+                      }
+                    }}
+                    eqConst={gameData?.eqConst}
+                    disabled={!currentBuild.job}
+                  />
+                );
+              })}
+            </div>
+          </div>
+        )}
+
+        {/* タブ5: 紋章・タロット */}
+        {activeTab === 5 && (
           <div className="space-y-6">
             {/* 紋章セクション */}
             <EmblemSlot
@@ -1350,11 +1507,20 @@ export default function BuildPage() {
               onRunesChange={setRunestones}
               disabled={!currentBuild.job}
             />
+
+            {/* タロットセクション */}
+            <TarotSlot
+              tarotCards={tarotCards}
+              tarotCalcData={tarotCalcData}
+              selectedTarot={selectedTarot}
+              onTarotChange={setSelectedTarot}
+              disabled={!currentBuild.job}
+            />
           </div>
         )}
 
-        {/* タブ4: バフ設定 */}
-        {activeTab === 4 && (
+        {/* タブ6: バフ設定 */}
+        {activeTab === 6 && (
           <div className="glass-card p-8">
             <h2 className="text-2xl font-semibold mb-6 flex items-center gap-2">
               <span className="text-3xl">✨</span>
@@ -1591,8 +1757,8 @@ export default function BuildPage() {
           </div>
         )}
 
-        {/* タブ5: 最終ステータス */}
-        {activeTab === 5 && (
+        {/* タブ7: 最終ステータス */}
+        {activeTab === 7 && (
           <div className="space-y-6">
             {/* 最終ステータス表示 */}
             <div className="glass-card p-8">
@@ -1603,6 +1769,7 @@ export default function BuildPage() {
               <StatViewer
                 stats={calculatedStats}
                 resistance={resistanceData}
+                damageBuff={tarotBonusStats}
                 showBreakdown={true}
               />
             </div>
@@ -1712,8 +1879,8 @@ export default function BuildPage() {
           </div>
         )}
 
-        {/* タブ6: 結果 */}
-        {activeTab === 6 && (
+        {/* タブ8: 結果 */}
+        {activeTab === 8 && (
           <div className="space-y-6">
             {/* 敵パラメータ設定 */}
             <div className="glass-card p-6">

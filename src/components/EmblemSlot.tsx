@@ -2,7 +2,9 @@
 
 import React, { useState, useMemo } from 'react';
 import { EmblemData } from '@/types/data';
+import { DebugEmblemStats } from '@/types';
 import { CustomSelect, CustomSelectOption } from '@/components/CustomSelect';
+import { useBuildStore } from '@/store/buildStore';
 
 /**
  * 紋章スロットコンポーネントのプロパティ
@@ -70,12 +72,20 @@ export const EmblemSlot: React.FC<EmblemSlotProps> = ({
 }) => {
   const [isSelectOpen, setIsSelectOpen] = useState(false);
 
+  // ストアからデバッグ状態を取得
+  const {
+    isDebugEmblem,
+    debugEmblem,
+    setIsDebugEmblem,
+    setDebugEmblem,
+  } = useBuildStore();
+
   // レベル制限を考慮したフィルタリング
   const filteredEmblems = useMemo(() => {
     return availableEmblems.filter(e => e.使用可能Lv <= characterLevel);
   }, [availableEmblems, characterLevel]);
 
-  // セレクトオプションの生成
+  // セレクトオプションの生成（デバッグ用オプションを一番下に追加）
   const emblemOptions: CustomSelectOption[] = useMemo(() => {
     const options: CustomSelectOption[] = [
       { value: '', label: '紋章なし', description: '紋章を外す' },
@@ -90,14 +100,32 @@ export const EmblemSlot: React.FC<EmblemSlotProps> = ({
       });
     });
 
+    // デバッグ用オプションを一番下に追加
+    options.push({ value: 'debug', label: '(デバッグ用)', description: '%補正を直接入力' });
+
     return options;
   }, [filteredEmblems]);
 
   // 紋章選択ハンドラ
   const handleEmblemChange = (value: string) => {
-    if (value === '') {
+    if (value === 'debug') {
+      setIsDebugEmblem(true);
+      setDebugEmblem({
+        powerPercent: 0,
+        magicPercent: 0,
+        hpPercent: 0,
+        mindPercent: 0,
+        agilityPercent: 0,
+        dexPercent: 0,
+        critDamagePercent: 0,
+        defensePercent: 0,
+      });
+      onEmblemChange(null);
+    } else if (value === '') {
+      setIsDebugEmblem(false);
       onEmblemChange(null);
     } else {
+      setIsDebugEmblem(false);
       const selected = availableEmblems.find(e => e.アイテム名 === value);
       onEmblemChange(selected || null);
     }
@@ -114,10 +142,13 @@ export const EmblemSlot: React.FC<EmblemSlotProps> = ({
           <span className="text-amber-400">🏅</span>
           紋章
         </h3>
-        {emblem && (
+        {(emblem || isDebugEmblem) && (
           <button
             type="button"
-            onClick={() => onEmblemChange(null)}
+            onClick={() => {
+              setIsDebugEmblem(false);
+              onEmblemChange(null);
+            }}
             disabled={disabled}
             className="p-2 text-gray-400 hover:text-red-500 transition-colors rounded-lg hover:bg-white/10"
             title="紋章を外す"
@@ -133,7 +164,7 @@ export const EmblemSlot: React.FC<EmblemSlotProps> = ({
       <div className="mb-4">
         <CustomSelect
           options={emblemOptions}
-          value={emblem?.アイテム名 || ''}
+          value={isDebugEmblem ? 'debug' : (emblem?.アイテム名 || '')}
           onChange={handleEmblemChange}
           placeholder="紋章を選択してください"
           disabled={disabled}
@@ -142,8 +173,43 @@ export const EmblemSlot: React.FC<EmblemSlotProps> = ({
         />
       </div>
 
+      {/* デバッグ用入力UI */}
+      {isDebugEmblem && (
+        <div className="p-4 bg-gradient-to-br from-red-900/30 to-orange-900/30 rounded-lg border border-red-700/50">
+          <h4 className="text-sm font-medium text-red-300 mb-3 flex items-center gap-2">
+            <span>🔧</span>
+            デバッグ用%補正入力
+          </h4>
+          <div className="grid grid-cols-2 gap-3">
+            {[
+              { key: 'powerPercent', label: '力%' },
+              { key: 'magicPercent', label: '魔力%' },
+              { key: 'hpPercent', label: '体力%' },
+              { key: 'mindPercent', label: '精神%' },
+              { key: 'agilityPercent', label: '素早さ%' },
+              { key: 'dexPercent', label: '器用%' },
+              { key: 'critDamagePercent', label: '撃力%' },
+              { key: 'defensePercent', label: '守備力%' },
+            ].map(({ key, label }) => (
+              <div key={key}>
+                <label className="block text-xs text-gray-400 mb-1">{label}</label>
+                <input
+                  type="number"
+                  value={debugEmblem?.[key as keyof DebugEmblemStats] || 0}
+                  onChange={(e) => setDebugEmblem({
+                    ...debugEmblem!,
+                    [key]: parseFloat(e.target.value) || 0
+                  })}
+                  className="w-full px-2 py-1 bg-gray-800 border border-gray-600 rounded text-white text-sm"
+                />
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
       {/* 選択中の紋章のステータス表示 */}
-      {emblem && currentEffects.length > 0 && (
+      {!isDebugEmblem && emblem && currentEffects.length > 0 && (
         <div className="mt-4 p-4 bg-glass-light rounded-lg">
           <h4 className="text-sm font-semibold text-amber-300 mb-3">
             ステータス効果（%補正）
@@ -170,7 +236,7 @@ export const EmblemSlot: React.FC<EmblemSlotProps> = ({
       )}
 
       {/* 紋章未選択時のヒント */}
-      {!emblem && (
+      {!emblem && !isDebugEmblem && (
         <div className="text-center py-4 text-gray-500 text-sm">
           <p>紋章を装備すると%ステータス補正を得られます</p>
         </div>

@@ -21,4 +21,6 @@ JobCorrection:
   SpellRefactor:
     Bonus: "1.75 - round(0.475 * ln(max(UserPower, UserMagic) / min(UserPower, UserMagic)), 2) * 2"
 
-FinalDamage: "(HitDamage-(EnemyDefence/2))*(1-(EnemyTypeResistance/100))*(1-(EnemyAttributeResistance/100))"
+DamageBuff: "(1+AttackBuff.<Attack>)*(1+ElementBuff.<Element>)*(1+AllBuff)"
+    
+FinalDamage: "((HitDamage*DamageBuff)-(EnemyDefence/2))*(1-(EnemyTypeResistance/100))*(1-(EnemyAttributeResistance/100))"

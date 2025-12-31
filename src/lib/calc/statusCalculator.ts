@@ -183,6 +183,10 @@ export function calculateStatus(
     const critRate = calculateCritRate(weaponCritRate, userCritRate);
 
     // 結果構築
+    // userPercentBonus（タロット%ボーナス等）も含めたtotalを計算
+    const userPercentBonusStats = input.userPercentBonus || {};
+    const totalBonusPercent = sumStats(sumStats(jobBonusPercent, emblemBonusPercent), userPercentBonusStats);
+
     const result: CalculatedStats = {
       breakdown: {
         equipment,
@@ -196,7 +200,8 @@ export function calculateStatus(
       bonusPercent: {
         job: jobBonusPercent,
         emblem: emblemBonusPercent,
-        total: sumStats(jobBonusPercent, emblemBonusPercent)
+        user: userPercentBonusStats,  // タロット%ボーナス等
+        total: totalBonusPercent
       },
       ring: ringResult,
       final: finalStats,
@@ -504,21 +509,18 @@ export function applyUserPercentBonus(
 /**
  * リング収束計算
  *
- * 基準値 = 装備値 + BaseValue (デフォルト: 40)
- * 1回目: 基準値 + (装備値 * Multiplier) = currentValue (デフォルト Multiplier: 0.1)
- * 2回目以降: 基準値 + round(currentValue * Multiplier) を繰り返し、変化がなくなるまで
+ * 1回目: 初期値 + BaseValue + (初期値 × Multiplier)
+ * 2回目以降: 初期値 + BaseValue + round(前回値 × Multiplier) を収束するまで繰り返す
  *
- * 例: 装備1000の場合（BaseValue=40, Multiplier=0.1）
- *   基準値 = 1000 + 40 = 1040
- *   1回目: 1040 + (1000 * 0.1) = 1040 + 100 = 1140
- *   2回目: 1040 + round(1140 * 0.1) = 1040 + 114 = 1154
- *   3回目: 1040 + round(1154 * 0.1) = 1040 + 115 = 1155
- *   4回目: 1040 + round(1155 * 0.1) = 1040 + 116 = 1156
- *   5回目: 1040 + round(1156 * 0.1) = 1040 + 116 = 1156 (収束)
+ * 例: 現在の力が100の場合（BaseValue=40, Multiplier=0.1）
+ *   1回目: 100 + 40 + 10 = 150
+ *   2回目: 100 + 40 + round(150 × 0.1) = 100 + 40 + 15 = 155
+ *   3回目: 100 + 40 + round(155 × 0.1) = 100 + 40 + 16 = 156
+ *   4回目: 100 + 40 + round(156 × 0.1) = 100 + 40 + 16 = 156 (収束！)
  *
  * @param base 基礎ステータス（%補正適用後）
  * @param ringType リング種類（power/magic/speed）
- * @param equipmentTotal 装備合計ステータス
+ * @param equipmentTotal 装備合計ステータス（互換性のため残すが未使用）
  * @param maxIterations 最大反復回数（デフォルト: 100）
  * @param userStatusFormulas YAMLから読み込んだ計算式（オプション）
  * @returns 収束結果
@@ -534,11 +536,11 @@ export function applyRingConvergenceAdditive(
   const targetStatKey = ringType === 'power' ? 'Power' :
                         ringType === 'magic' ? 'Magic' : 'Agility';
 
-  // 装備ステータスの対象値を取得
-  const equipValue = (equipmentTotal as any)[targetStatKey] || 0;
+  // 基礎ステータスの対象値を取得（初期値）
+  const initialValue = (base as any)[targetStatKey] || 0;
 
-  // 装備ステータスが0以下の場合は何もしない
-  if (equipValue <= 0) {
+  // 基礎ステータスが0以下の場合は何もしない
+  if (initialValue <= 0) {
     return {
       final: cloneStats(base),
       iterations: 0,
@@ -553,36 +555,32 @@ export function applyRingConvergenceAdditive(
   const ringBaseValue = userStatusFormulas?.RingConvergence?.BaseValue ?? 40;
   const ringMultiplier = userStatusFormulas?.RingConvergence?.Multiplier ?? 0.1;
 
-  // 基準値 = 装備値 + BaseValue
-  const baseRingValue = equipValue + ringBaseValue;
-
-  // 1回目: 基準値 + (装備値 * Multiplier)
-  let currentValue = baseRingValue + equipValue * ringMultiplier;
+  // 1回目: 初期値 + BaseValue + (初期値 × Multiplier)
+  let previousValue = initialValue + ringBaseValue + (initialValue * ringMultiplier);
   iterations++;
 
-  // 2回目以降: 基準値 + round(currentValue * Multiplier) を繰り返し
+  // 2回目以降: 初期値 + BaseValue + round(前回値 × Multiplier) を収束するまで繰り返す
   for (let i = 0; i < maxIterations; i++) {
-    const nextValue = baseRingValue + round(currentValue * ringMultiplier);
+    const nextValue = initialValue + ringBaseValue + round(previousValue * ringMultiplier);
     iterations++;
 
-    // 変化がなければ収束
-    if (nextValue === Math.floor(currentValue)) {
-      currentValue = nextValue;
+    // 前回値と同じになったら収束
+    if (nextValue === Math.floor(previousValue)) {
+      previousValue = nextValue;
       break;
     }
-    currentValue = nextValue;
+    previousValue = nextValue;
   }
 
-  // リング効果（最終値）を整数化
-  const ringValue = Math.floor(currentValue);
+  // 最終値を整数化
+  const finalValue = Math.floor(previousValue);
 
-  // リング効果を基礎ステータスに加算
-  const baseValue = (current as any)[targetStatKey] || 0;
-  (current as any)[targetStatKey] = baseValue + ringValue;
+  // リング効果を基礎ステータスに設定（置換）
+  (current as any)[targetStatKey] = finalValue;
 
-  // 変化量を計算
+  // 変化量を計算（最終値 - 初期値）
   const delta: StatBlock = {};
-  (delta as any)[targetStatKey] = ringValue;
+  (delta as any)[targetStatKey] = finalValue - initialValue;
 
   return {
     final: current,

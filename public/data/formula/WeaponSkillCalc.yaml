@@ -29,65 +29,14 @@ WeaponSkills:
 
   # 例: 炎系の剣
   FlameSwordSkill:
-    Name: "炎剣の加護"
+    Name: "Test用"
     WeaponNames: ["炎剣", "フレイムソード", "灼熱の剣"]
     Buffs:
       Power: "ROUND(BaseStatus.Power * SkillLevel * 0.03)"
       CritDamage: "ROUND(BaseStatus.CritDamage * SkillLevel * 0.02)"
     MaxLevel: 10
 
-  # 例: 氷系の剣
-  IceSwordSkill:
-    Name: "氷剣の加護"
-    WeaponNames: ["氷剣", "フロストソード", "凍てつく剣"]
-    Buffs:
-      Magic: "ROUND(BaseStatus.Magic * SkillLevel * 0.025)"
-      Defense: "ROUND(BaseStatus.Defense * SkillLevel * 0.02)"
-    MaxLevel: 10
 
-  # 例: ショートソード系
-  ShortSwordSkill:
-    Name: "剣術の心得"
-    WeaponNames: ["ショートソード", "ロングソード", "ブロードソード"]
-    Buffs:
-      Power: "ROUND(BaseStatus.Power * SkillLevel * 0.02)"
-    MaxLevel: 10
-
-  # 例: 大剣系
-  GreatSwordSkill:
-    Name: "豪剣の心得"
-    WeaponNames: ["グレートソード", "ツヴァイハンダー", "クレイモア"]
-    Buffs:
-      Power: "ROUND(BaseStatus.Power * SkillLevel * 0.035)"
-      HP: "ROUND(BaseStatus.HP * SkillLevel * 0.02)"
-    MaxLevel: 8
-
-  # 例: 弓系
-  BowSkill:
-    Name: "弓術の心得"
-    WeaponNames: ["ショートボウ", "ロングボウ", "コンポジットボウ"]
-    Buffs:
-      Dex: "ROUND(BaseStatus.Dex * SkillLevel * 0.025)"
-      Agility: "ROUND(BaseStatus.Agility * SkillLevel * 0.02)"
-    MaxLevel: 10
-
-  # 例: 杖系
-  WandSkill:
-    Name: "杖術の心得"
-    WeaponNames: ["ウッドワンド", "アイアンワンド", "ミスリルワンド", "マジックワンド"]
-    Buffs:
-      Magic: "ROUND(BaseStatus.Magic * SkillLevel * 0.025)"
-      Mind: "ROUND(BaseStatus.Mind * SkillLevel * 0.02)"
-    MaxLevel: 10
-
-  # 例: 短剣系
-  DaggerSkill:
-    Name: "短剣術の心得"
-    WeaponNames: ["ダガー", "ナイフ", "スティレット"]
-    Buffs:
-      Agility: "ROUND(BaseStatus.Agility * SkillLevel * 0.03)"
-      Speed: "ROUND(BaseStatus.Speed * SkillLevel * 0.025)"
-    MaxLevel: 10
 
 # -----------------------------------------------------------------------------
 # 職業スキル（SP振り分けで解放したスキルを所持時に有効）
@@ -96,7 +45,7 @@ JobSkills:
 
   # ウォーリアー系
   WarriorPowerSkill:
-    Name: "闘志"
+    Name: "Test用"
     JobName: "ウォーリアー"
     RequiredSkills: ["烈刃の円斬撃3"]  # このスキルを解放していれば有効
     Buffs:
@@ -104,98 +53,5 @@ JobSkills:
       HP: "ROUND(BaseStatus.HP * SkillLevel * 0.015)"
     MaxLevel: 10
 
-  WarriorDefenseSkill:
-    Name: "鉄壁"
-    JobName: "ウォーリアー"
-    RequiredSkills: ["鎧崩し"]
-    Buffs:
-      Defense: "ROUND(BaseStatus.Defense * SkillLevel * 0.025)"
-    MaxLevel: 10
-
-  WarriorAdvancedSkill:
-    Name: "覇王の力"
-    JobName: "ウォーリアー"
-    RequiredSkills: ["覇王の獄炎斬"]
-    Buffs:
-      Power: "ROUND(BaseStatus.Power * SkillLevel * 0.04)"
-      CritDamage: "ROUND(BaseStatus.CritDamage * SkillLevel * 0.03)"
-    MaxLevel: 10
-
-  # ナイト系
-  KnightGuardSkill:
-    Name: "騎士の守護"
-    JobName: "ナイト"
-    RequiredSkills: ["シールドバッシュ"]
-    Buffs:
-      Defense: "ROUND(BaseStatus.Defense * SkillLevel * 0.03)"
-      HP: "ROUND(BaseStatus.HP * SkillLevel * 0.02)"
-    MaxLevel: 10
-
-  # ハンター系
-  HunterAgilitySkill:
-    Name: "俊敏"
-    JobName: "ハンター"
-    RequiredSkills: ["チャージショット"]
-    Buffs:
-      Agility: "ROUND(BaseStatus.Agility * SkillLevel * 0.03)"
-      Dex: "ROUND(BaseStatus.Dex * SkillLevel * 0.02)"
-    MaxLevel: 10
-
-  # レンジャー系
-  RangerSpeedSkill:
-    Name: "疾風の足"
-    JobName: "レンジャー"
-    RequiredSkills: ["スナイプショット"]
-    Buffs:
-      Speed: "ROUND(BaseStatus.Speed * SkillLevel * 0.025)"
-      Agility: "ROUND(BaseStatus.Agility * SkillLevel * 0.02)"
-    MaxLevel: 10
-
-  # ウィザード系
-  WizardMagicSkill:
-    Name: "魔力増幅"
-    JobName: "ウィザード"
-    RequiredSkills: ["ファイアボール"]
-    Buffs:
-      Magic: "ROUND(BaseStatus.Magic * SkillLevel * 0.025)"
-    MaxLevel: 10
-
-  WizardAdvancedSkill:
-    Name: "大魔導の叡智"
-    JobName: "ウィザード"
-    RequiredSkills: ["メテオストライク"]
-    Buffs:
-      Magic: "ROUND(BaseStatus.Magic * SkillLevel * 0.04)"
-      Mind: "ROUND(BaseStatus.Mind * SkillLevel * 0.025)"
-    MaxLevel: 10
-
-  # クレリック系
-  ClericMindSkill:
-    Name: "精神集中"
-    JobName: "クレリック"
-    RequiredSkills: ["ヒール"]
-    Buffs:
-      Mind: "ROUND(BaseStatus.Mind * SkillLevel * 0.03)"
-      HP: "ROUND(BaseStatus.HP * SkillLevel * 0.015)"
-    MaxLevel: 10
-
-  # プリースト系
-  PriestHolySkill:
-    Name: "聖なる加護"
-    JobName: "プリースト"
-    RequiredSkills: ["ハイヒール"]
-    Buffs:
-      Mind: "ROUND(BaseStatus.Mind * SkillLevel * 0.035)"
-      Defense: "ROUND(BaseStatus.Defense * SkillLevel * 0.02)"
-    MaxLevel: 10
-
-  # ガーディアン系
-  GuardianFortressSkill:
-    Name: "不落の砦"
-    JobName: "ガーディアン"
-    RequiredSkills: ["フォートレス"]
-    Buffs:
-      Defense: "ROUND(BaseStatus.Defense * SkillLevel * 0.04)"
-      HP: "ROUND(BaseStatus.HP * SkillLevel * 0.03)"
-    MaxLevel: 10
+ 
 

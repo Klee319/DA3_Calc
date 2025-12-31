@@ -128,7 +128,7 @@ export function DamageCalculationSection() {
   const [subTab, setSubTab] = useState<DamageSubTab>('normal');
 
   // ストアから必要なデータを取得
-  const { currentBuild, calculatedStats, weaponStats: storeWeaponStats, enemyStats } = useBuildStore();
+  const { currentBuild, calculatedStats, weaponStats: storeWeaponStats, enemyStats, tarotBonusStats, attackElement, setAttackElement } = useBuildStore();
 
   // 現在の職業名をYAML形式に変換
   const jobName = currentBuild.job ? convertJobNameToYAML(currentBuild.job.id) : null;
@@ -170,47 +170,52 @@ export function DamageCalculationSection() {
   }, []);
 
   /**
-   * 武器のステータスを取得する
+   * 武器のステータスを取得する（タロットボーナス込み）
    */
   const getWeaponStats = useCallback((): ExtendedWeaponStats => {
+    // タロットからの武器ステータスボーナス
+    const tarotCritRate = tarotBonusStats?.CritR || 0;
+    const tarotCritDamage = tarotBonusStats?.CritD || 0;
+    const tarotAttackP = tarotBonusStats?.AttackP || 0;
+
     if (storeWeaponStats) {
       return {
-        attackPower: storeWeaponStats.attackPower || 0,
-        magicPower: storeWeaponStats.attackPower || 0,
-        critRate: storeWeaponStats.critRate || 0,
-        critDamage: storeWeaponStats.critDamage || 0,
+        attackPower: (storeWeaponStats.attackPower || 0) + tarotAttackP,
+        magicPower: (storeWeaponStats.attackPower || 0) + tarotAttackP,
+        critRate: (storeWeaponStats.critRate || 0) + tarotCritRate,
+        critDamage: (storeWeaponStats.critDamage || 0) + tarotCritDamage,
       };
     }
 
     const weapon = currentBuild.equipment.weapon;
     if (!weapon) {
-      return { attackPower: 0, magicPower: 0, critRate: 0, critDamage: 0 };
+      return { attackPower: tarotAttackP, magicPower: tarotAttackP, critRate: tarotCritRate, critDamage: tarotCritDamage };
     }
 
-    let attackPower = 0;
-    let magicPower = 0;
-    let critRate = 0;
-    let critDamage = 0;
+    let attackPower = tarotAttackP;
+    let magicPower = tarotAttackP;
+    let critRate = tarotCritRate;
+    let critDamage = tarotCritDamage;
 
     for (const effect of weapon.baseStats) {
       switch (effect.stat) {
         case 'ATK':
-          attackPower = effect.value;
+          attackPower += effect.value;
           break;
         case 'MATK':
-          magicPower = effect.value;
+          magicPower += effect.value;
           break;
         case 'CRI':
-          critRate = effect.value;
+          critRate += effect.value;
           break;
         case 'DEX':
-          critDamage = effect.value;
+          critDamage += effect.value;
           break;
       }
     }
 
     return { attackPower, magicPower, critRate, critDamage };
-  }, [storeWeaponStats, currentBuild.equipment.weapon]);
+  }, [storeWeaponStats, currentBuild.equipment.weapon, tarotBonusStats]);
 
   /**
    * ユーザーステータスをStatBlock形式に変換
@@ -232,6 +237,29 @@ export function DamageCalculationSection() {
   }, [calculatedStats.total]);
 
   /**
+   * タロットダメージバフ倍率を計算
+   * 計算式: (1 + AttackBuff.<Attack>/100) * (1 + ElementBuff.<Element>/100) * (1 + AllBuff/100)
+   */
+  const getTarotDamageBuffMultiplier = useCallback((isPhysical: boolean): number => {
+    if (!tarotBonusStats) return 1;
+
+    // 攻撃種別バフ（物理 or 魔法）
+    const attackBuff = isPhysical
+      ? (tarotBonusStats['AttackBuff.Physical'] || 0)
+      : (tarotBonusStats['AttackBuff.Magic'] || 0);
+
+    // 全ダメージバフ
+    const allBuff = tarotBonusStats.AllBuff || 0;
+
+    // 属性バフ（選択された攻撃属性に基づく）
+    const elementBuffKey = `ElementBuff.${attackElement}` as keyof typeof tarotBonusStats;
+    const elementBuff = (tarotBonusStats[elementBuffKey] as number) || 0;
+
+    // 乗算合成: (1 + attackBuff%) * (1 + elementBuff%) * (1 + allBuff%)
+    return (1 + attackBuff / 100) * (1 + elementBuff / 100) * (1 + allBuff / 100);
+  }, [tarotBonusStats, attackElement]);
+
+  /**
    * ダメージ計算を実行
    */
   const damageResult = useMemo<DamageCalculationResult | null>(() => {
@@ -248,8 +276,9 @@ export function DamageCalculationSection() {
       const weaponStats = getWeaponStats();
       const userStats = getUserStats();
 
-      // 武器のダメージ補正（CSVの値、例: 80 = 80%）
-      const baseDamageCorrection = (storeWeaponStats?.damageCorrection || 100) / 100;
+      // 武器のダメージ補正（CSVの値、例: 80 = 80%）+ タロットのダメージ補正
+      const tarotDamageC = tarotBonusStats?.DamageC || 0;
+      const baseDamageCorrection = ((storeWeaponStats?.damageCorrection || 100) + tarotDamageC) / 100;
 
       // ダメージ補正の範囲（武器のダメージ補正 ~ 100%）
       const correctionMin = baseDamageCorrection;
@@ -295,10 +324,18 @@ export function DamageCalculationSection() {
       const expectedDamageAtMaxCorrection = nonCritDamage * (1 - critRateDecimal) + maxDamage * critRateDecimal;
 
       // 平均ダメージ補正を適用
-      const expectedDamage = Math.floor(expectedDamageAtMaxCorrection * correctionAvg);
+      const expectedDamageBeforeBuff = Math.floor(expectedDamageAtMaxCorrection * correctionAvg);
 
-      // 基礎ダメージ（敵パラメータ未適用）
-      const baseMaxDamage = Math.floor(maxDamage);
+      // 武器種から物理/魔法を判定（杖は魔法、それ以外は物理）
+      const isPhysical = weaponType !== 'Wand';
+
+      // タロットダメージバフ倍率を取得・適用
+      const tarotBuffMultiplier = getTarotDamageBuffMultiplier(isPhysical);
+      const maxDamageWithBuff = Math.floor(maxDamage * tarotBuffMultiplier);
+      const expectedDamage = Math.floor(expectedDamageBeforeBuff * tarotBuffMultiplier);
+
+      // 基礎ダメージ（敵パラメータ未適用、タロットバフ適用後）
+      const baseMaxDamage = maxDamageWithBuff;
       const baseExpectedDamage = expectedDamage;
 
       // 敵パラメータの取得
@@ -361,6 +398,8 @@ export function DamageCalculationSection() {
     getUserStats,
     jobName,
     enemyStats,
+    getTarotDamageBuffMultiplier,
+    tarotBonusStats,
   ]);
 
   // 読み込み中の表示
@@ -519,6 +558,31 @@ export function DamageCalculationSection() {
                   </div>
                 </div>
               )}
+
+              {/* 攻撃属性選択 */}
+              <div className="p-3 bg-glass-dark/50 rounded-lg mb-3">
+                <div className="flex items-center gap-3">
+                  <span className="text-sm text-gray-400">攻撃属性:</span>
+                  <select
+                    value={attackElement}
+                    onChange={(e) => setAttackElement(e.target.value as typeof attackElement)}
+                    className="px-3 py-1.5 bg-gray-700 border border-gray-600 rounded text-white text-sm"
+                  >
+                    <option value="None">無</option>
+                    <option value="Light">光</option>
+                    <option value="Dark">闇</option>
+                    <option value="Wind">風</option>
+                    <option value="Fire">炎</option>
+                    <option value="Water">水</option>
+                    <option value="Thunder">雷</option>
+                  </select>
+                  {tarotBonusStats && (tarotBonusStats[`ElementBuff.${attackElement}` as keyof typeof tarotBonusStats] as number) > 0 && (
+                    <span className="text-xs text-purple-400">
+                      (タロット属性バフ: +{tarotBonusStats[`ElementBuff.${attackElement}` as keyof typeof tarotBonusStats]}%)
+                    </span>
+                  )}
+                </div>
+              </div>
 
               {/* 補足情報 */}
               <div className="p-3 bg-glass-dark/50 rounded-lg">

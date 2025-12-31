@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useMemo, useEffect } from 'react';
-import { Equipment, EquipSlot, SmithingCounts, SmithingParamType, StatType } from '@/types';
+import { Equipment, EquipSlot, SmithingCounts, SmithingParamType, StatType, DebugWeaponStats, DebugArmorStats, DebugAccessoryStats } from '@/types';
 import { ArmorData, EqConstData } from '@/types/data';
 import { Toggle } from '@/components/ui/Toggle';
 import { NumberInput } from '@/components/ui/NumberInput';
@@ -61,7 +61,6 @@ const EX_STAT_OPTIONS = [
   { value: 'speed', label: '素早さ', category: 'Speed_CritD' as const },
   { value: 'dex', label: '器用', category: 'CritR' as const },
   { value: 'critDamage', label: '撃力', category: 'Speed_CritD' as const },
-  { value: 'defense', label: '守備力', category: 'Other' as const },
 ];
 
 // EX値計算のカテゴリ型
@@ -378,6 +377,32 @@ export const EquipmentSlot: React.FC<EquipmentSlotProps> = ({
   const remainingSmithingCount = useMemo(() => {
     return MAX_TOTAL_SMITHING_COUNT - totalSmithingCount;
   }, [totalSmithingCount]);
+
+  // デバッグ用ステータス更新ハンドラ
+  const handleDebugStatChange = (stat: string, value: number) => {
+    if (!equipment?.isDebug) return;
+
+    const updatedEquipment = { ...equipment };
+
+    if (slot === 'weapon' && updatedEquipment.debugWeaponStats) {
+      updatedEquipment.debugWeaponStats = {
+        ...updatedEquipment.debugWeaponStats,
+        [stat]: value || 0
+      };
+    } else if (['head', 'body', 'leg'].includes(slot) && updatedEquipment.debugArmorStats) {
+      updatedEquipment.debugArmorStats = {
+        ...updatedEquipment.debugArmorStats,
+        [stat]: value || 0
+      };
+    } else if (['accessory1', 'accessory2'].includes(slot) && updatedEquipment.debugAccessoryStats) {
+      updatedEquipment.debugAccessoryStats = {
+        ...updatedEquipment.debugAccessoryStats,
+        [stat]: value || 0
+      };
+    }
+
+    onEquipmentChange(updatedEquipment);
+  };
 
   const getSlotDisplayName = (): string => {
     const slotNames: Record<EquipSlot, string> = {
@@ -755,11 +780,31 @@ export const EquipmentSlot: React.FC<EquipmentSlotProps> = ({
                       eq.baseStats.map(s => `${s.stat}+${s.value}${s.isPercent ? '%' : ''}`).join(', ')
                     : armorType && availableArmorTypes.length <= 1 ? `[${armorType}]` : undefined,
                 };
-              })
+              }),
+              // デバッグ用オプションを一番下に追加
+              { value: 'debug', label: '(デバッグ用)', description: 'ステータスを直接入力' },
             ]}
-            value={equipment?.id || ''}
+            value={equipment?.isDebug ? 'debug' : (equipment?.id || '')}
             onChange={(value) => {
-              if (value === '') {
+              if (value === 'debug') {
+                const debugEquipment: Equipment = {
+                  id: `debug-${slot}`,
+                  name: '(デバッグ用)',
+                  slot: slot,
+                  baseStats: [],
+                  isDebug: true,
+                  debugWeaponStats: slot === 'weapon' ? {
+                    attackPower: 0, critRate: 0, critDamage: 0, damageCorrection: 0, coolTime: 0
+                  } : undefined,
+                  debugArmorStats: ['head', 'body', 'leg'].includes(slot) ? {
+                    power: 0, magic: 0, hp: 0, mind: 0, agility: 0, dex: 0, critDamage: 0, defense: 0
+                  } : undefined,
+                  debugAccessoryStats: ['accessory1', 'accessory2'].includes(slot) ? {
+                    power: 0, magic: 0, hp: 0, mind: 0, agility: 0, critDamage: 0
+                  } : undefined
+                };
+                onEquipmentChange(debugEquipment);
+              } else if (value === '') {
                 onEquipmentChange(null);
               } else {
                 const equipmentList = isArmorSlot ? filteredEquipmentByType : availableEquipment;
@@ -779,7 +824,119 @@ export const EquipmentSlot: React.FC<EquipmentSlotProps> = ({
 
       {equipment && (
         <>
-          {/* 基本カスタマイズ */}
+          {/* デバッグ用ステータス入力UI */}
+          {equipment?.isDebug && (
+            <div className="space-y-4 p-4 bg-gradient-to-br from-red-900/30 to-orange-900/30 rounded-lg border border-red-700/50 mb-6">
+              <h4 className="text-sm font-medium text-red-300 flex items-center gap-2">
+                <span>DEBUG</span>
+                デバッグ用ステータス入力
+              </h4>
+
+              {/* 武器用入力 */}
+              {slot === 'weapon' && equipment.debugWeaponStats && (
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-xs text-gray-400 mb-1">攻撃力</label>
+                    <input
+                      type="number"
+                      value={equipment.debugWeaponStats.attackPower}
+                      onChange={(e) => handleDebugStatChange('attackPower', parseInt(e.target.value) || 0)}
+                      className="w-full px-2 py-1 bg-gray-800 border border-gray-600 rounded text-white text-sm"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs text-gray-400 mb-1">会心率</label>
+                    <input
+                      type="number"
+                      value={equipment.debugWeaponStats.critRate}
+                      onChange={(e) => handleDebugStatChange('critRate', parseInt(e.target.value) || 0)}
+                      className="w-full px-2 py-1 bg-gray-800 border border-gray-600 rounded text-white text-sm"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs text-gray-400 mb-1">会心ダメージ</label>
+                    <input
+                      type="number"
+                      value={equipment.debugWeaponStats.critDamage}
+                      onChange={(e) => handleDebugStatChange('critDamage', parseInt(e.target.value) || 0)}
+                      className="w-full px-2 py-1 bg-gray-800 border border-gray-600 rounded text-white text-sm"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs text-gray-400 mb-1">ダメージ補正</label>
+                    <input
+                      type="number"
+                      value={equipment.debugWeaponStats.damageCorrection}
+                      onChange={(e) => handleDebugStatChange('damageCorrection', parseInt(e.target.value) || 0)}
+                      className="w-full px-2 py-1 bg-gray-800 border border-gray-600 rounded text-white text-sm"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs text-gray-400 mb-1">CT</label>
+                    <input
+                      type="number"
+                      value={equipment.debugWeaponStats.coolTime}
+                      onChange={(e) => handleDebugStatChange('coolTime', parseInt(e.target.value) || 0)}
+                      className="w-full px-2 py-1 bg-gray-800 border border-gray-600 rounded text-white text-sm"
+                    />
+                  </div>
+                </div>
+              )}
+
+              {/* 防具用入力 */}
+              {['head', 'body', 'leg'].includes(slot) && equipment.debugArmorStats && (
+                <div className="grid grid-cols-2 gap-3">
+                  {[
+                    { key: 'power', label: '力' },
+                    { key: 'magic', label: '魔力' },
+                    { key: 'hp', label: '体力' },
+                    { key: 'mind', label: '精神' },
+                    { key: 'agility', label: '素早さ' },
+                    { key: 'dex', label: '器用' },
+                    { key: 'critDamage', label: '撃力' },
+                    { key: 'defense', label: '守備力' },
+                  ].map(({ key, label }) => (
+                    <div key={key}>
+                      <label className="block text-xs text-gray-400 mb-1">{label}</label>
+                      <input
+                        type="number"
+                        value={(equipment.debugArmorStats as unknown as Record<string, number>)[key]}
+                        onChange={(e) => handleDebugStatChange(key, parseInt(e.target.value) || 0)}
+                        className="w-full px-2 py-1 bg-gray-800 border border-gray-600 rounded text-white text-sm"
+                      />
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {/* アクセサリー用入力 */}
+              {['accessory1', 'accessory2'].includes(slot) && equipment.debugAccessoryStats && (
+                <div className="grid grid-cols-2 gap-3">
+                  {[
+                    { key: 'power', label: '力' },
+                    { key: 'magic', label: '魔力' },
+                    { key: 'hp', label: '体力' },
+                    { key: 'mind', label: '精神' },
+                    { key: 'agility', label: '素早さ' },
+                    { key: 'critDamage', label: '撃力' },
+                  ].map(({ key, label }) => (
+                    <div key={key}>
+                      <label className="block text-xs text-gray-400 mb-1">{label}</label>
+                      <input
+                        type="number"
+                        value={(equipment.debugAccessoryStats as unknown as Record<string, number>)[key]}
+                        onChange={(e) => handleDebugStatChange(key, parseInt(e.target.value) || 0)}
+                        className="w-full px-2 py-1 bg-gray-800 border border-gray-600 rounded text-white text-sm"
+                      />
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* 基本カスタマイズ（通常装備の場合のみ表示） */}
+          {!equipment?.isDebug && (
           <div className="space-y-4">
             {/* ランク選択 */}
             <div>
@@ -1044,8 +1201,10 @@ export const EquipmentSlot: React.FC<EquipmentSlotProps> = ({
               </div>
             )}
           </div>
+          )}
 
-          {/* 拡張設定（EX選択など） - 常に表示 */}
+          {/* 拡張設定（EX選択など） - 常に表示（通常装備の場合のみ） */}
+          {!equipment?.isDebug && (
           <div className="mt-6 pt-6 border-t border-white/10 space-y-4">
             <h4 className="text-sm font-semibold text-gray-300 mb-3">拡張設定</h4>
 
@@ -1175,9 +1334,10 @@ export const EquipmentSlot: React.FC<EquipmentSlotProps> = ({
                 </div>
               )}
           </div>
+          )}
 
-          {/* 装備ステータス表示 - showAdvancedSettingsで制御 */}
-          {showAdvancedSettings && equipment.baseStats && equipment.baseStats.length > 0 && (
+          {/* 装備ステータス表示 - showAdvancedSettingsで制御（通常装備の場合のみ） */}
+          {!equipment?.isDebug && showAdvancedSettings && equipment.baseStats && equipment.baseStats.length > 0 && (
             <div className="mt-6 p-4 bg-glass-light rounded-lg">
               <h4 className="text-sm font-semibold text-gray-300 mb-3">
                 装備ステータス

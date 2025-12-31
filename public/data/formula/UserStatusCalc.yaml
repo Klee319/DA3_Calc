@@ -1,6 +1,6 @@
 UserStatusFormula:
 
-  BaseStatus: "(SumEquipment.<Stat> + Job.Initial.<Stat> * <JobLevel> + Job.SP.<Stat> + Food.<Stat> + UserOption.<Stat>) * (1 + Job.Bonus.<Stat>/100 + Emblem.Bonus.<Stat>/100)"
+  BaseStatus: "(SumEquipment.<Stat> + Job.Initial.<Stat> * <JobLevel> + Job.SP.<Stat> + Food.<Stat> + UserOption.<Stat>) * (1 + Job.Bonus.<Stat>/100 + Emblem.Bonus.<Stat>/100 + Tarot.Bonus.<Stat>/100)"
 
   Components:
 
@@ -20,15 +20,18 @@ UserStatusFormula:
 
     Emblem:
       Bonus: "Emblem.Bonus.<Stat>"
+    
+    Tarot:
+      Bonus: "Tarot.Bonus.<Stat>"
 
 EquipmentStatusFormula:
 
     Weapon:
-      CritR: "Initial.CritR + Rank.Bonus.CritR + Rank.Alchemy.CritR + Reinforcement.CritR * <ReinforcementLevel> + Forge.CritR * <ForgeCritRAmount>"
-      CritD: "Initial.CritD + Rank.Bonus.CritD + Rank.Alchemy.CritD + Reinforcement.CritD * <ReinforcementLevel> + Forge.CritD * <ForgeCritDAmount>"
-      AttackP: "ROUNDUP( Initial.AttackP + AvailableLv * (Rank.Bonus.AttackP / Denominator) ) + Rank.Alchemy.AttackP + Reinforcement.AttackP * <ReinforcementLevel> + Forge.AttackP * <ForgeAttackPAmount>"
-      DamageC: "Initial.DamageC + Rank.Bonus.DamageC"
-      CoolT: "Initial.CoolT + Rank.Bonus.CoolT"
+      CritR: "Initial.CritR + Rank.Bonus.CritR + Rank.Alchemy.CritR + Reinforcement.CritR * <ReinforcementLevel> + Forge.CritR * <ForgeCritRAmount> + Tarot.Bonus.CritR"
+      CritD: "Initial.CritD + Rank.Bonus.CritD + Rank.Alchemy.CritD + Reinforcement.CritD * <ReinforcementLevel> + Forge.CritD * <ForgeCritDAmount> + Tarot.Bonus.CritD"
+      AttackP: "ROUNDUP( Initial.AttackP + AvailableLv * (Rank.Bonus.AttackP / Denominator) ) + Rank.Alchemy.AttackP + Reinforcement.AttackP * <ReinforcementLevel> + Forge.AttackP * <ForgeAttackPAmount> + Tarot.Bonus.AttackP"
+      DamageC: "Initial.DamageC + Rank.Bonus.DamageC + Tarot.Bonus.DamageC"
+      CoolT: "Initial.CoolT + Rank.Bonus.CoolT + Tarot.Bonus.CoolT"
 
     Armor:
       MainStatus: "ROUND( (Initial.<Stat> + Forge.<Stat> * <ForgeCount>) * (1 + (Initial.<Stat> + Forge.<Stat> * <ForgeCount>)^0.2 * (Bonus.Rank / AvailableLv)) )"

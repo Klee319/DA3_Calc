@@ -62,6 +62,9 @@ export function SkillCalculationSection({ embedded = false }: SkillCalculationSe
     setSelectedSkillId,
     setSkillLevel,
     setCustomHits,
+    attackElement,
+    setAttackElement,
+    tarotBonusStats,
   } = useBuildStore();
 
   // データ読み込み状態
@@ -215,18 +218,22 @@ export function SkillCalculationSection({ embedded = false }: SkillCalculationSe
     }
   }, [selectedSkillId, availableSkills]);
 
-  // 武器ステータス取得
+  // 武器ステータス取得（タロットボーナス込み）
   const weaponStats = useMemo((): WeaponStats => {
+    const tarotAttackP = tarotBonusStats?.AttackP || 0;
+    const tarotCritRate = tarotBonusStats?.CritR || 0;
+    const tarotCritDamage = tarotBonusStats?.CritD || 0;
+
     if (storeWeaponStats) {
       return {
-        attackPower: storeWeaponStats.attackPower || 0,
-        magicPower: storeWeaponStats.attackPower || 0,
-        critRate: storeWeaponStats.critRate || 0,
-        critDamage: storeWeaponStats.critDamage || 0,
+        attackPower: (storeWeaponStats.attackPower || 0) + tarotAttackP,
+        magicPower: (storeWeaponStats.attackPower || 0) + tarotAttackP,
+        critRate: (storeWeaponStats.critRate || 0) + tarotCritRate,
+        critDamage: (storeWeaponStats.critDamage || 0) + tarotCritDamage,
       };
     }
-    return { attackPower: 0, magicPower: 0, critRate: 0, critDamage: 0 };
-  }, [storeWeaponStats]);
+    return { attackPower: tarotAttackP, magicPower: tarotAttackP, critRate: tarotCritRate, critDamage: tarotCritDamage };
+  }, [storeWeaponStats, tarotBonusStats]);
 
   // ユーザーステータス取得
   const userStats = useMemo((): StatBlock => {
@@ -511,6 +518,33 @@ export function SkillCalculationSection({ embedded = false }: SkillCalculationSe
             placeholder="ヒット数を入力"
             className="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-lg text-white"
           />
+        </div>
+      )}
+
+      {/* 攻撃属性選択 */}
+      {selectedSkill && (
+        <div className="mb-4 p-3 bg-glass-dark/50 rounded-lg">
+          <div className="flex items-center gap-3">
+            <span className="text-sm text-gray-400">攻撃属性:</span>
+            <select
+              value={attackElement}
+              onChange={(e) => setAttackElement(e.target.value as typeof attackElement)}
+              className="px-3 py-1.5 bg-gray-700 border border-gray-600 rounded text-white text-sm"
+            >
+              <option value="None">無</option>
+              <option value="Light">光</option>
+              <option value="Dark">闇</option>
+              <option value="Wind">風</option>
+              <option value="Fire">炎</option>
+              <option value="Water">水</option>
+              <option value="Thunder">雷</option>
+            </select>
+            {tarotBonusStats && (tarotBonusStats[`ElementBuff.${attackElement}` as keyof typeof tarotBonusStats] as number) > 0 && (
+              <span className="text-xs text-purple-400">
+                (タロット属性バフ: +{tarotBonusStats[`ElementBuff.${attackElement}` as keyof typeof tarotBonusStats]}%)
+              </span>
+            )}
+          </div>
         </div>
       )}
 

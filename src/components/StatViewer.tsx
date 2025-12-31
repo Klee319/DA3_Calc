@@ -3,10 +3,12 @@
 import React, { useState } from 'react';
 import { CalculatedStats, StatType, ResistanceData } from '@/types';
 import { Tooltip } from '@/components/ui/Tooltip';
+import type { TarotBonusStats } from '@/types/data';
 
 interface StatViewerProps {
   stats: CalculatedStats;
   resistance?: ResistanceData;
+  damageBuff?: TarotBonusStats;
   className?: string;
   showBreakdown?: boolean;
 }
@@ -162,6 +164,7 @@ const StatCard: React.FC<StatCardProps> = ({
 export const StatViewer: React.FC<StatViewerProps> = ({
   stats,
   resistance,
+  damageBuff,
   className = '',
   showBreakdown = false,
 }) => {
@@ -499,6 +502,101 @@ export const StatViewer: React.FC<StatViewerProps> = ({
                   </span>
                 </div>
               </Tooltip>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* ダメージバフ表示 */}
+      <div className="mt-6 p-4 bg-gray-50 dark:bg-gray-800 rounded-lg">
+        <h4 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-3">
+          ダメージバフ
+        </h4>
+        <div className="space-y-4">
+          {/* 攻撃タイプバフ */}
+          <div>
+            <h5 className="text-xs font-medium text-gray-500 dark:text-gray-400 mb-2">攻撃タイプ</h5>
+            <div className="grid grid-cols-3 gap-4">
+              <div className="flex items-center justify-between p-2 bg-white dark:bg-gray-700 rounded border border-gray-200 dark:border-gray-600">
+                <span className="text-gray-600 dark:text-gray-300">全ダメージ</span>
+                <span className={`font-semibold ${(damageBuff?.AllBuff || 0) > 0 ? 'text-orange-600 dark:text-orange-400' : 'text-gray-500 dark:text-gray-400'}`}>
+                  {damageBuff?.AllBuff || 0}%
+                </span>
+              </div>
+              <div className="flex items-center justify-between p-2 bg-white dark:bg-gray-700 rounded border border-gray-200 dark:border-gray-600">
+                <span className="text-gray-600 dark:text-gray-300">物理</span>
+                <span className={`font-semibold ${(damageBuff?.['AttackBuff.Physical'] || 0) > 0 ? 'text-red-600 dark:text-red-400' : 'text-gray-500 dark:text-gray-400'}`}>
+                  {damageBuff?.['AttackBuff.Physical'] || 0}%
+                </span>
+              </div>
+              <div className="flex items-center justify-between p-2 bg-white dark:bg-gray-700 rounded border border-gray-200 dark:border-gray-600">
+                <span className="text-gray-600 dark:text-gray-300">魔法</span>
+                <span className={`font-semibold ${(damageBuff?.['AttackBuff.Magic'] || 0) > 0 ? 'text-purple-600 dark:text-purple-400' : 'text-gray-500 dark:text-gray-400'}`}>
+                  {damageBuff?.['AttackBuff.Magic'] || 0}%
+                </span>
+              </div>
+            </div>
+          </div>
+
+          {/* 属性ダメージバフ */}
+          <div>
+            <h5 className="text-xs font-medium text-gray-500 dark:text-gray-400 mb-2">属性</h5>
+            <div className="grid grid-cols-4 sm:grid-cols-7 gap-2">
+              {/* 炎属性バフ */}
+              <div className="flex flex-col items-center p-2 bg-white dark:bg-gray-700 rounded border border-gray-200 dark:border-gray-600">
+                <span className="text-red-500 dark:text-red-400 text-sm">炎</span>
+                <span className={`text-sm font-semibold ${(damageBuff?.['ElementBuff.Fire'] || 0) > 0 ? 'text-red-600 dark:text-red-400' : 'text-gray-500 dark:text-gray-400'}`}>
+                  {damageBuff?.['ElementBuff.Fire'] || 0}%
+                </span>
+              </div>
+
+              {/* 水属性バフ */}
+              <div className="flex flex-col items-center p-2 bg-white dark:bg-gray-700 rounded border border-gray-200 dark:border-gray-600">
+                <span className="text-blue-500 dark:text-blue-400 text-sm">水</span>
+                <span className={`text-sm font-semibold ${(damageBuff?.['ElementBuff.Water'] || 0) > 0 ? 'text-blue-600 dark:text-blue-400' : 'text-gray-500 dark:text-gray-400'}`}>
+                  {damageBuff?.['ElementBuff.Water'] || 0}%
+                </span>
+              </div>
+
+              {/* 雷属性バフ */}
+              <div className="flex flex-col items-center p-2 bg-white dark:bg-gray-700 rounded border border-gray-200 dark:border-gray-600">
+                <span className="text-yellow-500 dark:text-yellow-400 text-sm">雷</span>
+                <span className={`text-sm font-semibold ${(damageBuff?.['ElementBuff.Thunder'] || 0) > 0 ? 'text-yellow-600 dark:text-yellow-400' : 'text-gray-500 dark:text-gray-400'}`}>
+                  {damageBuff?.['ElementBuff.Thunder'] || 0}%
+                </span>
+              </div>
+
+              {/* 風属性バフ */}
+              <div className="flex flex-col items-center p-2 bg-white dark:bg-gray-700 rounded border border-gray-200 dark:border-gray-600">
+                <span className="text-green-500 dark:text-green-400 text-sm">風</span>
+                <span className={`text-sm font-semibold ${(damageBuff?.['ElementBuff.Wind'] || 0) > 0 ? 'text-green-600 dark:text-green-400' : 'text-gray-500 dark:text-gray-400'}`}>
+                  {damageBuff?.['ElementBuff.Wind'] || 0}%
+                </span>
+              </div>
+
+              {/* 無属性バフ */}
+              <div className="flex flex-col items-center p-2 bg-white dark:bg-gray-700 rounded border border-gray-200 dark:border-gray-600">
+                <span className="text-gray-500 dark:text-gray-400 text-sm">無</span>
+                <span className={`text-sm font-semibold ${(damageBuff?.['ElementBuff.None'] || 0) > 0 ? 'text-gray-600 dark:text-gray-300' : 'text-gray-500 dark:text-gray-400'}`}>
+                  {damageBuff?.['ElementBuff.None'] || 0}%
+                </span>
+              </div>
+
+              {/* 闇属性バフ */}
+              <div className="flex flex-col items-center p-2 bg-white dark:bg-gray-700 rounded border border-gray-200 dark:border-gray-600">
+                <span className="text-purple-700 dark:text-purple-400 text-sm">闇</span>
+                <span className={`text-sm font-semibold ${(damageBuff?.['ElementBuff.Dark'] || 0) > 0 ? 'text-purple-700 dark:text-purple-400' : 'text-gray-500 dark:text-gray-400'}`}>
+                  {damageBuff?.['ElementBuff.Dark'] || 0}%
+                </span>
+              </div>
+
+              {/* 光属性バフ */}
+              <div className="flex flex-col items-center p-2 bg-white dark:bg-gray-700 rounded border border-gray-200 dark:border-gray-600">
+                <span className="text-amber-500 dark:text-amber-400 text-sm">光</span>
+                <span className={`text-sm font-semibold ${(damageBuff?.['ElementBuff.Light'] || 0) > 0 ? 'text-amber-600 dark:text-amber-400' : 'text-gray-500 dark:text-gray-400'}`}>
+                  {damageBuff?.['ElementBuff.Light'] || 0}%
+                </span>
+              </div>
             </div>
           </div>
         </div>

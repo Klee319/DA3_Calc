@@ -9,8 +9,32 @@ const inter = Inter({
 })
 
 export const metadata: Metadata = {
+  metadataBase: new URL('https://klee319.github.io/DA3_Calc_DP'),
   title: 'DA Build Calculator',
-  description: 'Divine Adventure ビルド計算ツール',
+  description: 'Dungeon Adventure ビルド計算ツール',
+  icons: {
+    icon: '/favicon.png',
+    apple: '/favicon.png',
+  },
+  openGraph: {
+    title: 'DA Build Calculator',
+    description: 'Dungeon Adventure ビルド計算ツール',
+    type: 'website',
+    images: [
+      {
+        url: '/favicon.png',
+        width: 128,
+        height: 128,
+        alt: 'DA Build Calculator',
+      },
+    ],
+  },
+  twitter: {
+    card: 'summary',
+    title: 'DA Build Calculator',
+    description: 'Dungeon Adventure ビルド計算ツール',
+    images: ['/favicon.png'],
+  },
 }
 
 export default function RootLayout({

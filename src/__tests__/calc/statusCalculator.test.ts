@@ -188,14 +188,15 @@ describe('statusCalculator', () => {
     it('リング有効時の計算が正しく動作する', () => {
       const input: StatusCalcInput = {
         jobStats: {
-          initial: { STR: 50 },
+          initial: { Power: 50 },
           sp: {},
           bonusPercent: {}
         },
-        equipmentTotal: { STR: 50 },
+        equipmentTotal: { Power: 50 },
         ring: {
           enabled: true,
-          bonusPercent: { STR: 10 }
+          ringType: 'power',
+          equipmentTotal: { Power: 50 }
         },
         weaponCritRate: 0
       };
@@ -208,8 +209,9 @@ describe('statusCalculator', () => {
 
         expect(data.ring).toBeDefined();
         expect(data.ring!.iterations).toBeGreaterThan(0);
-        expect(data.ring!.delta.STR).toBeGreaterThan(0);
-        expect(data.final.STR).toBeGreaterThan(100);
+        expect(data.ring!.delta.Power).toBeGreaterThan(0);
+        // 初期値100（50+50）に対して、リング効果で増加するはず
+        expect(data.final.Power).toBeGreaterThan(100);
       }
     });
 

@@ -34,8 +34,14 @@ import type {
   JobConstData,
   JobSPData,
   UserStatusCalcData,
-  WeaponSkillCalcData
+  WeaponSkillCalcData,
+  TarotCalcData,
+  TarotCardDefinition,
+  TarotSubOptionDefinition,
+  SelectedTarot,
+  TarotBonusStats
 } from "@/types/data";
+import type { DebugEmblemStats, DebugTarotStats } from "@/types";
 
 // 型変換ヘルパー関数
 const convertToUIStats = (calcStats: CalcSystemStats): CalculatedStats => {
@@ -144,6 +150,130 @@ const initialCalculatedStats = (): CalculatedStats => ({
   total: initialStats(),
 });
 
+// タロットステータス計算ヘルパー関数
+// 仕様: タロットステータス変数は、該当のステータスの全ての和とする
+interface TarotCalculationResult {
+  percentBonuses: Record<string, number>;  // ステータス%ボーナス (Talot.Bonus.<Stat>)
+  tarotBonusStats: TarotBonusStats;        // 全タロットステータス
+}
+
+// 初期タロットボーナスステータス
+const initialTarotBonusStats = (): TarotBonusStats => ({
+  Power: 0,
+  Magic: 0,
+  HP: 0,
+  Mind: 0,
+  Agility: 0,
+  Dex: 0,
+  Defense: 0,
+  CritDamage: 0,
+  CritR: 0,
+  CritD: 0,
+  DamageC: 0,
+  AttackP: 0,
+  AllBuff: 0,
+  'AttackBuff.Physical': 0,
+  'AttackBuff.Magic': 0,
+  'ElementBuff.None': 0,
+  'ElementBuff.Light': 0,
+  'ElementBuff.Dark': 0,
+  'ElementBuff.Wind': 0,
+  'ElementBuff.Fire': 0,
+  'ElementBuff.Water': 0,
+  'ElementBuff.Thunder': 0,
+});
+
+const calculateTarotStats = (
+  selectedTarot: SelectedTarot | null,
+  tarotCards: TarotCardDefinition[] | null | undefined,
+  tarotCalcData: TarotCalcData | null | undefined
+): TarotCalculationResult => {
+  const result: TarotCalculationResult = {
+    percentBonuses: {},
+    tarotBonusStats: initialTarotBonusStats(),
+  };
+
+  if (!selectedTarot || !tarotCards || !tarotCalcData) {
+    return result;
+  }
+
+  // カード情報を取得
+  const card = tarotCards.find(c => c.id === selectedTarot.cardId);
+  if (!card) {
+    return result;
+  }
+
+  const constants = tarotCalcData.TarotConstants || { TierInterval: 5, MaxLevel: 20, MaxSubOptionLevel: 5 };
+
+  // メインステータスの値を計算（5レベルごとに上昇）
+  // Lv0-4: tier0 = 1 * increasePerTier（初期値）
+  // Lv5-9: tier1 = 2 * increasePerTier
+  // ...
+  // Lv20: tier4 = 5 * increasePerTier
+  const tier = Math.floor(selectedTarot.level / constants.TierInterval);
+
+  // メインステータスを適切なカテゴリに追加
+  for (const mainStat of card.mainStats) {
+    const mainStatValue = mainStat.increasePerTier * (tier + 1); // tier + 1 でLv0でも初期値が入る
+    addTarotStatValue(result, mainStat.type, mainStatValue);
+  }
+
+  // サブオプションの値を計算
+  if (tarotCalcData.SubOptions) {
+    for (const subOption of selectedTarot.subOptions) {
+      // undefinedチェック
+      if (!subOption || !subOption.optionId) continue;
+
+      const optionDef = tarotCalcData.SubOptions[subOption.optionId];
+      if (!optionDef) continue;
+
+      const subValue = optionDef.ValuePerLevel * subOption.level;
+      addTarotStatValue(result, optionDef.Type, subValue);
+    }
+  }
+
+  return result;
+};
+
+// タロットステータス値を適切なカテゴリに追加
+const addTarotStatValue = (
+  result: TarotCalculationResult,
+  statType: string,
+  value: number
+): void => {
+  // ダメージバフ系
+  if (statType.startsWith('ElementBuff.') || statType.startsWith('AttackBuff.') || statType === 'AllBuff') {
+    const key = statType as keyof TarotBonusStats;
+    if (key in result.tarotBonusStats) {
+      (result.tarotBonusStats[key] as number) += value;
+    }
+  }
+  // 武器関連固定値
+  else if (['CritR', 'CritD', 'DamageC', 'AttackP'].includes(statType)) {
+    const key = statType as keyof TarotBonusStats;
+    (result.tarotBonusStats[key] as number) += value;
+  }
+  // ステータス%ボーナス (Talot.Bonus.<Stat>)
+  else {
+    // 内部キー形式に統一
+    const typeMapping: Record<string, string> = {
+      'Power': 'Power',
+      'Magic': 'Magic',
+      'HP': 'HP',
+      'Mind': 'Mind',
+      'Agility': 'Agility',
+      'Dex': 'Dex',
+      'Defense': 'Defense',
+      'CritDamage': 'CritDamage',
+    };
+    const mappedType = typeMapping[statType] || statType;
+    if (mappedType in result.tarotBonusStats) {
+      (result.tarotBonusStats[mappedType as keyof TarotBonusStats] as number) += value;
+      result.percentBonuses[mappedType] = (result.percentBonuses[mappedType] || 0) + value;
+    }
+  }
+};
+
 // 初期ビルド
 const initialBuild = (): CharacterBuild => ({
   id: "default",
@@ -171,6 +301,9 @@ export interface RingOption {
   enabled: boolean;
   ringType: RingType;  // 選択中のリング種類（レベルの概念なし）
 }
+
+// 攻撃属性の型定義
+export type AttackElement = 'None' | 'Light' | 'Dark' | 'Wind' | 'Fire' | 'Water' | 'Thunder';
 
 // 敵パラメータの型定義
 export interface EnemyStats {
@@ -203,6 +336,17 @@ export interface WeaponStats {
   damageCorrection: number; // ダメージ補正
   coolTime: number;         // クールタイム
   weaponType: string;       // 武器種
+}
+
+// タロットダメージバフの型定義
+export interface TarotDamageBuffs {
+  allDamageBuff: number;       // 全ダメージバフ (%)
+  physicalDamageBuff: number;  // 物理ダメージバフ (%)
+  magicDamageBuff: number;     // 魔法ダメージバフ (%)
+  elementDamageBuff: number;   // 属性ダメージバフ (%)
+  critDamage: number;          // 会心ダメージ (固定値)
+  damageCorrection: number;    // ダメージ補正 (固定値)
+  critRate: number;            // 会心率 (固定値)
 }
 
 // Food の型定義
@@ -263,9 +407,26 @@ interface BuildState {
   // 敵パラメータ
   enemyStats: EnemyStats;
 
+  // 攻撃属性（ダメージ計算用）
+  attackElement: AttackElement;
+
   // 紋章・ルーンストーン選択
   selectedEmblem: EmblemData | null;
   selectedRunestones: RunestoneData[];
+
+  // タロット関連
+  tarotCards: TarotCardDefinition[] | null;
+  tarotCalcData: TarotCalcData | null;
+  selectedTarot: SelectedTarot | null;
+  tarotBonusStats: TarotBonusStats;
+
+  // デバッグ紋章
+  debugEmblem: DebugEmblemStats | null;
+  isDebugEmblem: boolean;
+
+  // デバッグタロット
+  debugTarot: DebugTarotStats | null;
+  isDebugTarot: boolean;
 
   // プリセット
   presets: BuildPreset[];
@@ -286,6 +447,7 @@ interface BuildState {
   toggleFood: (enabled: boolean) => void;
   toggleWeaponSkill: (enabled: boolean) => void;
   setEnemyStats: (stats: EnemyStats) => void;
+  setAttackElement: (element: AttackElement) => void;
 
   // スキル選択アクション
   setSelectedSkillId: (skillId: string | null) => void;
@@ -303,6 +465,17 @@ interface BuildState {
   // 紋章・ルーンストーン設定
   setEmblem: (emblem: EmblemData | null) => void;
   setRunestones: (runestones: RunestoneData[]) => void;
+
+  // タロット設定
+  setTarotCards: (data: TarotCardDefinition[]) => void;
+  setTarotCalcData: (data: TarotCalcData) => void;
+  setSelectedTarot: (tarot: SelectedTarot | null) => void;
+
+  // デバッグ紋章・タロット設定
+  setDebugEmblem: (stats: DebugEmblemStats | null) => void;
+  setIsDebugEmblem: (isDebug: boolean) => void;
+  setDebugTarot: (stats: DebugTarotStats | null) => void;
+  setIsDebugTarot: (isDebug: boolean) => void;
 
   // ゲームデータ設定
   setGameData: (data: {
@@ -355,8 +528,17 @@ export const useBuildStore = create<BuildState>((set, get) => ({
     attackResistance: 0,
     elementResistance: 0,
   },
+  attackElement: 'None',
   selectedEmblem: null,
   selectedRunestones: [],
+  tarotCards: null,
+  tarotCalcData: null,
+  selectedTarot: null,
+  tarotBonusStats: initialTarotBonusStats(),
+  debugEmblem: null,
+  isDebugEmblem: false,
+  debugTarot: null,
+  isDebugTarot: false,
   presets: [],
 
   setJob: (job) => {
@@ -478,6 +660,10 @@ export const useBuildStore = create<BuildState>((set, get) => ({
     set({ enemyStats: stats });
   },
 
+  setAttackElement: (element) => {
+    set({ attackElement: element });
+  },
+
   setAvailableJobs: (jobs) => set({ availableJobs: jobs }),
   setAvailableEquipment: (equipment) => set({ availableEquipment: equipment }),
   setAvailableBuffs: (buffs) => set({ availableBuffs: buffs }),
@@ -495,11 +681,45 @@ export const useBuildStore = create<BuildState>((set, get) => ({
     get().recalculateStats();
   },
 
+  setTarotCards: (data) => {
+    set({ tarotCards: data });
+    get().recalculateStats();
+  },
+
+  setTarotCalcData: (data) => {
+    set({ tarotCalcData: data });
+    get().recalculateStats();
+  },
+
+  setSelectedTarot: (tarot) => {
+    set({ selectedTarot: tarot });
+    get().recalculateStats();
+  },
+
   setGameData: (data) => set({ gameData: data }),
+
+  setDebugEmblem: (stats) => {
+    set({ debugEmblem: stats });
+    get().recalculateStats();
+  },
+  setIsDebugEmblem: (isDebug) => {
+    set({ isDebugEmblem: isDebug });
+    if (!isDebug) set({ debugEmblem: null });
+    get().recalculateStats();
+  },
+  setDebugTarot: (stats) => {
+    set({ debugTarot: stats });
+    get().recalculateStats();
+  },
+  setIsDebugTarot: (isDebug) => {
+    set({ isDebugTarot: isDebug });
+    if (!isDebug) set({ debugTarot: null });
+    get().recalculateStats();
+  },
 
   recalculateStats: () => {
     const state = get();
-    const { currentBuild, userOption, ringOption, selectedFood, foodEnabled, gameData, weaponSkillEnabled, selectedEmblem, selectedRunestones } = state;
+    const { currentBuild, userOption, ringOption, selectedFood, foodEnabled, gameData, weaponSkillEnabled, selectedEmblem, selectedRunestones, selectedTarot, tarotCards, tarotCalcData } = state;
 
     // 必要なゲームデータがない場合は計算をスキップ
     if (!gameData.eqConst || !gameData.jobConst) {
@@ -509,7 +729,11 @@ export const useBuildStore = create<BuildState>((set, get) => ({
 
     // 職業が選択されていない場合は初期値を設定
     if (!currentBuild.job) {
-      set({ calculatedStats: initialCalculatedStats(), weaponStats: null });
+      set({
+        calculatedStats: initialCalculatedStats(),
+        weaponStats: null,
+        tarotBonusStats: initialTarotBonusStats(),
+      });
       return;
     }
 
@@ -519,7 +743,18 @@ export const useBuildStore = create<BuildState>((set, get) => ({
       let weaponCritRateValue = 0;
 
       const weaponEquipment = currentBuild.equipment.weapon;
-      if (weaponEquipment && weaponEquipment.sourceData?.type === 'weapon') {
+      // デバッグ武器チェック
+      if (weaponEquipment?.isDebug && weaponEquipment.debugWeaponStats) {
+        calculatedWeaponStats = {
+          attackPower: weaponEquipment.debugWeaponStats.attackPower,
+          critRate: weaponEquipment.debugWeaponStats.critRate,
+          critDamage: weaponEquipment.debugWeaponStats.critDamage,
+          damageCorrection: weaponEquipment.debugWeaponStats.damageCorrection,
+          coolTime: weaponEquipment.debugWeaponStats.coolTime,
+          weaponType: 'debug'
+        };
+        weaponCritRateValue = calculatedWeaponStats.critRate;
+      } else if (weaponEquipment && weaponEquipment.sourceData?.type === 'weapon') {
         const weaponData = weaponEquipment.sourceData.data;
         const rank = (weaponEquipment.rank || 'SSS') as import('@/lib/calc/equipmentCalculator').WeaponRank;
         const reinforcement = weaponEquipment.enhancementLevel || 0;
@@ -566,7 +801,33 @@ export const useBuildStore = create<BuildState>((set, get) => ({
 
       // 装備タイプに応じた計算を実行
       for (const [slot, equipment] of Object.entries(currentBuild.equipment)) {
-        if (equipment && equipment.sourceData) {
+        if (!equipment) continue;
+
+        // デバッグ装備チェック（防具/アクセサリー用）
+        if (equipment.isDebug) {
+          if (equipment.debugArmorStats) {
+            // 防具デバッグ
+            equipmentTotal['Power'] = (equipmentTotal['Power'] || 0) + equipment.debugArmorStats.power;
+            equipmentTotal['Magic'] = (equipmentTotal['Magic'] || 0) + equipment.debugArmorStats.magic;
+            equipmentTotal['HP'] = (equipmentTotal['HP'] || 0) + equipment.debugArmorStats.hp;
+            equipmentTotal['Mind'] = (equipmentTotal['Mind'] || 0) + equipment.debugArmorStats.mind;
+            equipmentTotal['Agility'] = (equipmentTotal['Agility'] || 0) + equipment.debugArmorStats.agility;
+            equipmentTotal['Dex'] = (equipmentTotal['Dex'] || 0) + equipment.debugArmorStats.dex;
+            equipmentTotal['CritDamage'] = (equipmentTotal['CritDamage'] || 0) + equipment.debugArmorStats.critDamage;
+            equipmentTotal['Defense'] = (equipmentTotal['Defense'] || 0) + equipment.debugArmorStats.defense;
+          } else if (equipment.debugAccessoryStats) {
+            // アクセサリーデバッグ
+            equipmentTotal['Power'] = (equipmentTotal['Power'] || 0) + equipment.debugAccessoryStats.power;
+            equipmentTotal['Magic'] = (equipmentTotal['Magic'] || 0) + equipment.debugAccessoryStats.magic;
+            equipmentTotal['HP'] = (equipmentTotal['HP'] || 0) + equipment.debugAccessoryStats.hp;
+            equipmentTotal['Mind'] = (equipmentTotal['Mind'] || 0) + equipment.debugAccessoryStats.mind;
+            equipmentTotal['Agility'] = (equipmentTotal['Agility'] || 0) + equipment.debugAccessoryStats.agility;
+            equipmentTotal['CritDamage'] = (equipmentTotal['CritDamage'] || 0) + equipment.debugAccessoryStats.critDamage;
+          }
+          continue; // 通常計算をスキップ
+        }
+
+        if (equipment.sourceData) {
           const slotType = slot as EquipSlot;
           const rank = (equipment.rank || 'SSS') as EquipmentRank;
           const reinforcementCount = equipment.enhancementLevel || 0;
@@ -883,7 +1144,50 @@ export const useBuildStore = create<BuildState>((set, get) => ({
         }
       }
 
-      // 3. 最終ステータスを計算（新計算システム使用）
+      // 3. タロットステータスを計算
+      let tarotStats: TarotCalculationResult;
+      if (state.isDebugTarot && state.debugTarot) {
+        tarotStats = {
+          percentBonuses: {
+            Power: state.debugTarot.powerPercent,
+            Magic: state.debugTarot.magicPercent,
+            HP: state.debugTarot.hpPercent,
+            Mind: state.debugTarot.mindPercent,
+            Agility: state.debugTarot.agilityPercent,
+            Dex: state.debugTarot.dexPercent,
+            Defense: state.debugTarot.defensePercent,
+            CritDamage: state.debugTarot.critDamagePercent,
+          },
+          tarotBonusStats: {
+            Power: state.debugTarot.powerPercent,
+            Magic: state.debugTarot.magicPercent,
+            HP: state.debugTarot.hpPercent,
+            Mind: state.debugTarot.mindPercent,
+            Agility: state.debugTarot.agilityPercent,
+            Dex: state.debugTarot.dexPercent,
+            Defense: state.debugTarot.defensePercent,
+            CritDamage: state.debugTarot.critDamagePercent,
+            CritR: state.debugTarot.critRate,
+            CritD: state.debugTarot.critDamage,
+            DamageC: state.debugTarot.damageCorrection,
+            AttackP: state.debugTarot.attackPower,
+            AllBuff: state.debugTarot.allDamageBuff,
+            'AttackBuff.Physical': state.debugTarot.physicalDamageBuff,
+            'AttackBuff.Magic': state.debugTarot.magicDamageBuff,
+            'ElementBuff.None': state.debugTarot.noneDamageBuff,
+            'ElementBuff.Light': state.debugTarot.lightDamageBuff,
+            'ElementBuff.Dark': state.debugTarot.darkDamageBuff,
+            'ElementBuff.Wind': state.debugTarot.windDamageBuff,
+            'ElementBuff.Fire': state.debugTarot.fireDamageBuff,
+            'ElementBuff.Water': state.debugTarot.waterDamageBuff,
+            'ElementBuff.Thunder': state.debugTarot.thunderDamageBuff,
+          }
+        };
+      } else {
+        tarotStats = calculateTarotStats(selectedTarot, tarotCards, tarotCalcData);
+      }
+
+      // 4. 最終ステータスを計算（新計算システム使用）
       const statusInput: StatusCalcInput = {
         equipmentTotal: equipmentTotal,
         jobStats: {
@@ -938,30 +1242,50 @@ export const useBuildStore = create<BuildState>((set, get) => ({
           // 装備合計ステータスを渡す（収束計算の基準）
           equipmentTotal: equipmentTotal
         } : undefined,
-        weaponCritRate: weaponCritRateValue,
-        // ユーザー指定%ボーナス（職業・紋章補正とは別）
-        userPercentBonus: Object.entries(userOption.percentBonus || {}).reduce((acc, [key, value]) => {
-          let statKey = '';
-          switch(key) {
-            case 'HP': statKey = 'HP'; break;
-            case 'ATK': statKey = 'Power'; break;
-            case 'MATK': statKey = 'Magic'; break;
-            case 'DEF': statKey = 'Defense'; break;
-            case 'MDEF': statKey = 'Mind'; break;
-            case 'DEX': statKey = 'Dex'; break;
-            case 'AGI': statKey = 'Agility'; break;
-            case 'HIT': statKey = 'CritDamage'; break;
-            default: statKey = key;
+        // 武器会心率 + タロットの会心率ボーナス
+        weaponCritRate: weaponCritRateValue + (tarotStats.tarotBonusStats.CritR || 0),
+        // ユーザー指定%ボーナス（職業・紋章補正とは別）+ タロット%ボーナス
+        userPercentBonus: (() => {
+          // ユーザー手動入力の%ボーナス
+          const userBonus = Object.entries(userOption.percentBonus || {}).reduce((acc, [key, value]) => {
+            let statKey = '';
+            switch(key) {
+              case 'HP': statKey = 'HP'; break;
+              case 'ATK': statKey = 'Power'; break;
+              case 'MATK': statKey = 'Magic'; break;
+              case 'DEF': statKey = 'Defense'; break;
+              case 'MDEF': statKey = 'Mind'; break;
+              case 'DEX': statKey = 'Dex'; break;
+              case 'AGI': statKey = 'Agility'; break;
+              case 'HIT': statKey = 'CritDamage'; break;
+              default: statKey = key;
+            }
+            if (value) {
+              acc[statKey as keyof StatBlock] = value;
+            }
+            return acc;
+          }, {} as StatBlock);
+
+          // タロットの%ボーナスを加算
+          for (const [statKey, value] of Object.entries(tarotStats.percentBonuses)) {
+            userBonus[statKey as keyof StatBlock] = (userBonus[statKey as keyof StatBlock] || 0) + value;
           }
-          if (value) {
-            acc[statKey as keyof StatBlock] = value;
-          }
-          return acc;
-        }, {} as StatBlock),
+
+          return userBonus;
+        })(),
         recursiveEnabled: false,
         // 紋章ボーナスを計算（%補正として適用）
         // 内部キー形式（Power, Magic, HP, Mind, Agility, Dex, CritDamage, Defense）を使用
-        emblemBonusPercent: selectedEmblem ? {
+        emblemBonusPercent: state.isDebugEmblem && state.debugEmblem ? {
+          Power: state.debugEmblem.powerPercent,
+          Magic: state.debugEmblem.magicPercent,
+          HP: state.debugEmblem.hpPercent,
+          Mind: state.debugEmblem.mindPercent,
+          Agility: state.debugEmblem.agilityPercent,
+          Dex: state.debugEmblem.dexPercent,
+          CritDamage: state.debugEmblem.critDamagePercent,
+          Defense: state.debugEmblem.defensePercent,
+        } : selectedEmblem ? {
           Power: selectedEmblem['力（%不要）'] || 0,
           Magic: selectedEmblem['魔力（%不要）'] || 0,
           HP: selectedEmblem['体力（%不要）'] || 0,
@@ -991,10 +1315,18 @@ export const useBuildStore = create<BuildState>((set, get) => ({
       if (result.success && result.data) {
         // CalcSystemStats型からCalculatedStats型への変換
         const convertedStats = convertToUIStats(result.data);
-        set({ calculatedStats: convertedStats, weaponStats: calculatedWeaponStats });
+        set({
+          calculatedStats: convertedStats,
+          weaponStats: calculatedWeaponStats,
+          tarotBonusStats: tarotStats.tarotBonusStats,
+        });
       } else {
         console.error('ステータス計算エラー: result.success is false');
-        set({ calculatedStats: initialCalculatedStats(), weaponStats: null });
+        set({
+          calculatedStats: initialCalculatedStats(),
+          weaponStats: null,
+          tarotBonusStats: initialTarotBonusStats(),
+        });
       }
     } catch (error) {
       console.error('計算中にエラーが発生しました:', error);
@@ -1011,7 +1343,11 @@ export const useBuildStore = create<BuildState>((set, get) => ({
           hasJobSPData: !!gameData.jobSPData
         }
       });
-      set({ calculatedStats: initialCalculatedStats(), weaponStats: null });
+      set({
+        calculatedStats: initialCalculatedStats(),
+        weaponStats: null,
+        tarotBonusStats: initialTarotBonusStats(),
+      });
     }
   },
 

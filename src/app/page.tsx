@@ -8,7 +8,7 @@ export default function Home() {
           DA Build Calculator
         </h1>
         <p className="text-lg md:text-xl text-gray-400 mb-12 leading-relaxed">
-          Divine Adventureのキャラクタービルドを計算・最適化するツール。
+          Dungeon Adventureのキャラクタービルドを計算・最適化するツール。
           装備・スキル・ステータスを設定し、最終ステータスやダメージをシミュレーションできます。
         </p>
         <Link

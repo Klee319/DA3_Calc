@@ -182,20 +182,20 @@ Wizard:
     Buff:
       Mind: "UserMind * 0.3 + 1"
 
-  ノンエレメント・エクスプロード1:
+  ノンエレメント・エクスプロード:
     BaseDamageType: ["Wand"]
     Hits: 1
-    Damage: "BaseDamage.Wand * UserMP * 0.03115"
+    Damage: "BaseDamage.Wand * UserMind*2 * 0.03115"
 
   ノンエレメント・エクスプロード2:
     BaseDamageType: ["Wand"]
     Hits: 1
-    Damage: "BaseDamage.Wand * UserMP * 0.03185"
+    Damage: "BaseDamage.Wand * UserMind*2 * 0.03185"
 
   ノンエレメント・エクスプロード・烈:
     BaseDamageType: ["Wand"]
     Hits: 1
-    Damage: "(BaseDamage.Wand + UserMind*2 * 5) * 3.2"
+    Damage: "(BaseDamage.Wand + UserMind * 2 * 5) * 3.2"
 
 # ------------------------
 # レンジャー（上位）

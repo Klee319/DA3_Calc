@@ -395,6 +395,149 @@ export interface JobSPData {
   光耐性?: number | string;
 }
 
+/**
+ * タロットCSVデータ型定義
+ * CSVカラム: アイテム名,メインステータス1,上昇量(%),メインステータス2,上昇量(%),メインステータス3,上昇量(%)
+ */
+export interface TarotCardCsvData {
+  アイテム名: string;
+  メインステータス1?: string;
+  '上昇量(%)'?: number;
+  メインステータス2?: string;
+  '上昇量(%)_2'?: number;
+  メインステータス3?: string;
+  '上昇量(%)_3'?: number;
+}
+
+/**
+ * タロットカード定義（変換後）
+ */
+export interface TarotCardDefinition {
+  /** カードID（アイテム名から生成） */
+  id: string;
+  /** カード名 */
+  name: string;
+  /** メインステータスリスト */
+  mainStats: TarotMainStat[];
+}
+
+/**
+ * タロットカードのメインステータス定義
+ */
+export interface TarotMainStat {
+  /** ステータスタイプ (ElementBuff.None, AttackBuff.Physical, etc.) */
+  type: string;
+  /** 表示用ラベル */
+  label: string;
+  /** 上昇量（5レベルごとの上昇%） */
+  increasePerTier: number;
+}
+
+/**
+ * タロットサブオプション定義（YAMLから読み込み）
+ */
+export interface TarotSubOptionDefinition {
+  /** サブオプションID */
+  id: string;
+  /** 表示名 */
+  Name: string;
+  /** ステータスタイプ */
+  Type: string;
+  /** パーセント値かどうか */
+  IsPercent: boolean;
+  /** レベルごとの値 */
+  ValuePerLevel: number;
+}
+
+/**
+ * サブオプションスロット解放条件（YAMLから読み込み）
+ */
+export interface TarotSubOptionSlot {
+  UnlockLevel: number;
+}
+
+/**
+ * タロット定数（YAMLから読み込み）
+ */
+export interface TarotConstants {
+  MaxLevel: number;
+  TierInterval: number;
+  MaxSubOptionLevel: number;
+}
+
+/**
+ * メインステータスタイプマッピング（YAMLから読み込み）
+ */
+export type TarotMainStatTypeMapping = Record<string, string>;
+
+/**
+ * TarotCalc.yamlのデータ型
+ */
+export interface TarotCalcData {
+  TarotConstants: TarotConstants;
+  SubOptionSlots: TarotSubOptionSlot[];
+  SubOptions: Record<string, Omit<TarotSubOptionDefinition, 'id'>>;
+  MainStatTypeMapping: TarotMainStatTypeMapping;
+}
+
+/**
+ * 選択されたサブオプション
+ */
+export interface SelectedTarotSubOption {
+  /** サブオプションID */
+  optionId: string;
+  /** サブオプションレベル (1-5) */
+  level: number;
+}
+
+/**
+ * 選択されたタロット装備
+ */
+export interface SelectedTarot {
+  /** タロットカードID */
+  cardId: string;
+  /** タロットレベル (1-20) */
+  level: number;
+  /** サブオプション（最大4つ） */
+  subOptions: SelectedTarotSubOption[];
+}
+
+/**
+ * タロットステータス合計（計算結果）
+ * 仕様: 各ステータスの全ての和
+ */
+export interface TarotBonusStats {
+  // ステータス%ボーナス (Talot.Bonus.<Stat>)
+  Power: number;      // 力%
+  Magic: number;      // 魔力%
+  HP: number;         // 体力%
+  Mind: number;       // 精神%
+  Agility: number;    // 素早さ%
+  Dex: number;        // 器用さ%
+  Defense: number;    // 守備力%
+  CritDamage: number; // 撃力%
+
+  // 武器関連固定値
+  CritR: number;      // 会心率
+  CritD: number;      // 会心ダメージ
+  DamageC: number;    // ダメージ補正
+  AttackP: number;    // 武器攻撃力
+
+  // ダメージバフ
+  AllBuff: number;           // 全ダメージバフ%
+  'AttackBuff.Physical': number;  // 物理ダメージバフ%
+  'AttackBuff.Magic': number;     // 魔法ダメージバフ%
+
+  // 属性ダメージバフ
+  'ElementBuff.None': number;     // 無属性%
+  'ElementBuff.Light': number;    // 光属性%
+  'ElementBuff.Dark': number;     // 闇属性%
+  'ElementBuff.Wind': number;     // 風属性%
+  'ElementBuff.Fire': number;     // 炎属性%
+  'ElementBuff.Water': number;    // 水属性%
+  'ElementBuff.Thunder': number;  // 雷属性%
+}
+
 // 初期化時にロードされる全データの型
 export interface GameData {
   yaml: {
@@ -404,6 +547,7 @@ export interface GameData {
     userStatusCalc: UserStatusCalcData;
     skillCalc: SkillCalcData;
     weaponSkillCalc?: WeaponSkillCalcData;
+    tarotCalc?: TarotCalcData;
   };
   csv: {
     weapons: WeaponData[];
@@ -413,5 +557,6 @@ export interface GameData {
     runestones: RunestoneData[];
     foods: FoodData[];
     jobs: Map<string, JobSPData[]>;
+    tarots?: TarotCardDefinition[];
   };
 }

@@ -1,0 +1,189 @@
+# タロット計算定数
+TarotConstants:
+  MaxLevel: 20
+  TierInterval: 5  # 5レベルごとにメインステータス上昇&サブオプション解放
+  MaxSubOptionLevel: 5
+
+# サブオプションスロット解放レベル
+SubOptionSlots:
+  - UnlockLevel: 0
+  - UnlockLevel: 5
+  - UnlockLevel: 10
+  - UnlockLevel: 15
+  - UnlockLevel: 20
+
+# サブオプション定義
+# 各サブオプションはレベル1-5で、ValuePerLevelがレベルごとの上昇量
+SubOptions:
+  # ステータス%ボーナス（Talot.Bonus.<Stat>として合算）
+  PowerPercent:
+    Name: "力"
+    Type: "Power"
+    IsPercent: true
+    ValuePerLevel: 0.5
+
+  MagicPercent:
+    Name: "魔力"
+    Type: "Magic"
+    IsPercent: true
+    ValuePerLevel: 0.5
+
+  HPPercent:
+    Name: "体力"
+    Type: "HP"
+    IsPercent: true
+    ValuePerLevel: 0.5
+
+  MindPercent:
+    Name: "精神"
+    Type: "Mind"
+    IsPercent: true
+    ValuePerLevel: 0.5
+
+  AgilityPercent:
+    Name: "素早さ"
+    Type: "Agility"
+    IsPercent: true
+    ValuePerLevel: 0.5
+
+  DexPercent:
+    Name: "器用さ"
+    Type: "Dex"
+    IsPercent: true
+    ValuePerLevel: 0.5
+
+  DefensePercent:
+    Name: "守備力"
+    Type: "Defense"
+    IsPercent: true
+    ValuePerLevel: 0.5
+
+  CritDamagePercent:
+    Name: "撃力"
+    Type: "CritDamage"
+    IsPercent: true
+    ValuePerLevel: 0.5
+
+  # 武器関連固定値（Talot.Bonus.<Stat>として武器計算に加算）
+  CritRate:
+    Name: "会心率"
+    Type: "CritR"
+    ValuePerLevel: 1
+
+  WeaponCritDamage:
+    Name: "会心ダメージ"
+    Type: "CritD"
+    ValuePerLevel: 1
+
+  DamageCorrection:
+    Name: "ダメージ補正"
+    Type: "DamageC"
+    ValuePerLevel: 1
+
+  WeaponAttackPower:
+    Name: "武器攻撃力"
+    Type: "AttackP"
+    ValuePerLevel: 2
+
+  # ダメージバフ（DamageBuff計算式で使用）
+  AllDamageBuff:
+    Name: "全ダメージバフ"
+    Type: "AllBuff"
+    
+    ValuePerLevel: 0.5
+
+  PhysicalDamageBuff:
+    Name: "物理ダメージバフ"
+    Type: "AttackBuff.Physical"
+
+    ValuePerLevel: 0.5
+
+  MagicDamageBuff:
+    Name: "魔法ダメージバフ"
+    Type: "AttackBuff.Magic"
+    
+    ValuePerLevel: 0.5
+
+  # 属性ダメージバフ
+  NoneDamageBuff:
+    Name: "無属性ダメージバフ"
+    Type: "ElementBuff.None"
+  
+    ValuePerLevel: 0.5
+
+  LightDamageBuff:
+    Name: "光属性ダメージバフ"
+    Type: "ElementBuff.Light"
+
+    ValuePerLevel: 0.5
+
+  DarkDamageBuff:
+    Name: "闇属性ダメージバフ"
+    Type: "ElementBuff.Dark"
+   
+    ValuePerLevel: 0.5
+
+  WindDamageBuff:
+    Name: "風属性ダメージバフ"
+    Type: "ElementBuff.Wind"
+ 
+    ValuePerLevel: 0.5
+
+  FireDamageBuff:
+    Name: "炎属性ダメージバフ"
+    Type: "ElementBuff.Fire"
+    ValuePerLevel: 0.5
+
+  WaterDamageBuff:
+    Name: "水属性ダメージバフ"
+    Type: "ElementBuff.Water"
+    ValuePerLevel: 0.5
+
+  ThunderDamageBuff:
+    Name: "雷属性ダメージバフ"
+    Type: "ElementBuff.Thunder"
+    ValuePerLevel: 0.5
+
+  DropGoldBonus:
+    Name: "ドロップゴールドブースト"
+    Type: "DropGoldBonus"
+    ValuePerLevel: 0.5
+
+  DropExpBonus:
+    Name: "ドロップ経験値ブースト"
+    Type: "DropExpBonus"
+    ValuePerLevel: 0.5
+
+# メインステータスタイプマッピング（CSVカラム名 → 内部型）
+MainStatTypeMapping:
+  "無属性ダメージバフ": "ElementBuff.None"
+  "光属性ダメージバフ": "ElementBuff.Light"
+  "闇属性ダメージバフ": "ElementBuff.Dark"
+  "風属性ダメージバフ": "ElementBuff.Wind"
+  "炎属性ダメージバフ": "ElementBuff.Fire"
+  "水属性ダメージバフ": "ElementBuff.Water"
+  "雷属性ダメージバフ": "ElementBuff.Thunder"
+  "物理ダメージバフ": "AttackBuff.Physical"
+  "魔法ダメージバフ": "AttackBuff.Magic"
+  "全ダメージバフ": "AllBuff"
+  "力": "Power"
+  "魔力": "Magic"
+  "体力": "HP"
+  "精神": "Mind"
+  "素早さ": "Agility"
+  "器用さ": "Dex"
+  "守備力": "Defense"
+  "撃力": "CritDamage"
+  "会心率": "CritR"
+  "会心ダメージ": "CritD"
+  "ダメージ補正": "DamageC"
+
+# タロットステータス計算式
+# Talot.Bonus.<Stat> = Sum of all tarot stats of that type
+TarotFormulas:
+  # メインステータス値 = baseValue + (tier * increasePerTier)
+  # tier = floor((level - 0.5) / TierInterval)
+  MainStatValue: "BaseValue + floor((Level - 0.5) / TierInterval) * IncreasePerTier"
+
+  # サブオプション値 = valuePerLevel * subOptionLevel
+  SubOptionValue: "ValuePerLevel * SubOptionLevel"

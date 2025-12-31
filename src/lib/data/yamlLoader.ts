@@ -10,7 +10,8 @@ import {
   SkillBookData,
   JobSkillData,
   SkillDefinition,
-  AvailableSkill
+  AvailableSkill,
+  TarotCalcData
 } from '@/types/data';
 import { Skill } from '@/types';
 import {
@@ -172,6 +173,13 @@ export async function loadSkillCalc(): Promise<SkillCalcData> {
  */
 export async function loadWeaponSkillCalc(): Promise<WeaponSkillCalcData> {
   return loadYamlFile<WeaponSkillCalcData>('/data/formula/WeaponSkillCalc.yaml', true);
+}
+
+/**
+ * TarotCalc.yamlを読み込む（タロット定義）
+ */
+export async function loadTarotCalc(): Promise<TarotCalcData> {
+  return loadYamlFile<TarotCalcData>('/data/formula/TarotCalc.yaml', true);
 }
 
 /**
@@ -451,7 +459,7 @@ export function extractSkillsFromCalcData(skillCalc: SkillCalcData): Skill[] {
  * 各ファイルにフォールバック処理を適用し、個別のエラーが全体に影響しないようにする
  */
 export async function loadAllYamlData() {
-  const [eqConst, jobConst, weaponCalc, userStatusCalc, skillCalc, weaponSkillCalc] = await Promise.all([
+  const [eqConst, jobConst, weaponCalc, userStatusCalc, skillCalc, weaponSkillCalc, tarotCalc] = await Promise.all([
     withFallback(
       () => loadEqConst(),
       {} as EqConstData,
@@ -483,6 +491,11 @@ export async function loadAllYamlData() {
       () => loadWeaponSkillCalc(),
       {} as WeaponSkillCalcData,
       'Warning: Failed to load WeaponSkillCalc.yaml'
+    ),
+    withFallback(
+      () => loadTarotCalc(),
+      {} as TarotCalcData,
+      'Warning: Failed to load TarotCalc.yaml'
     )
   ]);
 
@@ -492,6 +505,7 @@ export async function loadAllYamlData() {
     weaponCalc,
     userStatusCalc,
     skillCalc,
-    weaponSkillCalc
+    weaponSkillCalc,
+    tarotCalc
   };
 }

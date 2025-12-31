@@ -12,6 +12,7 @@ export {
   loadUserStatusCalc,
   loadSkillCalc,
   loadWeaponSkillCalc,
+  loadTarotCalc,
   loadAllYamlData,
   extractSkillsFromCalcData,
   // 新スキル計算システム
@@ -29,6 +30,7 @@ export {
   loadEmblems,
   loadRunestones,
   loadFoods,
+  loadTarots,
   loadJobData,
   loadAllEquipmentData,
   loadAllJobData
@@ -58,22 +60,24 @@ export async function initializeGameData(): Promise<GameData> {
         weaponCalc: {} as any,
         userStatusCalc: {} as any,
         skillCalc: {} as any,
-        weaponSkillCalc: {} as any
+        weaponSkillCalc: {} as any,
+        tarotCalc: {} as any
       },
       'Warning: Failed to load some YAML files, using default values'
     );
 
-    // CSVデータを読み込む（EqConstDataを渡す）
+    // CSVデータを読み込む（EqConstDataとTarotCalcDataを渡す）
     const [equipmentData, jobData] = await Promise.all([
       withFallback(
-        () => loadAllEquipmentData(yamlData.eqConst),
+        () => loadAllEquipmentData(yamlData.eqConst, yamlData.tarotCalc),
         {
           weapons: [],
           armors: [],
           accessories: [],
           emblems: [],
           runestones: [],
-          foods: []
+          foods: [],
+          tarots: []
         },
         'Warning: Failed to load some equipment CSV files'
       ),
@@ -104,7 +108,7 @@ export async function initializeGameData(): Promise<GameData> {
     return gameData;
   } catch (error) {
     console.error('Failed to initialize game data:', error);
-    
+
     // 最小限のデフォルトデータを返す
     return {
       yaml: {
@@ -113,7 +117,8 @@ export async function initializeGameData(): Promise<GameData> {
         weaponCalc: {} as any,
         userStatusCalc: {} as any,
         skillCalc: {} as any,
-        weaponSkillCalc: {} as any
+        weaponSkillCalc: {} as any,
+        tarotCalc: {} as any
       },
       csv: {
         weapons: [],
@@ -122,7 +127,8 @@ export async function initializeGameData(): Promise<GameData> {
         emblems: [],
         runestones: [],
         foods: [],
-        jobs: new Map()
+        jobs: new Map(),
+        tarots: []
       }
     };
   }

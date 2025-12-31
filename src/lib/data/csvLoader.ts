@@ -8,7 +8,11 @@ import {
   RunestoneGrade,
   FoodData,
   JobSPData,
-  EqConstData
+  EqConstData,
+  TarotCardCsvData,
+  TarotCardDefinition,
+  TarotMainStat,
+  TarotCalcData
 } from '@/types/data';
 import {
   CsvParseError,
@@ -423,16 +427,84 @@ export async function loadJobData(jobName: string): Promise<JobSPData[]> {
 }
 
 /**
+ * タロットデータを読み込む
+ * CSVカラム: アイテム名,メインステータス1,上昇量(%),メインステータス2,上昇量(%),メインステータス3,上昇量(%)
+ */
+export async function loadTarots(tarotCalcData?: TarotCalcData): Promise<TarotCardDefinition[]> {
+  const rawData = await loadCsvFile<any>('/data/csv/Equipment/DA_EqCalc_Data - タロット.csv');
+
+  // 空のエントリをフィルタリング
+  const validData = rawData.filter(item => {
+    const name = item['アイテム名'];
+    return name && name.toString().trim() !== '';
+  });
+
+  // メインステータスタイプマッピング（YAMLがあれば使用、なければデフォルト）
+  const typeMapping = tarotCalcData?.MainStatTypeMapping || {
+    "無属性ダメージバフ": "ElementBuff.None",
+    "光属性ダメージバフ": "ElementBuff.Light",
+    "闘属性ダメージバフ": "ElementBuff.Dark",
+    "風属性ダメージバフ": "ElementBuff.Wind",
+    "炎属性ダメージバフ": "ElementBuff.Fire",
+    "水属性ダメージバフ": "ElementBuff.Water",
+    "雷属性ダメージバフ": "ElementBuff.Thunder",
+  };
+
+  return validData.map((item: any): TarotCardDefinition => {
+    const name = item['アイテム名'];
+    const id = name.replace(/[^\w\u3040-\u309F\u30A0-\u30FF\u4E00-\u9FAF]/g, '_');
+
+    // メインステータスを収集
+    const mainStats: TarotMainStat[] = [];
+
+    // メインステータス1
+    if (item['メインステータス1'] && item['メインステータス1'].toString().trim() !== '') {
+      const label = item['メインステータス1'];
+      const type = typeMapping[label] || label;
+      const value = Number(item['上昇量(%)']) || 1;
+      mainStats.push({ type, label, increasePerTier: value });
+    }
+
+    // メインステータス2（CSVのカラム名は重複の場合異なる可能性）
+    const stat2Key = Object.keys(item).find(k => k === 'メインステータス2' || k.includes('メインステータス2'));
+    const value2Key = Object.keys(item).find(k => k.match(/上昇量\(%\).*2|上昇量\(%\)_2/));
+    if (stat2Key && item[stat2Key] && item[stat2Key].toString().trim() !== '') {
+      const label = item[stat2Key];
+      const type = typeMapping[label] || label;
+      const value = Number(value2Key ? item[value2Key] : 1) || 1;
+      mainStats.push({ type, label, increasePerTier: value });
+    }
+
+    // メインステータス3
+    const stat3Key = Object.keys(item).find(k => k === 'メインステータス3' || k.includes('メインステータス3'));
+    const value3Key = Object.keys(item).find(k => k.match(/上昇量\(%\).*3|上昇量\(%\)_3/));
+    if (stat3Key && item[stat3Key] && item[stat3Key].toString().trim() !== '') {
+      const label = item[stat3Key];
+      const type = typeMapping[label] || label;
+      const value = Number(value3Key ? item[value3Key] : 1) || 1;
+      mainStats.push({ type, label, increasePerTier: value });
+    }
+
+    return {
+      id,
+      name,
+      mainStats
+    };
+  });
+}
+
+/**
  * 全ての装備CSVデータを一括で読み込む
  */
-export async function loadAllEquipmentData(eqConst?: EqConstData) {
-  const [weapons, armors, accessories, emblems, runestones, foods] = await Promise.all([
+export async function loadAllEquipmentData(eqConst?: EqConstData, tarotCalcData?: TarotCalcData) {
+  const [weapons, armors, accessories, emblems, runestones, foods, tarots] = await Promise.all([
     loadWeapons(eqConst),
     loadArmors(),
     loadAccessories(),
     loadEmblems(),
     loadRunestones(),
-    loadFoods()
+    loadFoods(),
+    loadTarots(tarotCalcData)
   ]);
 
   return {
@@ -441,7 +513,8 @@ export async function loadAllEquipmentData(eqConst?: EqConstData) {
     accessories,
     emblems,
     runestones,
-    foods
+    foods,
+    tarots
   };
 }
 

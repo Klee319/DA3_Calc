@@ -60,6 +60,79 @@ export interface ExStats {
   ex2?: string;  // EXステータス2の種類
 }
 
+// デバッグ用武器ステータス
+export interface DebugWeaponStats {
+  attackPower: number;      // 攻撃力
+  critRate: number;         // 会心率
+  critDamage: number;       // 会心ダメージ
+  damageCorrection: number; // ダメージ補正
+  coolTime: number;         // CT
+}
+
+// デバッグ用防具ステータス
+export interface DebugArmorStats {
+  power: number;      // 力
+  magic: number;      // 魔力
+  hp: number;         // 体力
+  mind: number;       // 精神
+  agility: number;    // 素早さ
+  dex: number;        // 器用
+  critDamage: number; // 撃力
+  defense: number;    // 守備力
+}
+
+// デバッグ用アクセサリーステータス
+export interface DebugAccessoryStats {
+  power: number;      // 力
+  magic: number;      // 魔力
+  hp: number;         // 体力
+  mind: number;       // 精神
+  agility: number;    // 素早さ
+  critDamage: number; // 撃力
+}
+
+// デバッグ用紋章ステータス（%補正）
+export interface DebugEmblemStats {
+  powerPercent: number;      // 力%
+  magicPercent: number;      // 魔力%
+  hpPercent: number;         // 体力%
+  mindPercent: number;       // 精神%
+  agilityPercent: number;    // 素早さ%
+  dexPercent: number;        // 器用%
+  critDamagePercent: number; // 撃力%
+  defensePercent: number;    // 守備力%
+}
+
+// デバッグ用タロットステータス
+export interface DebugTarotStats {
+  // ステータス%ボーナス
+  powerPercent: number;
+  magicPercent: number;
+  hpPercent: number;
+  mindPercent: number;
+  agilityPercent: number;
+  dexPercent: number;
+  defensePercent: number;
+  critDamagePercent: number;
+  // 武器関連固定値
+  critRate: number;
+  critDamage: number;
+  damageCorrection: number;
+  attackPower: number;
+  // ダメージバフ
+  allDamageBuff: number;
+  physicalDamageBuff: number;
+  magicDamageBuff: number;
+  // 属性ダメージバフ
+  noneDamageBuff: number;
+  lightDamageBuff: number;
+  darkDamageBuff: number;
+  windDamageBuff: number;
+  fireDamageBuff: number;
+  waterDamageBuff: number;
+  thunderDamageBuff: number;
+}
+
 // 装備
 export interface Equipment {
   id: string;
@@ -83,6 +156,12 @@ export interface Equipment {
   exStats?: ExStats;
   // 元データへの参照（計算システム用）
   sourceData?: EquipmentSourceData;
+  // デバッグ装備フラグ
+  isDebug?: boolean;
+  // デバッグ用ステータス（isDebug=trueの場合に使用）
+  debugWeaponStats?: DebugWeaponStats;
+  debugArmorStats?: DebugArmorStats;
+  debugAccessoryStats?: DebugAccessoryStats;
 }
 
 // スキル
