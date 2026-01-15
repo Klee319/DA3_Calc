@@ -100,6 +100,148 @@
     box-decoration-break: clone;
     padding-bottom: 0.25em;
   }
+
+  .bg-gradient-radial {
+    background: radial-gradient(var(--tw-gradient-stops));
+  }
+}
+
+/* Job Icon Circle - 純粋なCSSアニメーション */
+.job-icon-circle-container {
+  --container-size: min(95vw, 95vh, 900px);
+  --radius: calc(var(--container-size) * 0.44); /* 10%大きく */
+  --icon-size: calc(var(--container-size) * 0.108); /* PC: 10%小さく (0.12 * 0.9) */
+  width: var(--container-size);
+  height: var(--container-size);
+}
+
+.job-icon-glow {
+  width: calc(var(--container-size) * 0.42);
+  height: calc(var(--container-size) * 0.42);
+}
+
+.job-icon-orbit {
+  position: absolute;
+  inset: 0;
+  animation: orbit-spin 60s linear infinite;
+  will-change: transform;
+  pointer-events: none;
+}
+
+.job-icon-wrapper {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: var(--icon-size);
+  height: var(--icon-size);
+  margin-left: calc(var(--icon-size) / -2);
+  margin-top: calc(var(--icon-size) / -2);
+  transform: rotate(var(--angle)) translateY(calc(var(--radius) * -1));
+}
+
+.job-icon-glow-inner {
+  position: absolute;
+  inset: -40%;
+  border-radius: 50%;
+  background: radial-gradient(circle, rgba(255,255,255,0.6) 0%, rgba(255,255,255,0.3) 35%, rgba(255,250,240,0.15) 55%, transparent 75%);
+  opacity: 0.7;
+}
+
+.job-icon-inner {
+  width: 100%;
+  height: 100%;
+  animation: icon-counter-spin 60s linear infinite;
+  will-change: transform;
+}
+
+@keyframes orbit-spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+@keyframes icon-counter-spin {
+  from { transform: rotate(var(--counter-start)); }
+  to { transform: rotate(var(--counter-end)); }
+}
+
+/* レスポンシブ調整 */
+@media (max-width: 480px) {
+  .job-icon-circle-container {
+    --container-size: min(95vw, 95vh, 380px);
+    --radius: calc(var(--container-size) * 0.44); /* 10%大きく */
+    --icon-size: calc(var(--container-size) * 0.105);
+  }
+}
+
+/* スマホ横向き - 中央テキストを大きく */
+@media (max-height: 500px) and (orientation: landscape) {
+  .job-icon-circle-container {
+    --container-size: min(70vw, 90vh, 400px);
+    --radius: calc(var(--container-size) * 0.46); /* 10%大きく */
+    --icon-size: calc(var(--container-size) * 0.10);
+  }
+
+  .job-icon-circle-container h1 {
+    font-size: 1.5rem !important;
+  }
+
+  .job-icon-circle-container p {
+    font-size: 0.875rem !important;
+  }
+
+  .job-icon-circle-container .btn-primary {
+    font-size: 0.875rem !important;
+    padding: 0.5rem 1rem !important;
+  }
+}
+
+@media (min-width: 481px) and (max-width: 768px) {
+  .job-icon-circle-container {
+    --container-size: min(90vw, 90vh, 550px);
+    --radius: calc(var(--container-size) * 0.46); /* 10%大きく */
+    --icon-size: calc(var(--container-size) * 0.0975);
+  }
+}
+
+@media (min-width: 769px) and (max-width: 1024px) {
+  .job-icon-circle-container {
+    --container-size: min(85vw, 85vh, 700px);
+    --radius: calc(var(--container-size) * 0.46); /* 10%大きく */
+    --icon-size: calc(var(--container-size) * 0.117);
+  }
+}
+
+/* 浮遊オーブ */
+.floating-orb {
+  position: absolute;
+  left: var(--orb-x);
+  top: var(--orb-y);
+  width: var(--orb-size);
+  height: var(--orb-size);
+  border-radius: 50%;
+  background: radial-gradient(circle, rgba(99, 102, 241, 0.6) 0%, rgba(139, 92, 246, 0.3) 50%, transparent 70%);
+  animation: float-orb var(--orb-duration) ease-in-out infinite;
+  animation-delay: var(--orb-delay);
+  opacity: 0.6;
+}
+
+@keyframes float-orb {
+  0%, 100% {
+    transform: translate(0, 0) scale(1);
+    opacity: 0.4;
+  }
+  25% {
+    transform: translate(10px, -15px) scale(1.1);
+    opacity: 0.7;
+  }
+  50% {
+    transform: translate(-5px, -25px) scale(1);
+    opacity: 0.5;
+  }
+  75% {
+    transform: translate(-15px, -10px) scale(0.9);
+    opacity: 0.6;
+  }
 }
 
 /* カスタムスクロールバー - おしゃれなグラデーション */
