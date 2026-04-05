@@ -639,7 +639,7 @@ const emblemOptions = [
   { name: 'ガイア', bonusStats: { Power: 11, Magic: 0, HP: -5, CritDamage: 0 } },
   { name: 'ラーゾ', bonusStats: { Power: 5, Magic: 5, HP: 0, CritDamage: 0 } },
 ];
-const emblemBonusStats = emblemOptions[0].bonusStats; // Use ガイア for max damage
+const emblemBonusStats: Record<string, number> = emblemOptions[0].bonusStats; // Use ガイア for max damage
 console.log(`\nEmblem: ${emblemOptions[0].name}`);
 console.log(`Emblem Bonus (%):`, emblemBonusStats);
 
