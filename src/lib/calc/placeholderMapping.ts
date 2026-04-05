@@ -94,7 +94,7 @@ export function mapUserStatsToVariables(userStats: StatBlock): Record<string, nu
     UserMind: stats.UserMind || stats.Mind || stats.mind || stats.MDEF || stats.mdef || stats.精神 || 0,
     UserSpeed: stats.UserSpeed || stats.Speed || stats.speed || stats.Agility || stats.agility || stats.AGI || stats.agi || stats.素早さ || 0,
     UserCritRate: stats.UserCritRate || stats.CritRate || stats.critRate || stats.Dexterity || stats.dexterity || stats.Dex || stats.dex || stats.DEX || stats.器用 || stats.器用さ || 0,
-    UserCritDamage: stats.UserCritDamage || stats.CritDamage || stats.critDamage || stats.CriticalDamage || stats.criticalDamage || stats.撃力 || 0,
+    UserCritDamage: stats.UserCritDamage || stats.CritDamage || stats.critDamage || stats.CriticalDamage || stats.criticalDamage || stats.HIT || stats.撃力 || 0,
     UserDefense: stats.UserDefense || stats.Defense || stats.defense || stats.DEF || stats.def || stats.守備力 || 0,
 
     // 後方互換性のためのエイリアス（非推奨）
@@ -113,8 +113,8 @@ export function mapUserStatsToVariables(userStats: StatBlock): Record<string, nu
     Dexterity: stats.UserCritRate || stats.CritRate || stats.critRate || stats.Dexterity || stats.dexterity || stats.Dex || stats.dex || stats.DEX || stats.器用 || stats.器用さ || 0,
     DEX: stats.UserCritRate || stats.CritRate || stats.critRate || stats.Dexterity || stats.dexterity || stats.Dex || stats.dex || stats.DEX || stats.器用 || stats.器用さ || 0,
     Defense: stats.UserDefense || stats.Defense || stats.defense || stats.DEF || stats.def || stats.守備力 || 0,
-    CritDamage: stats.UserCritDamage || stats.CritDamage || stats.critDamage || stats.CriticalDamage || stats.criticalDamage || stats.撃力 || 0,
-    CriticalDamage: stats.UserCritDamage || stats.CritDamage || stats.critDamage || stats.CriticalDamage || stats.criticalDamage || stats.撃力 || 0
+    CritDamage: stats.UserCritDamage || stats.CritDamage || stats.critDamage || stats.CriticalDamage || stats.criticalDamage || stats.HIT || stats.撃力 || 0,
+    CriticalDamage: stats.UserCritDamage || stats.CritDamage || stats.critDamage || stats.CriticalDamage || stats.criticalDamage || stats.HIT || stats.撃力 || 0
   };
 }
 

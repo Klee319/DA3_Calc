@@ -337,27 +337,37 @@ describe('damageCalculator', () => {
   });
 
   describe('applyCritDamage', () => {
-    it('会心100%モードで2倍のダメージを返す', () => {
-      const result = applyCritDamage(1000, 25, 100, 'crit'); // critDamageを100%に設定
-      expect(result).toBe(2000);
+    // 注意: BaseDamageには既に会心倍率が含まれているため、
+    // 入力damageは「会心時ダメージ」として扱われる
+    // 会心倍率 = 1 + weaponCritDamage/100 + userCritDamage*0.005
+
+    it('会心100%モードで入力ダメージをそのまま返す', () => {
+      // 入力damage=1000は既に会心時ダメージ
+      const result = applyCritDamage(1000, 25, 100, 'crit');
+      expect(result).toBe(1000); // そのまま返す
     });
 
-    it('会心0%モードで基礎ダメージをそのまま返す', () => {
+    it('会心0%モードで非会心ダメージを逆算して返す', () => {
+      // 会心倍率 = 1 + 100/100 = 2.0
+      // 非会心ダメージ = 1000 / 2.0 = 500
       const result = applyCritDamage(1000, 25, 100, 'nocrit');
-      expect(result).toBe(1000);
+      expect(result).toBe(500);
     });
 
     it('期待値モードで会心率を考慮したダメージを返す', () => {
-      const result = applyCritDamage(1000, 50, 100, 'avg'); // 会心率50%、会心ダメージ100%
-      expect(result).toBe(1500); // 1000 * 0.5 + 2000 * 0.5 = 1500
+      // 会心倍率 = 1 + 100/100 = 2.0
+      // 非会心ダメージ = 1000 / 2.0 = 500
+      // 期待値 = 500 * 0.5 + 1000 * 0.5 = 750
+      const result = applyCritDamage(1000, 50, 100, 'avg');
+      expect(result).toBe(750);
     });
   });
 
   describe('calculateFinalDamage', () => {
     it('敵防御を適用できる', () => {
       const finalDamage = calculateFinalDamage(1000, 100);
-      // 1000 * (1 - 100/1000) = 1000 * 0.9 = 900
-      expect(finalDamage).toBe(900);
+      // (1000 - 100/2) * 1 * 1 = 950
+      expect(finalDamage).toBe(950);
     });
 
     it('敵防御が0の場合', () => {
@@ -365,9 +375,28 @@ describe('damageCalculator', () => {
       expect(finalDamage).toBe(1000);
     });
 
-    it('敵防御が1000の場合、ダメージが0になる', () => {
-      const finalDamage = calculateFinalDamage(1000, 1000);
-      expect(finalDamage).toBe(0);
+    it('敵防御が高い場合でも最低1ダメージ', () => {
+      const finalDamage = calculateFinalDamage(1000, 3000);
+      // (1000 - 3000/2) = -500 → 最低1
+      expect(finalDamage).toBe(1);
+    });
+
+    it('タイプ耐性を適用できる', () => {
+      const finalDamage = calculateFinalDamage(1000, 0, 20, 0);
+      // 1000 * (1 - 20/100) = 800
+      expect(finalDamage).toBe(800);
+    });
+
+    it('属性耐性を適用できる', () => {
+      const finalDamage = calculateFinalDamage(1000, 0, 0, 30);
+      // 1000 * (1 - 30/100) = 700
+      expect(finalDamage).toBe(700);
+    });
+
+    it('全ての耐性を適用できる', () => {
+      const finalDamage = calculateFinalDamage(1000, 100, 20, 30);
+      // (1000 - 50) * 0.8 * 0.7 = 950 * 0.56 = 532
+      expect(finalDamage).toBe(532);
     });
   });
 
@@ -669,9 +698,9 @@ describe('damageCalculator', () => {
       expect(resultWithout.success).toBe(true);
       expect(resultWith.success).toBe(true);
       if (resultWithout.success && resultWith.success) {
-        // Power=Magicの場合、Bonus=0.75
-        // finalDamage = baseDamage * 0.75
-        const expectedFinalDamage = Math.floor(resultWithout.data.baseDamage * 0.75);
+        // Power=Magicの場合、Bonus=0.75が適用される
+        // SpellRefactor有りの場合、finalDamageは無しの場合の0.75倍になる
+        const expectedFinalDamage = Math.floor(resultWithout.data.finalDamage * 0.75);
         expect(resultWith.data.finalDamage).toBe(expectedFinalDamage);
       }
     });

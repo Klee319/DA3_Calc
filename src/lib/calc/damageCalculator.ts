@@ -27,10 +27,12 @@ export function calculateDamage(
   skillCalc?: SkillCalcData
 ): CalcResult<DamageResult> {
   try {
-    // ダメージ補正の実際の値を計算
-    const actualDamageCorrection = input.options.damageCorrectionMode === 'min' ? 0.8
-                                : input.options.damageCorrectionMode === 'max' ? 1.2
-                                : 1.0; // avg
+    // ダメージ補正の実際の値を計算（スキルダメージ計算で使用）
+    const damageCorrectionMin = input.damageCorrection; // 武器の値（例: 80）
+    const damageCorrectionMax = 100;
+    const actualDamageCorrection = input.options.damageCorrectionMode === 'min' ? damageCorrectionMin / 100
+                                : input.options.damageCorrectionMode === 'max' ? damageCorrectionMax / 100
+                                : (damageCorrectionMin + damageCorrectionMax) / 2 / 100;
 
     // 基礎ダメージ計算（職業補正による計算式上書きも考慮）
     const baseDamage = calculateBaseDamage(
@@ -66,11 +68,13 @@ export function calculateDamage(
     };
     const critMode = critModeMap[input.options.critMode] || 'avg';
     
+    const userCritDamage = input.userStats.final.CritDamage || 0;
     const critResult = applyCritDamage(
       correctedDamage,
       input.weaponCritRate,
       input.weaponCritDamage,
-      critMode
+      critMode,
+      userCritDamage
     );
 
     // スキルダメージ計算（スキルが指定されている場合）
@@ -110,12 +114,18 @@ export function calculateDamage(
     const totalDamage = hitDamage * hits;
 
     // 最終ダメージ（敵防御・耐性適用）
-    const finalDamage = calculateFinalDamage(totalDamage, input.enemy.defense || 0);
+    // WeaponCalc.yamlの式: ((HitDamage*DamageBuff)-(EnemyDefence/2))*(1-(EnemyTypeResistance/100))*(1-(EnemyAttributeResistance/100))
+    const finalDamage = calculateFinalDamage(
+      totalDamage,
+      input.enemy.defense || 0,
+      input.enemy.typeResistance || 0,
+      input.enemy.attributeResistance || 0
+    );
 
     // 結果の構築
     const result: DamageResult = {
       baseDamage: baseDamage,
-      critMultiplier: critResult / correctedDamage, // 倍率を計算
+      critMultiplier: correctedDamage !== 0 ? critResult / correctedDamage : 1, // 倍率を計算（ゼロ除算防止）
       skillMultiplier: skillMultiplier,
       hits: hits,
       hitDamage: hitDamage,
@@ -189,9 +199,14 @@ export function calculateBaseDamage(
   }
 
   // ダメージ補正の実際の値を計算
-  const actualDamageCorrection = damageCorrectionMode === 'min' ? 0.8
-                               : damageCorrectionMode === 'max' ? 1.2
-                               : 1.0; // avg
+  // min: 武器のdamageCorrection値（例: 80）→ 0.8
+  // max: 100 → 1.0
+  // avg: (damageCorrection + 100) / 2 → 例: (80 + 100) / 2 = 90 → 0.9
+  const damageCorrectionMin = damageCorrection; // 武器の値（例: 80）
+  const damageCorrectionMax = 100;
+  const actualDamageCorrection = damageCorrectionMode === 'min' ? damageCorrectionMin / 100
+                               : damageCorrectionMode === 'max' ? damageCorrectionMax / 100
+                               : (damageCorrectionMin + damageCorrectionMax) / 2 / 100;
 
   // 計算式の変数を準備（仕様書に従ったプレースホルダー名）
   const userVars = mapUserStatsToVariables(userStats);
@@ -375,34 +390,72 @@ export function calculateSkillDamage(
 
 /**
  * 会心ダメージの適用
+ *
+ * 注意: BasedDamageの計算式には既に会心ダメージ係数が含まれている
+ * (1 + WeaponCritDamage/100 + UserCritDamage*0.005)
+ * そのため、damageは「会心時ダメージ」として扱う
+ *
+ * @param damage - 基礎ダメージ（会心時ダメージとして扱う）
+ * @param critRate - 会心率（%）
+ * @param critDamage - 武器会心ダメージ（%）- 非会心ダメージ逆算用
+ * @param critMode - 会心モード
+ * @param userCritDamage - ユーザー撃力（逆算用、省略時は0.5%として概算）
  */
 export function applyCritDamage(
   damage: number,
   critRate: number,
   critDamage: number,
-  critMode: 'crit' | 'nocrit' | 'avg'
+  critMode: 'crit' | 'nocrit' | 'avg',
+  userCritDamage: number = 0
 ): number {
+  // BasedDamageは既に会心時ダメージを含む
+  // 会心係数 = 1 + WeaponCritDamage/100 + UserCritDamage*0.005
+  const critMultiplier = 1 + critDamage / 100 + userCritDamage * 0.005;
+
+  // 会心ダメージはBasedDamageの結果そのまま
+  const critDamageValue = damage;
+
+  // 非会心ダメージを逆算（0除算防止、最小0.01）
+  // 注意: 検証武器など負の会心ダメージでは critMultiplier < 1 になり、
+  // 非会心ダメージ > 会心ダメージとなる（正しい動作）
+  const safeCritMultiplier = Math.max(0.01, critMultiplier);
+  const noCritDamage = roundDown(damage / safeCritMultiplier);
+
+  // 会心率を0-100%でクランプ
+  const clampedCritRate = Math.min(100, Math.max(0, critRate));
+
   if (critMode === 'crit') {
-    return roundDown(damage * (1 + critDamage / 100));
+    return critDamageValue;
   } else if (critMode === 'nocrit') {
-    return damage;
+    return noCritDamage;
   } else {
-    // 平均値計算
-    const critDamageValue = roundDown(damage * (1 + critDamage / 100));
-    return roundDown(damage * (1 - critRate / 100) + critDamageValue * (critRate / 100));
+    // 期待値計算: 非会心 × (1-会心率) + 会心 × 会心率
+    return roundDown(noCritDamage * (1 - clampedCritRate / 100) + critDamageValue * (clampedCritRate / 100));
   }
 }
 
 /**
  * 最終ダメージの計算
+ * WeaponCalc.yamlの式: ((HitDamage*DamageBuff)-(EnemyDefence/2))*(1-(EnemyTypeResistance/100))*(1-(EnemyAttributeResistance/100))
+ * DamageBuffはスキル倍率として既に適用済みのため、ここでは適用しない
  */
 export function calculateFinalDamage(
   damage: number,
-  enemyDefense: number
+  enemyDefense: number,
+  typeResistance: number = 0,
+  attributeResistance: number = 0
 ): number {
-  // 簡易的な防御計算
-  const defenseMitigation = Math.max(0, 1 - enemyDefense / 1000);
-  return roundDown(damage * defenseMitigation);
+  // 防御による減算
+  const afterDefense = damage - (enemyDefense / 2);
+
+  // タイプ耐性による軽減
+  const typeMultiplier = 1 - (typeResistance / 100);
+
+  // 属性耐性による軽減
+  const attrMultiplier = 1 - (attributeResistance / 100);
+
+  // 最終ダメージ（最小1を保証）
+  return Math.max(1, roundDown(afterDefense * typeMultiplier * attrMultiplier));
 }
 
 /**

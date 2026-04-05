@@ -68,6 +68,29 @@ export const ARMOR_TYPE_CSV_TO_YAML: Record<string, string> = {
 };
 
 /**
+ * YAML武器種名 → 日本語武器種名
+ */
+export const WEAPON_TYPE_YAML_TO_JP: Record<string, string> = {
+  'Sword': '剣',
+  'GreatSword': '大剣',
+  'Dagger': '短剣',
+  'Axe': '斧',
+  'Spear': '槍',
+  'Bow': '弓',
+  'Wand': '杖',
+  'Staff': '杖',
+  'Grimoire': '魔導書',
+  'Shield': '盾',
+};
+
+/**
+ * 実際の武器種（副装備を除く）
+ */
+export const ACTUAL_WEAPON_TYPES: string[] = [
+  'Sword', 'GreatSword', 'Dagger', 'Axe', 'Spear', 'Bow', 'Wand', 'Staff',
+];
+
+/**
  * ヘルパー関数: 日本語職業名をYAML名に変換
  */
 export function convertJobNameToYAML(jpName: string): string {

@@ -1,6 +1,6 @@
 UserStatusFormula:
 
-  BaseStatus: "(SumEquipment.<Stat> + Job.Initial.<Stat> * <JobLevel> + Job.SP.<Stat> + Food.<Stat> + UserOption.<Stat>) * (1 + Job.Bonus.<Stat>/100 + Emblem.Bonus.<Stat>/100 + Tarot.Bonus.<Stat>/100)"
+  BaseStatus: "(SumEquipment.<Stat> + Job.Initial.<Stat> * <JobLevel> + Job.SP.<Stat> + Food.<Stat> + UserOption.<Stat> + Runestone.<Stat>) * (1 + Job.Bonus.<Stat>/100 + Emblem.Bonus.<Stat>/100 + Tarot.Bonus.<Stat>/100)"
 
   Components:
 

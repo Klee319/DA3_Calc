@@ -5,6 +5,7 @@
 
 import { SkillDefinition, AvailableSkill, WeaponCalcData } from '@/types/data';
 import { StatBlock, WeaponStats } from '@/types/calc';
+import { evaluate } from 'mathjs';
 
 /**
  * 式評価用のコンテキスト（変数マッピング）
@@ -173,7 +174,7 @@ function processRoundFunctions(formula: string): string {
       try {
         // ネストされたROUND関数を再帰的に処理
         const valueExpr = processRoundFunctions(args[0]);
-        value = new Function(`return ${valueExpr}`)();
+        value = evaluate(valueExpr);
       } catch {
         pattern.lastIndex = endIndex + 1;
         continue;
@@ -183,7 +184,7 @@ function processRoundFunctions(formula: string): string {
       let decimals = 0;
       if (args.length > 1) {
         try {
-          decimals = new Function(`return ${args[1]}`)();
+          decimals = evaluate(args[1]);
         } catch {
           decimals = 0;
         }
@@ -238,37 +239,18 @@ export function evaluateFormula(
     // ROUND/ROUNDUP/ROUNDDOWN関数を処理（負の桁指定に対応）
     cleanFormula = processRoundFunctions(cleanFormula);
 
-    // その他のMath関数を置換
-    cleanFormula = cleanFormula
-      .replace(/round\(/gi, 'Math.round(')
-      .replace(/floor\(/gi, 'Math.floor(')
-      .replace(/ceil\(/gi, 'Math.ceil(')
-      .replace(/max\(/gi, 'Math.max(')
-      .replace(/min\(/gi, 'Math.min(')
-      .replace(/abs\(/gi, 'Math.abs(')
-      .replace(/sqrt\(/gi, 'Math.sqrt(')
-      .replace(/pow\(/gi, 'Math.pow(')
-      .replace(/ln\(/gi, 'Math.log(');
+    // ln関数をmathjsのlog関数に置換
+    cleanFormula = cleanFormula.replace(/ln\(/gi, 'log(');
 
-    // 安全でない文字がないかチェック
-    const safePattern = /^[\d\s+\-*/().Math,roundfloorceimaxinabsqrtpowlog]+$/;
-    if (!safePattern.test(cleanFormula)) {
-      console.warn('Unsafe formula pattern detected:', cleanFormula);
-      // 危険な文字を除去して再試行
-      cleanFormula = cleanFormula.replace(/[^0-9\s+\-*/().]/g, '');
-    }
-
-    // evalの代わりにFunction constructorを使用
-    const result = new Function(`return ${cleanFormula}`)();
+    // mathjsで安全に評価
+    const result = evaluate(cleanFormula);
 
     if (typeof result === 'number' && !isNaN(result) && isFinite(result)) {
       return result;
     }
 
-    console.warn('Formula evaluation returned invalid result:', result, 'for formula:', formula);
     return 0;
-  } catch (error) {
-    console.error('Formula evaluation error:', error, 'Formula:', formula);
+  } catch {
     return 0;
   }
 }

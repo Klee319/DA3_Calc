@@ -5,7 +5,7 @@ import {
 } from '@/types/calc';
 import { WeaponCalcData } from '@/types/data';
 import { evaluateFormula } from './formulaEvaluator';
-import { getWeaponCalcKey } from './placeholderMapping';
+import { getWeaponCalcKey, mapUserStatsToVariables } from './placeholderMapping';
 
 /**
  * 武器基礎ダメージ計算
@@ -35,6 +35,9 @@ export function calcBaseDamage(
   }
 
   // 変数の準備
+  // mapUserStatsToVariablesを使用して一貫したキーマッピングを実現
+  // これによりHIT形式（UI）とCritDamage形式（内部）の両方に対応
+  const userVars = mapUserStatsToVariables(userStats);
   const variables: Record<string, number> = {
     // 武器ステータス
     WeaponAttackPower: weaponStats.attackPower || 0,
@@ -42,19 +45,8 @@ export function calcBaseDamage(
     WeaponCritRate: (weaponStats as any).critRate || 0,
     WeaponCritDamage: (weaponStats as any).critDamage || 0,
 
-    // ユーザーステータス
-    UserPower: userStats.ATK || 0,
-    UserMagic: userStats.MATK || 0,
-    UserDefense: userStats.DEF || 0,
-    UserMind: userStats.MDEF || 0,
-    UserHP: userStats.HP || 0,
-    UserMP: userStats.MP || 0,
-    UserAgility: userStats.AGI || 0,
-    UserDex: userStats.DEX || 0,
-    UserLuck: userStats.LUK || 0,
-    UserCritDamage: userStats.HIT || 0,  // UIではCritDamage(撃力)がHITにマップされている
-    UserHit: userStats.HIT || 0,
-    UserFlee: userStats.FLEE || 0,
+    // ユーザーステータス（mapUserStatsToVariablesから取得）
+    ...userVars,
 
     // 補正値
     DamageCorrection: damageCorrection,
@@ -103,15 +95,10 @@ export function applyJobCorrection(
     // Bonus式がある場合は基礎ダメージに係数を掛ける
     if (jobCorrection.Bonus) {
       const bonusFormula = jobCorrection.Bonus;
+      // mapUserStatsToVariablesを使用して一貫したキーマッピングを実現
+      const userVars = mapUserStatsToVariables(userStats);
       const variables: Record<string, number> = {
-        UserPower: userStats.ATK || 1,
-        UserMagic: userStats.MATK || 1,
-        UserDefense: userStats.DEF || 0,
-        UserMind: userStats.MDEF || 0,
-        UserHP: userStats.HP || 0,
-        UserAgility: userStats.AGI || 0,
-        UserDex: userStats.DEX || 0,
-        UserCritDamage: userStats.HIT || 0,
+        ...userVars,
       };
 
       try {
@@ -126,6 +113,8 @@ export function applyJobCorrection(
   }
 
   // 職業補正式で再計算
+  // mapUserStatsToVariablesを使用して一貫したキーマッピングを実現
+  const userVars = mapUserStatsToVariables(userStats);
   const variables: Record<string, number> = {
     // 武器ステータス
     WeaponAttackPower: weaponStats.attackPower || 0,
@@ -133,19 +122,8 @@ export function applyJobCorrection(
     WeaponCritRate: (weaponStats as any).critRate || 0,
     WeaponCritDamage: (weaponStats as any).critDamage || 0,
 
-    // ユーザーステータス
-    UserPower: userStats.ATK || 0,
-    UserMagic: userStats.MATK || 0,
-    UserDefense: userStats.DEF || 0,
-    UserMind: userStats.MDEF || 0,
-    UserHP: userStats.HP || 0,
-    UserMP: userStats.MP || 0,
-    UserAgility: userStats.AGI || 0,
-    UserDex: userStats.DEX || 0,
-    UserLuck: userStats.LUK || 0,
-    UserCritDamage: userStats.HIT || 0,  // UIではCritDamage(撃力)がHITにマップされている
-    UserHit: userStats.HIT || 0,
-    UserFlee: userStats.FLEE || 0,
+    // ユーザーステータス（mapUserStatsToVariablesから取得）
+    ...userVars,
 
     // 補正値
     DamageCorrection: damageCorrection

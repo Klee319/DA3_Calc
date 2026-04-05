@@ -97,7 +97,7 @@ async function loadYamlFile<T>(path: string, replaceParams: boolean = false): Pr
     // YAMLのパースを試みる
     let data: T;
     try {
-      data = yaml.load(text) as T;
+      data = yaml.load(text, { schema: yaml.JSON_SCHEMA }) as T;
       
       // パラメータ置き換えが必要な場合
       if (replaceParams) {

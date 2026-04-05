@@ -92,11 +92,19 @@ const convertToUIStats = (calcStats: CalcSystemStats): CalculatedStats => {
   const skillStats = convertStatBlock(calcStats.breakdown?.jobSP || {});
 
   // バフ（食べ物 + ユーザー手動補正 + リング効果）
-  const buffStats = convertStatBlock({
-    ...(calcStats.breakdown?.food || {}),
-    ...(calcStats.breakdown?.userOption || {}),
-    ...(calcStats.ring?.delta || {})  // リング効果の変化量を含める
-  });
+  // スプレッドだと同名キーが上書きされるため、加算でマージ
+  const foodBlock = calcStats.breakdown?.food || {};
+  const userOptionBlock = calcStats.breakdown?.userOption || {};
+  const ringDeltaBlock = calcStats.ring?.delta || {};
+  const mergedBuff: Record<string, number> = {};
+  for (const block of [foodBlock, userOptionBlock, ringDeltaBlock]) {
+    for (const [key, value] of Object.entries(block)) {
+      if (typeof value === 'number') {
+        mergedBuff[key] = (mergedBuff[key] || 0) + value;
+      }
+    }
+  }
+  const buffStats = convertStatBlock(mergedBuff);
 
   // %補正による増分を計算
   // base（%補正前）と bonusPercent.total から計算

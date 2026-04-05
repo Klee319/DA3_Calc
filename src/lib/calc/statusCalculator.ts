@@ -114,6 +114,7 @@ export function calculateStatus(
           [`Runestone.${statKey}`]: runestoneBonus[key] || 0,
           [`Job.Bonus.${statKey}`]: jobBonusPercent[key] || 0,
           [`Emblem.Bonus.${statKey}`]: emblemBonusPercent[key] || 0,
+          [`Tarot.Bonus.${statKey}`]: 0,  // タロットボーナス（最適化では未使用）
           JobLevel: jobLevel,
         };
 
@@ -592,12 +593,13 @@ export function applyRingConvergenceAdditive(
 /**
  * 会心率の計算
  *
- * 会心率 = weaponCritRate + userCritRate × 0.3
+ * 会心率 = min(100, weaponCritRate + userCritRate × 0.3)
+ * 100%を超えると器用さは依存ステータスから外れる
  *
  * @param weaponCritRate 武器の会心率
  * @param userCritRate ユーザーの器用さ（会心率ステータス）
- * @returns 計算された会心率
+ * @returns 計算された会心率（0-100%）
  */
 export function calculateCritRate(weaponCritRate: number, userCritRate: number): number {
-  return weaponCritRate + userCritRate * 0.3;
+  return Math.min(100, weaponCritRate + userCritRate * 0.3);
 }

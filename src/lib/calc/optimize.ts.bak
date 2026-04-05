@@ -1,0 +1,3737 @@
+/**
+ * 装備最適化モジュール
+ * 職業・スキル・ステータス目標に基づいて最適な装備組み合わせを探索
+ */
+
+import { CharacterBuild, EquipSlot, Equipment, EquipmentRank } from '@/types';
+import {
+  OptimizeConstraints,
+  OptimizeResult,
+  OptimizeProgress,
+  OptimizeMode,
+  OptimizeResultItem,
+  OptimizeOutput,
+  EquipmentPool,
+  CandidateEquipment,
+  EquipmentConfiguration,
+  RankRange,
+  RANK_VALUES,
+  RANKS_DESCENDING,
+  isRankInRange,
+  getRanksInRange,
+  OPTIMIZE_FIXED_VALUES,
+  DEFAULT_CONSTRAINTS,
+  MinimumStatRequirements,
+} from '@/types/optimize';
+import { WeaponData, ArmorData, AccessoryData, EqConstData, EmblemData, WeaponCalcData, SkillCalcData, RunestoneData } from '@/types/data';
+import { ArmorSmithingDistribution } from './equipmentCalculator';
+
+/** 最適化用ゲームデータ（簡略版） */
+export interface OptimizeGameData {
+  weapons: WeaponData[];
+  armors: ArmorData[];
+  accessories: AccessoryData[];
+  eqConst: EqConstData;
+  emblems?: EmblemData[];  // 紋章データ（最適化で探索）
+  jobConst?: JobConstData;  // 職業定数データ
+  jobSPData?: Map<string, JobSPData[]>;  // 職業SP データ
+  weaponCalc?: WeaponCalcData;  // 武器ダメージ計算データ
+  skillCalc?: SkillCalcData;   // スキル計算データ
+  runestones?: RunestoneData[];  // ルーンストーンデータ（最適化で探索）
+}
+import { StatBlock, InternalStatKey, CalculatedStats, EnemyParams, StatusCalcInput } from '@/types/calc';
+import {
+  calculateWeaponStats,
+  calculateArmorStats,
+  calculateAccessoryStats,
+  calculateArmorEX,
+  calculateAccessoryEX,
+  EquipmentStats,
+} from './equipmentCalculator';
+import {
+  analyzeSkillDependencies,
+  analyzeSkillDependenciesV2,
+  selectOptimalEX,
+  getTopEXCombinations,
+  getDiverseEXCombinations,
+  pruneByDominance,
+  RelevantStats,
+  formatRelevantStats,
+  formatWeightsV2,
+  normalizeSkillId,
+} from './skillAnalyzer';
+import {
+  calculateDynamicWeights,
+  getWeightsForSkill,
+  DEFAULT_STATS,
+  DEFAULT_WEAPON_PARAMS,
+  setCurrentOptimizationStats,
+  clearCurrentOptimizationStats,
+  type WeightCalculationParams,
+} from './statWeightMappingV2';
+import { calculateStatus } from './statusCalculator';
+import { calculateAllJobStats, convertToSPTree } from './jobCalculator';
+import { calculateDamage, calculateBaseDamage, applyCritDamage } from './damageCalculator';
+import type { JobConstData, JobSPData } from '@/types/data';
+import type { DamageCalcInput, WeaponType } from '@/types/calc';
+
+// ===== 武器種マッピング（YAML→CSV） =====
+
+/** YAML武器種名 → CSV武器種名（日本語） */
+const WEAPON_TYPE_YAML_TO_CSV: Record<string, string> = {
+  'Sword': '剣',
+  'GreatSword': '大剣',
+  'Dagger': '短剣',
+  'Axe': '斧',
+  'Spear': '槍',
+  'Bow': '弓',
+  'Wand': '杖',
+  'Grimoire': '杖',
+  'Staff': '杖',
+};
+
+/** YAML防具タイプ → CSV防具タイプ（日本語） */
+const ARMOR_TYPE_YAML_TO_CSV: Record<string, string> = {
+  'Cloth': '布',
+  'Leather': '革',
+  'Metal': '金属',
+};
+
+// ===== 型定義 =====
+
+/** シンプルなステータスブロック型（最適化用） */
+type SimpleStatBlock = Record<string, number>;
+
+interface EvaluationContext {
+  mode: OptimizeMode;
+  targetStat?: InternalStatKey;
+  skillId: string;               // スキルID
+  skillMultiplier: number;
+  hits: number;
+  coolTime: number;
+  enemyDefense: number;
+  enemyTypeResistance: number;
+  enemyAttributeResistance: number;
+  // 職業・紋章・制約用の追加データ
+  jobMaxLevel?: number;
+  jobName?: string;              // 職業名（YAML形式）
+  jobConst?: JobConstData;       // 職業定数データ
+  jobSPData?: JobSPData[];       // 職業SPデータ
+  jobBonusPercent?: StatBlock;   // 職業のパーセントボーナス
+  spAllocation?: Record<string, number>;  // SP振り分け
+  emblem?: EmblemData | null;    // 選択された紋章（nullの場合は自動選択）
+  minimumStats?: MinimumStatRequirements;  // 最低必須ステータス
+  // ダメージ計算用
+  weaponCalc?: WeaponCalcData;   // 武器ダメージ計算データ
+  skillCalc?: SkillCalcData;     // スキル計算データ
+  // スキル依存ステータス（EX選択用）
+  relevantStats?: RelevantStats;
+  // ルーンストーンボーナス
+  runestoneBonus?: StatBlock;
+}
+
+interface ScoredCombination {
+  equipmentSet: Record<EquipSlot, CandidateEquipment | null>;
+  configIndices: Record<EquipSlot, number>;
+  score: number;
+  stats: SimpleStatBlock;
+}
+
+// ===== ユーティリティ関数 =====
+
+/**
+ * 紋章から%ボーナスを抽出
+ */
+function extractEmblemBonusPercent(emblem: EmblemData | null | undefined): StatBlock {
+  if (!emblem) return {};
+  return {
+    Power: emblem['力（%不要）'] || 0,
+    Magic: emblem['魔力（%不要）'] || 0,
+    HP: emblem['体力（%不要）'] || 0,
+    Mind: emblem['精神（%不要）'] || 0,
+    Agility: emblem['素早さ（%不要）'] || 0,
+    Dex: emblem['器用（%不要）'] || 0,
+    CritDamage: emblem['撃力（%不要）'] || 0,
+    Defense: emblem['守備力（%不要）'] || 0,
+  };
+}
+
+/**
+ * 最低必須ステータスを満たしているかチェック
+ */
+function checkMinimumStats(
+  stats: StatBlock | SimpleStatBlock,
+  minimumStats: MinimumStatRequirements | undefined
+): boolean {
+  if (!minimumStats) return true;
+
+  const statKeys = ['HP', 'Power', 'Magic', 'Defense', 'Mind', 'Agility', 'Dex', 'CritDamage'] as const;
+
+  for (const stat of statKeys) {
+    const minValue = minimumStats[stat];
+    if (minValue !== undefined && minValue > 0) {
+      const actualValue = (stats as Record<string, number>)[stat] || 0;
+      if (actualValue < minValue) {
+        return false;
+      }
+    }
+  }
+  return true;
+}
+
+/**
+ * 最低必須ステータスへの達成度を計算（0.0〜1.0）
+ * 全ての最低必須ステータスを満たしている場合は1.0
+ * 部分的に満たしている場合はその割合
+ */
+function calculateMinimumStatsProgress(
+  stats: StatBlock | SimpleStatBlock,
+  minimumStats: MinimumStatRequirements | undefined
+): number {
+  if (!minimumStats) return 1.0;
+
+  const statKeys = ['HP', 'Power', 'Magic', 'Defense', 'Mind', 'Agility', 'Dex', 'CritDamage'] as const;
+  let totalRequired = 0;
+  let totalAchieved = 0;
+
+  for (const stat of statKeys) {
+    const minValue = minimumStats[stat];
+    if (minValue !== undefined && minValue > 0) {
+      totalRequired += minValue;
+      const actualValue = (stats as Record<string, number>)[stat] || 0;
+      totalAchieved += Math.min(actualValue, minValue); // 超過分はカウントしない
+    }
+  }
+
+  if (totalRequired === 0) return 1.0;
+  return totalAchieved / totalRequired;
+}
+
+/**
+ * 最低必須ステータスの不足分を計算
+ * 各ステータスについて、(必要値 - 現在値)の合計を返す
+ */
+function calculateMinimumStatsDeficit(
+  stats: StatBlock | SimpleStatBlock,
+  minimumStats: MinimumStatRequirements | undefined
+): number {
+  if (!minimumStats) return 0;
+
+  const statKeys = ['HP', 'Power', 'Magic', 'Defense', 'Mind', 'Agility', 'Dex', 'CritDamage'] as const;
+  let totalDeficit = 0;
+
+  for (const stat of statKeys) {
+    const minValue = minimumStats[stat];
+    if (minValue !== undefined && minValue > 0) {
+      const actualValue = (stats as Record<string, number>)[stat] || 0;
+      const deficit = Math.max(0, minValue - actualValue);
+      totalDeficit += deficit;
+    }
+  }
+
+  return totalDeficit;
+}
+
+// ===== 候補プール構築 =====
+
+/**
+ * 武器叩き配分パターンを生成（攻撃力/会心率/会心ダメージ）
+ */
+function generateWeaponSmithingPatterns(maxCount: number): { attackPower: number; critRate: number; critDamage: number }[] {
+  const patterns: { attackPower: number; critRate: number; critDamage: number }[] = [];
+
+  // 主要なパターンのみ生成（探索空間削減）
+  // 攻撃力全振り
+  patterns.push({ attackPower: maxCount, critRate: 0, critDamage: 0 });
+  // 会心率全振り
+  patterns.push({ attackPower: 0, critRate: maxCount, critDamage: 0 });
+  // 会心ダメージ全振り
+  patterns.push({ attackPower: 0, critRate: 0, critDamage: maxCount });
+  // バランス型
+  const third = Math.floor(maxCount / 3);
+  patterns.push({ attackPower: third, critRate: third, critDamage: maxCount - third * 2 });
+  // 攻撃+会心率
+  const half = Math.floor(maxCount / 2);
+  patterns.push({ attackPower: half, critRate: maxCount - half, critDamage: 0 });
+  // 攻撃+会心ダメージ
+  patterns.push({ attackPower: half, critRate: 0, critDamage: maxCount - half });
+
+  return patterns;
+}
+
+/**
+ * 防具叩き配分を決定
+ * スキル依存ステータスと防具の基礎値に基づいて、合計12回を配分
+ * @param armor 防具データ
+ * @param relevantStats スキル依存ステータス
+ * @param maxCount 最大叩き回数（デフォルト12）
+ * @param minimumStats 最低必須ステータス（設定されている場合は最優先）
+ */
+function determineArmorSmithingDistribution(
+  armor: ArmorData,
+  relevantStats: RelevantStats | undefined,
+  maxCount: number = 12,
+  minimumStats?: MinimumStatRequirements
+): ArmorSmithingDistribution {
+  // 防具が持っているステータスを取得（基礎値 > 0）
+  const availableStats: { key: keyof ArmorSmithingDistribution; csvKey: string; priority: number }[] = [];
+
+  const statMapping = [
+    { key: 'power' as const, csvKey: '力（初期値）', internalKey: 'Power' },
+    { key: 'magic' as const, csvKey: '魔力（初期値）', internalKey: 'Magic' },
+    { key: 'hp' as const, csvKey: '体力（初期値）', internalKey: 'HP' },
+    { key: 'mind' as const, csvKey: '精神（初期値）', internalKey: 'Mind' },
+    { key: 'speed' as const, csvKey: '素早さ（初期値）', internalKey: 'Agility' },
+    { key: 'dexterity' as const, csvKey: '器用（初期値）', internalKey: 'Dex' },
+    { key: 'critDamage' as const, csvKey: '撃力（初期値）', internalKey: 'CritDamage' },
+    { key: 'defense' as const, csvKey: '守備力（初期値）', internalKey: 'Defense' },
+  ];
+
+  // 防具が持っているステータスのみをフィルタリング
+  for (const stat of statMapping) {
+    const baseValue = armor[stat.csvKey as keyof ArmorData] as number || 0;
+    if (baseValue > 0) {
+      // 優先度を決定
+      // 1. 最低必須ステータスが設定されている場合は最優先（200）
+      // 2. スキル依存ステータスは高優先度（100）
+      // 3. 攻撃系ステータスは中優先度（50）
+      // 4. その他は低優先度（10）
+      const hasMinimumRequirement = minimumStats?.[stat.internalKey as keyof MinimumStatRequirements] !== undefined &&
+        (minimumStats[stat.internalKey as keyof MinimumStatRequirements] || 0) > 0;
+      const isRelevant = relevantStats?.directStats?.has(stat.internalKey as any) || false;
+      const isAttackStat = stat.key === 'power' || stat.key === 'magic' || stat.key === 'critDamage';
+
+      // 最低必須ステータスは最優先
+      const priority = hasMinimumRequirement ? 200 : (isRelevant ? 100 : (isAttackStat ? 50 : 10));
+      availableStats.push({ key: stat.key, csvKey: stat.csvKey, priority });
+    }
+  }
+
+  // 利用可能なステータスがない場合は空の配分を返す
+  if (availableStats.length === 0) {
+    return {};
+  }
+
+  // 優先度でソート（高い順）
+  availableStats.sort((a, b) => b.priority - a.priority);
+
+  // 配分を決定
+  const distribution: ArmorSmithingDistribution = {};
+  let remainingCount = maxCount;
+
+  // 優先度が高いステータスに多く配分
+  // 最も優先度の高いステータスに全て配分（シンプルな戦略）
+  // 複数の高優先度ステータスがある場合は均等配分
+  const highPriorityStats = availableStats.filter(s => s.priority === availableStats[0].priority);
+
+  if (highPriorityStats.length === 1) {
+    // 1つだけなら全振り
+    distribution[highPriorityStats[0].key] = maxCount;
+  } else if (highPriorityStats.length === 2) {
+    // 2つなら半分ずつ
+    const half = Math.floor(maxCount / 2);
+    distribution[highPriorityStats[0].key] = half;
+    distribution[highPriorityStats[1].key] = maxCount - half;
+  } else {
+    // 3つ以上なら均等配分
+    const each = Math.floor(maxCount / highPriorityStats.length);
+    let remaining = maxCount;
+    for (let i = 0; i < highPriorityStats.length; i++) {
+      if (i === highPriorityStats.length - 1) {
+        distribution[highPriorityStats[i].key] = remaining;
+      } else {
+        distribution[highPriorityStats[i].key] = each;
+        remaining -= each;
+      }
+    }
+  }
+
+  return distribution;
+}
+
+/** 装備フィルタリング設定 */
+const EQUIPMENT_FILTER_CONFIG = {
+  // 最低使用可能Lv（これ未満の装備は除外）
+  minWeaponLevel: 80,
+  minArmorLevel: 60,
+  minAccessoryLevel: 60,
+  // 最大候補数（使用可能Lv降順で上位N件のみ残す）
+  maxWeaponCandidates: 30,
+  maxArmorCandidates: 25,
+  maxAccessoryCandidates: 20,
+};
+
+// ===== 支配性枝刈り（Dominance Pruning） =====
+
+/**
+ * 武器Aが武器Bを支配（完全上位互換）しているかチェック
+ * すべての主要ステータスでA >= B、かつ少なくとも1つでA > B
+ *
+ * 使用可能Lv考慮:
+ * - Aの使用可能LvがBより低い（または同じ）場合のみ支配関係を認める
+ * - Aの使用可能LvがBより高い場合、AはBを支配しない（高Lv装備は使用条件が厳しいため）
+ */
+function weaponDominates(a: WeaponData, b: WeaponData): boolean {
+  // 使用可能Lvが高い装備は低い装備を支配しない
+  if (a.使用可能Lv > b.使用可能Lv) {
+    return false;
+  }
+
+  const statsA = {
+    attack: a['攻撃力（初期値）'] || 0,
+    critRate: a['会心率（初期値）'] || 0,
+    critDamage: a['会心ダメージ（初期値）'] || 0,
+    damageCorr: a['ダメージ補正（初期値）'] || 1,
+  };
+  const statsB = {
+    attack: b['攻撃力（初期値）'] || 0,
+    critRate: b['会心率（初期値）'] || 0,
+    critDamage: b['会心ダメージ（初期値）'] || 0,
+    damageCorr: b['ダメージ補正（初期値）'] || 1,
+  };
+
+  // すべてのステータスでA >= B
+  const allGE = statsA.attack >= statsB.attack &&
+                statsA.critRate >= statsB.critRate &&
+                statsA.critDamage >= statsB.critDamage &&
+                statsA.damageCorr >= statsB.damageCorr;
+
+  if (!allGE) return false;
+
+  // 少なくとも1つでA > B（厳密に上位）
+  const anyGT = statsA.attack > statsB.attack ||
+                statsA.critRate > statsB.critRate ||
+                statsA.critDamage > statsB.critDamage ||
+                statsA.damageCorr > statsB.damageCorr;
+
+  return anyGT;
+}
+
+/**
+ * 防具Aが防具Bを支配（完全上位互換）しているかチェック
+ * 使用可能Lvを考慮
+ */
+function armorDominates(a: ArmorData, b: ArmorData): boolean {
+  // 使用可能Lvが高い装備は低い装備を支配しない
+  if (a.使用可能Lv > b.使用可能Lv) {
+    return false;
+  }
+
+  // 主要8ステータスをチェック
+  const statKeys = [
+    '力（初期値）', '魔力（初期値）', '体力（初期値）', '精神（初期値）',
+    '素早さ（初期値）', '器用（初期値）', '撃力（初期値）', '守備力（初期値）'
+  ] as const;
+
+  let allGE = true;
+  let anyGT = false;
+
+  for (const key of statKeys) {
+    const valA = (a[key] as number) || 0;
+    const valB = (b[key] as number) || 0;
+
+    if (valA < valB) {
+      allGE = false;
+      break;
+    }
+    if (valA > valB) {
+      anyGT = true;
+    }
+  }
+
+  return allGE && anyGT;
+}
+
+/**
+ * アクセサリーAがアクセサリーBを支配（完全上位互換）しているかチェック
+ * 使用可能Lvを考慮
+ */
+function accessoryDominates(a: AccessoryData, b: AccessoryData): boolean {
+  // 使用可能Lvが高い装備は低い装備を支配しない
+  if (a.使用可能Lv > b.使用可能Lv) {
+    return false;
+  }
+
+  // アクセサリーの主要ステータスをチェック
+  const statKeys = [
+    '力（初期値）', '魔力（初期値）', '体力（初期値）', '精神（初期値）',
+    '素早さ（初期値）', '撃力（初期値）'
+  ] as const;
+
+  let allGE = true;
+  let anyGT = false;
+
+  for (const key of statKeys) {
+    const valA = (a[key] as number) || 0;
+    const valB = (b[key] as number) || 0;
+
+    if (valA < valB) {
+      allGE = false;
+      break;
+    }
+    if (valA > valB) {
+      anyGT = true;
+    }
+  }
+
+  return allGE && anyGT;
+}
+
+/**
+ * 武器リストから被支配（下位互換）装備を除去
+ */
+function removeWeaponDominated(weapons: WeaponData[]): WeaponData[] {
+  const dominated = new Set<number>();
+
+  for (let i = 0; i < weapons.length; i++) {
+    if (dominated.has(i)) continue;
+
+    for (let j = 0; j < weapons.length; j++) {
+      if (i === j || dominated.has(j)) continue;
+
+      // weapons[i]がweapons[j]を支配している場合、jを除外
+      if (weaponDominates(weapons[i], weapons[j])) {
+        dominated.add(j);
+      }
+    }
+  }
+
+  const result = weapons.filter((_, idx) => !dominated.has(idx));
+  if (dominated.size > 0) {
+    console.log(`[DominancePruning] Weapons: removed ${dominated.size} dominated items`);
+  }
+  return result;
+}
+
+/**
+ * 防具リストから被支配（下位互換）装備を除去
+ */
+function removeArmorDominated(armors: ArmorData[]): ArmorData[] {
+  const dominated = new Set<number>();
+
+  for (let i = 0; i < armors.length; i++) {
+    if (dominated.has(i)) continue;
+
+    for (let j = 0; j < armors.length; j++) {
+      if (i === j || dominated.has(j)) continue;
+
+      if (armorDominates(armors[i], armors[j])) {
+        dominated.add(j);
+      }
+    }
+  }
+
+  const result = armors.filter((_, idx) => !dominated.has(idx));
+  if (dominated.size > 0) {
+    console.log(`[DominancePruning] Armors: removed ${dominated.size} dominated items`);
+  }
+  return result;
+}
+
+/**
+ * アクセサリーリストから被支配（下位互換）装備を除去
+ */
+function removeAccessoryDominated(accessories: AccessoryData[]): AccessoryData[] {
+  const dominated = new Set<number>();
+
+  for (let i = 0; i < accessories.length; i++) {
+    if (dominated.has(i)) continue;
+
+    for (let j = 0; j < accessories.length; j++) {
+      if (i === j || dominated.has(j)) continue;
+
+      if (accessoryDominates(accessories[i], accessories[j])) {
+        dominated.add(j);
+      }
+    }
+  }
+
+  const result = accessories.filter((_, idx) => !dominated.has(idx));
+  if (dominated.size > 0) {
+    console.log(`[DominancePruning] Accessories: removed ${dominated.size} dominated items`);
+  }
+  return result;
+}
+
+/**
+ * ビルドAがビルドBを支配（完全上位互換）しているかチェック
+ * スコアが同等以上で、全主要ステータスで上位
+ */
+function buildDominates(statsA: SimpleStatBlock, statsB: SimpleStatBlock, scoreA: number, scoreB: number): boolean {
+  // スコアがBより低い場合は支配しない
+  if (scoreA < scoreB) {
+    return false;
+  }
+
+  // 主要ステータスをチェック
+  const statKeys = ['Power', 'Magic', 'HP', 'Mind', 'Agility', 'Dex', 'CritDamage', 'Defense'] as const;
+
+  let allGE = true;
+  let anyGT = false;
+
+  for (const key of statKeys) {
+    const valA = (statsA[key] as number) || 0;
+    const valB = (statsB[key] as number) || 0;
+
+    if (valA < valB) {
+      allGE = false;
+      break;
+    }
+    if (valA > valB) {
+      anyGT = true;
+    }
+  }
+
+  // スコアが高い場合はステータスチェック不要で支配
+  if (scoreA > scoreB && allGE) {
+    return true;
+  }
+
+  return allGE && anyGT;
+}
+
+/**
+ * 結果リストから被支配ビルドを除去
+ */
+function filterDominatedBuilds<T extends { score: number; stats: SimpleStatBlock }>(solutions: T[]): T[] {
+  if (solutions.length <= 1) return solutions;
+
+  const dominated = new Set<number>();
+
+  for (let i = 0; i < solutions.length; i++) {
+    if (dominated.has(i)) continue;
+
+    for (let j = i + 1; j < solutions.length; j++) {
+      if (dominated.has(j)) continue;
+
+      // iがjを支配している場合、jを除外
+      if (buildDominates(solutions[i].stats, solutions[j].stats, solutions[i].score, solutions[j].score)) {
+        dominated.add(j);
+      }
+      // jがiを支配している場合、iを除外
+      else if (buildDominates(solutions[j].stats, solutions[i].stats, solutions[j].score, solutions[i].score)) {
+        dominated.add(i);
+        break;
+      }
+    }
+  }
+
+  const result = solutions.filter((_, idx) => !dominated.has(idx));
+  if (dominated.size > 0) {
+    console.log(`[DominancePruning] Builds: removed ${dominated.size} dominated builds`);
+  }
+  return result;
+}
+
+/**
+ * 武器候補プールを構築（固定値使用）
+ */
+function buildWeaponPool(
+  weapons: WeaponData[],
+  constraints: OptimizeConstraints,
+  availableWeaponTypes: string[],
+  selectedWeaponType: string | null,
+  eqConst: any
+): CandidateEquipment[] {
+  const pool: CandidateEquipment[] = [];
+
+  // 固定値：ランクSSS、強化80、叩き12、錬金有効
+  const fixedRank: EquipmentRank = OPTIMIZE_FIXED_VALUES.rank;
+  const fixedEnhancement = OPTIMIZE_FIXED_VALUES.weaponEnhancement;
+  const maxSmithingCount = OPTIMIZE_FIXED_VALUES.maxSmithingCount;
+  const alchemyEnabled = OPTIMIZE_FIXED_VALUES.alchemyEnabled;
+
+  // 武器種の決定: selectedWeaponType が指定されていればそれのみ、なければ全availableWeaponTypes
+  const targetWeaponTypes = selectedWeaponType
+    ? [selectedWeaponType]
+    : availableWeaponTypes;
+
+  // "All"を展開
+  const expandedWeaponTypes = targetWeaponTypes.includes('All')
+    ? ['Sword', 'GreatSword', 'Dagger', 'Axe', 'Spear', 'Bow', 'Wand']
+    : targetWeaponTypes;
+
+  // YAML武器種を日本語（CSV形式）に変換
+  const csvWeaponTypes = expandedWeaponTypes
+    .map(type => WEAPON_TYPE_YAML_TO_CSV[type])
+    .filter(Boolean);
+
+  console.log('[buildWeaponPool] csvWeaponTypes:', csvWeaponTypes);
+  console.log('[buildWeaponPool] Total weapons in CSV:', weapons.length);
+
+  // 叩き配分パターンを生成
+  const smithingPatterns = generateWeaponSmithingPatterns(maxSmithingCount);
+
+  // 事前フィルタリング: 武器種とランクで絞り込み
+  const filteredWeapons = weapons.filter(weapon => {
+    // 空の装備をスキップ
+    if (!weapon.アイテム名 || weapon.アイテム名.trim() === '') {
+      return false;
+    }
+
+    // 武器種フィルタリング（空の場合は全武器、日本語で比較）
+    if (csvWeaponTypes.length > 0 && !csvWeaponTypes.includes(weapon.武器種)) {
+      return false;
+    }
+
+    // ランク範囲チェック（SSSが使用可能か）
+    const minRank = weapon.最低ランク as EquipmentRank | undefined;
+    const maxRank = weapon.最高ランク as EquipmentRank | undefined;
+    if (minRank && RANK_VALUES[fixedRank] < RANK_VALUES[minRank]) return false;
+    if (maxRank && RANK_VALUES[fixedRank] > RANK_VALUES[maxRank]) return false;
+
+    // 最低使用可能Lvチェック
+    if (weapon.使用可能Lv < EQUIPMENT_FILTER_CONFIG.minWeaponLevel) {
+      return false;
+    }
+
+    return true;
+  });
+
+  // 使用可能Lv降順でソートして上位N件のみ保持
+  filteredWeapons.sort((a, b) => b.使用可能Lv - a.使用可能Lv);
+  const topWeapons = filteredWeapons.slice(0, EQUIPMENT_FILTER_CONFIG.maxWeaponCandidates);
+
+  // 支配性枝刈り: 完全上位互換の装備があれば下位互換を除外
+  const prunedWeapons = removeWeaponDominated(topWeapons);
+
+  console.log(`[buildWeaponPool] After level filter: ${filteredWeapons.length}, after dominance pruning: ${prunedWeapons.length}`);
+
+  for (const weapon of prunedWeapons) {
+    // 各叩きパターンで構成を生成
+    const configurations: EquipmentConfiguration[] = smithingPatterns.map(pattern => ({
+      rank: fixedRank,
+      enhancement: fixedEnhancement,
+      smithing: pattern as any,  // WeaponSmithingCounts型
+      alchemyEnabled,
+    }));
+
+    pool.push({
+      id: `weapon_${weapon.アイテム名}`,
+      name: weapon.アイテム名,
+      type: 'weapon',
+      slot: 'weapon',
+      sourceData: weapon,
+      configurations,
+    });
+  }
+
+  console.log('[buildWeaponPool] Filtered weapons:', pool.length);
+  return pool;
+}
+
+/**
+ * 最低必須ステータスを考慮したEXパターンを生成
+ * 防具とアクセサリーで共通のロジック
+ * @param relevantStats スキル依存ステータス
+ * @param minimumStats 最低必須ステータス
+ * @param equipmentType 装備タイプ（'armor' | 'accessory'）
+ */
+function generateEXPatternsForMinimumStats(
+  relevantStats: RelevantStats | undefined,
+  minimumStats: MinimumStatRequirements | undefined,
+  equipmentType: 'armor' | 'accessory'
+): { ex1: string; ex2: string }[] {
+  // 基本パターンを取得
+  let exPatterns = relevantStats
+    ? getDiverseEXCombinations(relevantStats, equipmentType).map(e => ({
+        ex1: e.combination.ex1,
+        ex2: e.combination.ex2
+      }))
+    : [
+        { ex1: 'Power', ex2: 'Magic' },
+        { ex1: 'Power', ex2: 'CritDamage' },
+        { ex1: 'CritDamage', ex2: 'CritDamage' }
+      ];
+
+  // 最低必須ステータスが設定されている場合、優先パターンを追加
+  if (minimumStats) {
+    // 内部キー → EXタイプのマッピング
+    // 注: アクセサリーはDefenseのEXを持てない
+    const exTypeMapping: Record<string, string | undefined> = {
+      'HP': 'HP',
+      'Power': 'Power',
+      'Magic': 'Magic',
+      'Mind': 'Mind',
+      'Agility': 'Speed',
+      'Dex': 'Dex',
+      'CritDamage': 'CritDamage',
+      'Defense': equipmentType === 'armor' ? 'Defense' : undefined,
+    };
+
+    const requiredExPatterns: { ex1: string; ex2: string }[] = [];
+
+    for (const [statKey, minValue] of Object.entries(minimumStats)) {
+      if (minValue !== undefined && minValue > 0) {
+        const exType = exTypeMapping[statKey];
+        if (exType) {
+          // 最低必須ステータス×2のパターン
+          requiredExPatterns.push({ ex1: exType, ex2: exType });
+          // 最低必須ステータス + ダメージ系のパターン
+          requiredExPatterns.push(
+            { ex1: exType, ex2: 'Power' },
+            { ex1: exType, ex2: 'Magic' },
+            { ex1: exType, ex2: 'CritDamage' }
+          );
+        }
+      }
+    }
+
+    // 重複を除去して追加
+    for (const reqPattern of requiredExPatterns) {
+      const exists = exPatterns.some(
+        p => p.ex1 === reqPattern.ex1 && p.ex2 === reqPattern.ex2
+      );
+      if (!exists) {
+        exPatterns.push(reqPattern);
+      }
+    }
+  }
+
+  return exPatterns;
+}
+
+/**
+ * 防具叩き回数パターンを生成
+ * 防具の叩きは全ステータスに同時に適用されるため、回数のみを返す
+ * calculateArmorStatsがtatakiCountを受け取り、各ステータスに適切な倍率で適用
+ */
+function generateArmorSmithingCounts(maxCount: number): number[] {
+  // 最大回数のみ（0回は常に劣るため除外）
+  return [maxCount];
+}
+
+/**
+ * 防具の複数の叩き配分パターンを生成
+ * スキル依存ステータスに基づいて、異なる配分戦略を試行
+ * minimumStatsが設定されている場合は、そのステータス優先パターンも生成
+ */
+function generateArmorSmithingPatterns(
+  armor: ArmorData,
+  relevantStats: RelevantStats | undefined,
+  maxCount: number = 12,
+  minimumStats?: MinimumStatRequirements
+): ArmorSmithingDistribution[] {
+  const patterns: ArmorSmithingDistribution[] = [];
+
+  // 防具が持っているステータスを取得（基礎値 > 0）
+  const statMapping = [
+    { key: 'power' as const, csvKey: '力（初期値）', internalKey: 'Power' },
+    { key: 'magic' as const, csvKey: '魔力（初期値）', internalKey: 'Magic' },
+    { key: 'hp' as const, csvKey: '体力（初期値）', internalKey: 'HP' },
+    { key: 'mind' as const, csvKey: '精神（初期値）', internalKey: 'Mind' },
+    { key: 'speed' as const, csvKey: '素早さ（初期値）', internalKey: 'Agility' },
+    { key: 'dexterity' as const, csvKey: '器用（初期値）', internalKey: 'Dex' },
+    { key: 'critDamage' as const, csvKey: '撃力（初期値）', internalKey: 'CritDamage' },
+    { key: 'defense' as const, csvKey: '守備力（初期値）', internalKey: 'Defense' },
+  ];
+
+  // 最低必須ステータスが設定されているステータスのキーを取得
+  const requiredStatKeys: (keyof ArmorSmithingDistribution)[] = [];
+  if (minimumStats) {
+    for (const stat of statMapping) {
+      const minValue = minimumStats[stat.internalKey as keyof MinimumStatRequirements];
+      if (minValue !== undefined && minValue > 0) {
+        // この防具がそのステータスを持っているか確認
+        const baseValue = armor[stat.csvKey as keyof ArmorData] as number || 0;
+        if (baseValue > 0) {
+          requiredStatKeys.push(stat.key);
+        }
+      }
+    }
+  }
+
+  // 利用可能なステータスを優先度付きでフィルタリング
+  // V2の重み係数（statCoefficients）を使用して優先度を決定
+  const availableStats: { key: keyof ArmorSmithingDistribution; priority: number; isRequired: boolean }[] = [];
+
+  for (const stat of statMapping) {
+    const baseValue = armor[stat.csvKey as keyof ArmorData] as number || 0;
+    if (baseValue > 0) {
+      // V2の重み係数から優先度を計算
+      const coeff = relevantStats?.statCoefficients?.[stat.internalKey as keyof typeof relevantStats.statCoefficients] || 0;
+      const isRelevant = relevantStats?.directStats?.has(stat.internalKey as any) || false;
+      const isAttackStat = stat.key === 'power' || stat.key === 'magic' || stat.key === 'critDamage';
+      const isRequired = requiredStatKeys.includes(stat.key);
+
+      // V2係数がある場合はそれを優先度として使用（10倍して比較可能に）
+      // なければ従来のロジック
+      const priority = coeff > 0 ? coeff * 100 : (isRelevant ? 100 : (isAttackStat ? 50 : 10));
+      availableStats.push({ key: stat.key, priority, isRequired });
+    }
+  }
+
+  if (availableStats.length === 0) {
+    return [{}];
+  }
+
+  // 優先度でソート（ダメージ系優先）
+  availableStats.sort((a, b) => b.priority - a.priority);
+
+  // 最低必須ステータスがある場合は、それ用のパターンも追加
+  if (requiredStatKeys.length > 0) {
+    // パターン: 最低必須ステータス全振り
+    for (const reqKey of requiredStatKeys) {
+      const reqPattern: ArmorSmithingDistribution = {};
+      reqPattern[reqKey] = maxCount;
+      patterns.push(reqPattern);
+    }
+
+    // パターン: 最低必須ステータス + ダメージ系を混合（半々）
+    const topDamageStat = availableStats.find(s => !s.isRequired);
+    if (topDamageStat && requiredStatKeys.length === 1) {
+      const mixPattern: ArmorSmithingDistribution = {};
+      const half = Math.floor(maxCount / 2);
+      mixPattern[requiredStatKeys[0]] = half;
+      mixPattern[topDamageStat.key] = maxCount - half;
+      patterns.push(mixPattern);
+
+      // パターン: 8:4 配分（最低必須8、ダメージ4）
+      const mix84Pattern: ArmorSmithingDistribution = {};
+      mix84Pattern[requiredStatKeys[0]] = 8;
+      mix84Pattern[topDamageStat.key] = 4;
+      patterns.push(mix84Pattern);
+
+      // パターン: 4:8 配分（最低必須4、ダメージ8）
+      const mix48Pattern: ArmorSmithingDistribution = {};
+      mix48Pattern[requiredStatKeys[0]] = 4;
+      mix48Pattern[topDamageStat.key] = 8;
+      patterns.push(mix48Pattern);
+    }
+  }
+
+  // パターン1: 最優先ステータス全振り
+  const pattern1: ArmorSmithingDistribution = {};
+  pattern1[availableStats[0].key] = maxCount;
+  patterns.push(pattern1);
+
+  // パターン2: 上位2ステータスが存在する場合、均等配分
+  if (availableStats.length >= 2) {
+    const pattern2: ArmorSmithingDistribution = {};
+    const half = Math.floor(maxCount / 2);
+    pattern2[availableStats[0].key] = half;
+    pattern2[availableStats[1].key] = maxCount - half;
+    patterns.push(pattern2);
+  }
+
+  // パターン3: 上位2ステータスが存在する場合、8:4配分
+  if (availableStats.length >= 2) {
+    const pattern3: ArmorSmithingDistribution = {};
+    pattern3[availableStats[0].key] = 8;
+    pattern3[availableStats[1].key] = 4;
+    patterns.push(pattern3);
+  }
+
+  // パターン4: 上位3ステータスが存在する場合、均等配分
+  if (availableStats.length >= 3) {
+    const pattern4: ArmorSmithingDistribution = {};
+    const each = Math.floor(maxCount / 3);
+    pattern4[availableStats[0].key] = each;
+    pattern4[availableStats[1].key] = each;
+    pattern4[availableStats[2].key] = maxCount - each * 2;
+    patterns.push(pattern4);
+  }
+
+  return patterns;
+}
+
+/**
+ * 防具候補プールを構築（固定値使用、EX・叩き配分パターン含む）
+ */
+function buildArmorPool(
+  armors: ArmorData[],
+  slot: 'head' | 'body' | 'leg',
+  constraints: OptimizeConstraints,
+  availableArmorTypes: string[],
+  eqConst: any,
+  relevantStats?: RelevantStats,
+  minimumStats?: MinimumStatRequirements
+): CandidateEquipment[] {
+  const pool: CandidateEquipment[] = [];
+
+  // 固定値：ランクSSS、強化40、叩き12
+  const fixedRank: EquipmentRank = OPTIMIZE_FIXED_VALUES.rank;
+  const fixedEnhancement = OPTIMIZE_FIXED_VALUES.armorEnhancement;
+  const maxSmithingCount = OPTIMIZE_FIXED_VALUES.maxSmithingCount;
+
+  // 部位名のマッピング
+  const slotNameMap: Record<string, string> = {
+    head: '頭',
+    body: '胴',
+    leg: '脚',
+  };
+  const targetSlotName = slotNameMap[slot];
+
+  // YAML防具タイプを日本語（CSV形式）に変換
+  const csvArmorTypes = availableArmorTypes
+    .map(type => ARMOR_TYPE_YAML_TO_CSV[type])
+    .filter(Boolean);
+
+  // 叩き回数パターンを生成（最大回数と0回のみ）
+  const smithingCounts = generateArmorSmithingCounts(maxSmithingCount);
+
+  console.log(`[buildArmorPool:${slot}] Looking for armors with types:`, csvArmorTypes);
+  console.log(`[buildArmorPool:${slot}] Total armors in CSV:`, armors.length);
+
+  // 事前フィルタリング
+  const filteredArmors = armors.filter(armor => {
+    // 空の装備をスキップ
+    if (!armor.アイテム名 || armor.アイテム名.trim() === '') {
+      return false;
+    }
+
+    // 部位フィルタリング
+    if (armor.部位を選択 !== targetSlotName) return false;
+
+    // 防具タイプフィルタリング（空の場合は全防具、日本語で比較）
+    if (csvArmorTypes.length > 0 && !csvArmorTypes.includes(armor.タイプを選択)) {
+      return false;
+    }
+
+    // ランク範囲チェック（SSSが使用可能か）
+    const minRank = armor.最低ランク as EquipmentRank | undefined;
+    const maxRank = armor.最高ランク as EquipmentRank | undefined;
+    if (minRank && RANK_VALUES[fixedRank] < RANK_VALUES[minRank]) return false;
+    if (maxRank && RANK_VALUES[fixedRank] > RANK_VALUES[maxRank]) return false;
+
+    // 最低使用可能Lvチェック
+    if (armor.使用可能Lv < EQUIPMENT_FILTER_CONFIG.minArmorLevel) {
+      return false;
+    }
+
+    return true;
+  });
+
+  // 使用可能Lv降順でソートして上位N件のみ保持
+  filteredArmors.sort((a, b) => b.使用可能Lv - a.使用可能Lv);
+  const topArmors = filteredArmors.slice(0, EQUIPMENT_FILTER_CONFIG.maxArmorCandidates);
+
+  // 支配性枝刈り: 完全上位互換の装備があれば下位互換を除外
+  const prunedArmors = removeArmorDominated(topArmors);
+  console.log(`[buildArmorPool:${slot}] After level filter: ${filteredArmors.length}, after dominance pruning: ${prunedArmors.length}`);
+
+  // EXパターンを取得（最低必須ステータスを考慮した共通関数を使用）
+  const exPatterns = generateEXPatternsForMinimumStats(relevantStats, minimumStats, 'armor');
+
+  for (const armor of prunedArmors) {
+    // 叩き配分パターンを生成（防具ごとに利用可能なステータスが異なる）
+    const smithingPatterns = generateArmorSmithingPatterns(armor, relevantStats, maxSmithingCount, minimumStats);
+
+    // 叩き配分パターン × EXパターンの組み合わせで構成を生成
+    const configurations: EquipmentConfiguration[] = [];
+
+    for (const smithingDist of smithingPatterns) {
+      for (const exPattern of exPatterns) {
+        configurations.push({
+          rank: fixedRank,
+          enhancement: fixedEnhancement,
+          smithing: { tatakiCount: maxSmithingCount, armorDistribution: smithingDist } as any,
+          alchemyEnabled: false,
+          exStats: { ex1: exPattern.ex1, ex2: exPattern.ex2 },
+        });
+      }
+    }
+
+    pool.push({
+      id: `${slot}_${armor.アイテム名}`,
+      name: armor.アイテム名,
+      type: 'armor',
+      slot,
+      sourceData: armor,
+      configurations,
+    });
+  }
+
+  console.log(`[buildArmorPool:${slot}] Filtered armors:`, pool.length);
+  return pool;
+}
+
+/**
+ * アクセサリー候補プールを構築（固定値使用、EXパターン含む）
+ */
+function buildAccessoryPool(
+  accessories: AccessoryData[],
+  slot: 'accessory1' | 'accessory2',
+  constraints: OptimizeConstraints,
+  eqConst: any,
+  relevantStats?: RelevantStats,
+  minimumStats?: MinimumStatRequirements
+): CandidateEquipment[] {
+  const pool: CandidateEquipment[] = [];
+
+  // 固定値：ランクSSS
+  const fixedRank: EquipmentRank = OPTIMIZE_FIXED_VALUES.rank;
+
+  const slotType = slot === 'accessory1' ? 'ネックレス' : 'ブレスレット';
+
+  console.log(`[buildAccessoryPool:${slot}] Looking for accessories with type:`, slotType);
+  console.log(`[buildAccessoryPool:${slot}] Total accessories in CSV:`, accessories.length);
+
+  // EXパターンを取得（最低必須ステータスを考慮した共通関数を使用）
+  const exPatterns = generateEXPatternsForMinimumStats(relevantStats, minimumStats, 'accessory');
+
+  // 事前フィルタリング
+  const filteredAccessories = accessories.filter(accessory => {
+    // 空の装備をスキップ
+    if (!accessory.アイテム名 || accessory.アイテム名.trim() === '') {
+      return false;
+    }
+
+    // タイプフィルタリング
+    if (accessory.タイプを選択 !== slotType) return false;
+
+    // ランク範囲チェック（SSSが使用可能か）
+    const minRank = accessory.最低ランク as EquipmentRank | undefined;
+    const maxRank = accessory.最高ランク as EquipmentRank | undefined;
+    if (minRank && RANK_VALUES[fixedRank] < RANK_VALUES[minRank]) return false;
+    if (maxRank && RANK_VALUES[fixedRank] > RANK_VALUES[maxRank]) return false;
+
+    // 最低使用可能Lvチェック
+    if (accessory.使用可能Lv < EQUIPMENT_FILTER_CONFIG.minAccessoryLevel) {
+      return false;
+    }
+
+    return true;
+  });
+
+  // 使用可能Lv降順でソートして上位N件のみ保持
+  filteredAccessories.sort((a, b) => b.使用可能Lv - a.使用可能Lv);
+  const topAccessories = filteredAccessories.slice(0, EQUIPMENT_FILTER_CONFIG.maxAccessoryCandidates);
+
+  // 支配性枝刈り: 完全上位互換の装備があれば下位互換を除外
+  const prunedAccessories = removeAccessoryDominated(topAccessories);
+  console.log(`[buildAccessoryPool:${slot}] After level filter: ${filteredAccessories.length}, after dominance pruning: ${prunedAccessories.length}`);
+
+  for (const accessory of prunedAccessories) {
+    // EXパターンごとに構成を生成（防具と同様にex1, ex2の2つ）
+    const configurations: EquipmentConfiguration[] = exPatterns.map(exPattern => ({
+      rank: fixedRank,
+      enhancement: 0,
+      smithing: {},
+      alchemyEnabled: false,
+      exStats: { ex1: exPattern.ex1, ex2: exPattern.ex2 },  // アクセサリーもex1, ex2の2つ
+    }));
+
+    pool.push({
+      id: `${slot}_${accessory.アイテム名}`,
+      name: accessory.アイテム名,
+      type: 'accessory',
+      slot,
+      sourceData: accessory,
+      configurations,
+    });
+  }
+
+  console.log(`[buildAccessoryPool:${slot}] Filtered accessories:`, pool.length);
+  return pool;
+}
+
+/**
+ * 装備プール全体を構築
+ */
+function buildEquipmentPool(
+  gameData: OptimizeGameData,
+  constraints: OptimizeConstraints,
+  availableWeaponTypes: string[],
+  availableArmorTypes: string[],
+  selectedWeaponType: string | null,
+  relevantStats?: RelevantStats,
+  minimumStats?: MinimumStatRequirements
+): EquipmentPool {
+  const eqConst = gameData.eqConst;
+
+  return {
+    weapon: constraints.targetSlots.includes('weapon')
+      ? buildWeaponPool(gameData.weapons, constraints, availableWeaponTypes, selectedWeaponType, eqConst)
+      : [],
+    head: constraints.targetSlots.includes('head')
+      ? buildArmorPool(gameData.armors, 'head', constraints, availableArmorTypes, eqConst, relevantStats, minimumStats)
+      : [],
+    body: constraints.targetSlots.includes('body')
+      ? buildArmorPool(gameData.armors, 'body', constraints, availableArmorTypes, eqConst, relevantStats, minimumStats)
+      : [],
+    leg: constraints.targetSlots.includes('leg')
+      ? buildArmorPool(gameData.armors, 'leg', constraints, availableArmorTypes, eqConst, relevantStats, minimumStats)
+      : [],
+    accessory1: constraints.targetSlots.includes('accessory1')
+      ? buildAccessoryPool(gameData.accessories, 'accessory1', constraints, eqConst, relevantStats, minimumStats)
+      : [],
+    accessory2: constraints.targetSlots.includes('accessory2')
+      ? buildAccessoryPool(gameData.accessories, 'accessory2', constraints, eqConst, relevantStats, minimumStats)
+      : [],
+  };
+}
+
+// ===== 評価関数 =====
+
+/** EXタイプ定義（防具用） */
+type ArmorEXType = 'Dex' | 'CritDamage' | 'Speed' | 'HP' | 'Power' | 'Magic' | 'Mind' | 'Defense';
+/** EXタイプ定義（アクセサリー用） */
+type AccessoryEXType = 'Dex' | 'CritDamage' | 'Speed' | 'HP' | 'Power' | 'Magic' | 'Mind';
+
+/** EXタイプ → ステータスキーのマッピング */
+const EX_TYPE_TO_STAT_KEY: Record<string, string> = {
+  'Power': 'Power',
+  'Magic': 'Magic',
+  'HP': 'HP',
+  'Mind': 'Mind',
+  'Speed': 'Agility',
+  'Dex': 'Dex',
+  'CritDamage': 'CritDamage',
+  'Defense': 'Defense',
+};
+
+/**
+ * 装備のステータスを計算（既存のequipmentCalculator関数を使用）
+ * EXステータスも計算（1装備につき2スロット）
+ */
+function calculateEquipmentStatsFn(
+  candidate: CandidateEquipment,
+  configIndex: number,
+  eqConst: EqConstData,
+  relevantStats?: RelevantStats
+): SimpleStatBlock {
+  const config = candidate.configurations[configIndex];
+  if (!config) return {};
+
+  const stats: SimpleStatBlock = {};
+
+  try {
+    if (candidate.type === 'weapon') {
+      const weapon = candidate.sourceData as WeaponData;
+      // 武器叩き配分を取得
+      const smithing = config.smithing as { attackPower?: number; critRate?: number; critDamage?: number } || {};
+      const weaponSmithing = {
+        attackPower: smithing.attackPower || 0,
+        critRate: smithing.critRate || 0,
+        critDamage: smithing.critDamage || 0,
+      };
+
+      const weaponStats = calculateWeaponStats(
+        weapon,
+        config.rank as any,
+        config.enhancement,
+        weaponSmithing,
+        config.alchemyEnabled,
+        eqConst
+      );
+
+      // 武器固有ステータスをマッピング
+      stats.WeaponAttackPower = weaponStats.attackPower || 0;
+      stats.CritRate = weaponStats.critRate || 0;
+      stats.CritDamage = weaponStats.critDamage || 0;
+      stats.CoolTime = weaponStats.coolTime || 0;
+      stats.DamageCorrection = weaponStats.damageCorrection || 1;
+    } else if (candidate.type === 'armor') {
+      const armor = candidate.sourceData as ArmorData;
+      // 叩き配分を取得または決定
+      const smithing = config.smithing as { armorDistribution?: ArmorSmithingDistribution; tatakiCount?: number } || {};
+
+      // 叩き配分が指定されていない場合は自動決定
+      let armorDistribution: ArmorSmithingDistribution;
+      if (smithing.armorDistribution) {
+        armorDistribution = smithing.armorDistribution;
+      } else if (smithing.tatakiCount && smithing.tatakiCount > 0) {
+        // 従来のtatakiCountが指定されている場合は自動配分
+        armorDistribution = determineArmorSmithingDistribution(armor, relevantStats, smithing.tatakiCount);
+      } else {
+        armorDistribution = {};
+      }
+
+      const armorStats = calculateArmorStats(
+        armor,
+        config.rank as any,
+        config.enhancement,
+        armorDistribution,
+        eqConst
+      );
+
+      // 防具ステータスをマッピング
+      if (armorStats.final) {
+        stats.Power = armorStats.final.power || 0;
+        stats.Magic = armorStats.final.magic || 0;
+        stats.HP = armorStats.final.hp || 0;
+        stats.Mind = armorStats.final.mind || 0;
+        stats.Agility = armorStats.final.speed || 0;
+        stats.Dex = armorStats.final.dexterity || 0;
+        stats.CritDamage = (stats.CritDamage || 0) + (armorStats.final.critDamage || 0);
+        stats.Defense = armorStats.final.defense || 0;
+      }
+
+      // 防具叩き内訳を追跡（実際の配分を表示）
+      const totalTataki = Object.values(armorDistribution).reduce((sum, v) => sum + (v || 0), 0);
+      if (totalTataki > 0) {
+        // 配分を日本語名に変換
+        const statNameMap: Record<string, string> = {
+          power: '力',
+          magic: '魔力',
+          hp: '体力',
+          mind: '精神',
+          speed: '素早さ',
+          dexterity: '器用',
+          critDamage: '撃力',
+          defense: '守備力',
+        };
+
+        const smithingDetails: { stat: string; count: number }[] = [];
+        for (const [key, count] of Object.entries(armorDistribution)) {
+          if (count && count > 0) {
+            smithingDetails.push({ stat: statNameMap[key] || key, count });
+          }
+        }
+
+        stats._smithingBreakdown = {
+          totalCount: totalTataki,
+          details: smithingDetails,
+        } as any;
+      }
+
+      // 防具EX計算（2スロット）
+      // 構成にexStatsが含まれている場合はそれを使用、なければrelevantStatsから自動選択
+      let ex1Type: ArmorEXType;
+      let ex2Type: ArmorEXType;
+
+      if (config.exStats?.ex1 && config.exStats?.ex2) {
+        ex1Type = config.exStats.ex1 as ArmorEXType;
+        ex2Type = config.exStats.ex2 as ArmorEXType;
+      } else if (relevantStats) {
+        const exSelection = selectOptimalEX(relevantStats, 'armor');
+        ex1Type = exSelection.ex1 as ArmorEXType;
+        ex2Type = exSelection.ex2 as ArmorEXType;
+      } else {
+        // デフォルト
+        ex1Type = 'Power';
+        ex2Type = 'Magic';
+      }
+
+      try {
+        const exResult = calculateArmorEX(
+          armor,
+          config.rank as any,
+          ex1Type,
+          ex2Type,
+          eqConst
+        );
+
+        // EX値をstatsに加算
+        const ex1StatKey = EX_TYPE_TO_STAT_KEY[ex1Type];
+        const ex2StatKey = EX_TYPE_TO_STAT_KEY[ex2Type];
+
+        if (ex1StatKey) {
+          stats[ex1StatKey] = (stats[ex1StatKey] || 0) + exResult.ex1;
+        }
+        if (ex2StatKey) {
+          stats[ex2StatKey] = (stats[ex2StatKey] || 0) + exResult.ex2;
+        }
+
+        // EX選択情報を記録（デバッグ用）
+        stats._ex1Type = ex1Type as any;
+        stats._ex1Value = exResult.ex1;
+        stats._ex2Type = ex2Type as any;
+        stats._ex2Value = exResult.ex2;
+      } catch (exError) {
+        console.warn('[calculateEquipmentStatsFn] Armor EX calculation failed:', exError);
+      }
+    } else if (candidate.type === 'accessory') {
+      const accessory = candidate.sourceData as AccessoryData;
+
+      const accessoryStats = calculateAccessoryStats(
+        accessory,
+        config.rank as any,
+        eqConst
+      );
+
+      // アクセサリーステータスをマッピング
+      if (accessoryStats.final) {
+        stats.Power = (stats.Power || 0) + (accessoryStats.final.power || 0);
+        stats.Magic = (stats.Magic || 0) + (accessoryStats.final.magic || 0);
+        stats.HP = (stats.HP || 0) + (accessoryStats.final.hp || 0);
+        stats.Mind = (stats.Mind || 0) + (accessoryStats.final.mind || 0);
+        stats.Agility = (stats.Agility || 0) + (accessoryStats.final.speed || 0);
+        stats.Dex = (stats.Dex || 0) + (accessoryStats.final.dexterity || 0);
+        stats.CritDamage = (stats.CritDamage || 0) + (accessoryStats.final.critDamage || 0);
+      }
+
+      // アクセサリーEX計算（2スロット）- 防具と同様に2つのEXが付与される
+      // 構成にexStatsが含まれている場合はそれを使用、なければrelevantStatsから自動選択
+      let ex1Type: AccessoryEXType;
+      let ex2Type: AccessoryEXType;
+
+      if (config.exStats?.ex1 && config.exStats?.ex2) {
+        ex1Type = config.exStats.ex1 as AccessoryEXType;
+        ex2Type = config.exStats.ex2 as AccessoryEXType;
+      } else if (relevantStats) {
+        const exSelection = selectOptimalEX(relevantStats, 'accessory');
+        ex1Type = exSelection.ex1 as AccessoryEXType;
+        ex2Type = exSelection.ex2 as AccessoryEXType;
+      } else {
+        // デフォルト
+        ex1Type = 'Power';
+        ex2Type = 'Magic';
+      }
+
+      try {
+        // アクセサリーは2つのEXを計算（防具と同様）
+        const exResult = calculateAccessoryEX(
+          accessory,
+          config.rank as any,
+          ex1Type,
+          ex2Type,
+          eqConst
+        );
+
+        // EX1値をstatsに加算
+        const ex1StatKey = EX_TYPE_TO_STAT_KEY[ex1Type];
+        if (ex1StatKey) {
+          stats[ex1StatKey] = (stats[ex1StatKey] || 0) + exResult.ex1;
+        }
+
+        // EX2値をstatsに加算
+        const ex2StatKey = EX_TYPE_TO_STAT_KEY[ex2Type];
+        if (ex2StatKey) {
+          stats[ex2StatKey] = (stats[ex2StatKey] || 0) + exResult.ex2;
+        }
+
+        // EX選択情報を記録（デバッグ用）
+        stats._ex1Type = ex1Type as any;
+        stats._ex1Value = exResult.ex1;
+        stats._ex2Type = ex2Type as any;
+        stats._ex2Value = exResult.ex2;
+      } catch (exError) {
+        console.warn('[calculateEquipmentStatsFn] Accessory EX calculation failed:', exError);
+      }
+    }
+  } catch (error) {
+    // エラー時はフォールバック（簡略計算）
+    console.warn('Equipment calculation error, using fallback:', error);
+
+    if (candidate.type === 'weapon') {
+      const weapon = candidate.sourceData as WeaponData;
+      const baseAttack = weapon['攻撃力（初期値）'] || 0;
+      const rankBonus = RANK_VALUES[config.rank] * 10;
+      const enhanceBonus = config.enhancement * 2;
+      stats.WeaponAttackPower = baseAttack + rankBonus + enhanceBonus;
+      stats.CritRate = weapon['会心率（初期値）'] || 0;
+      stats.CritDamage = weapon['会心ダメージ（初期値）'] || 0;
+    } else if (candidate.type === 'armor') {
+      const armor = candidate.sourceData as ArmorData;
+      stats.Power = armor['力（初期値）'] || 0;
+      stats.Magic = armor['魔力（初期値）'] || 0;
+      stats.HP = armor['体力（初期値）'] || 0;
+      stats.Defense = armor['守備力（初期値）'] || 0;
+    } else if (candidate.type === 'accessory') {
+      const accessory = candidate.sourceData as AccessoryData;
+      stats.Power = accessory['力（初期値）'] || 0;
+      stats.Magic = accessory['魔力（初期値）'] || 0;
+    }
+  }
+
+  return stats;
+}
+
+/** CSV武器種 → WeaponType（英語小文字） */
+const CSV_WEAPON_TO_TYPE: Record<string, WeaponType> = {
+  '剣': 'sword',
+  '大剣': 'greatsword',
+  '短剣': 'dagger',
+  '斧': 'axe',
+  '槍': 'spear',
+  '弓': 'bow',
+  '杖': 'wand',
+};
+
+/**
+ * 組み合わせを評価してスコアを計算
+ * ビルドツールと同じ計算ロジック（calculateDamage）を使用
+ */
+function evaluateCombination(
+  combination: Record<EquipSlot, CandidateEquipment | null>,
+  configIndices: Record<EquipSlot, number>,
+  context: EvaluationContext,
+  eqConst: EqConstData
+): { score: number; stats: SimpleStatBlock; meetsMinimum: boolean } {
+  // 全装備のステータスを合計
+  const equipmentStats: SimpleStatBlock = {};
+  const slots: EquipSlot[] = ['weapon', 'head', 'body', 'leg', 'accessory1', 'accessory2'];
+
+  // 武器固有の値を保存
+  let weaponCritRate = 0;
+  let weaponCritDamage = 0;
+  let weaponCoolTime = 5;
+  let weaponDamageCorrection = 1;
+  let weaponAttackPower = 0;
+  let weaponType: WeaponType = 'sword';  // デフォルト
+
+  for (const slot of slots) {
+    const candidate = combination[slot];
+    if (!candidate) continue;
+
+    const configIndex = configIndices[slot] || 0;
+    const stats = calculateEquipmentStatsFn(candidate, configIndex, eqConst, context.relevantStats);
+
+    // 武器固有の値を取得
+    if (slot === 'weapon') {
+      weaponCritRate = stats.CritRate || 0;
+      weaponCritDamage = stats.CritDamage || 0;
+      weaponCoolTime = stats.CoolTime || 5;
+      weaponDamageCorrection = stats.DamageCorrection || 1;
+      weaponAttackPower = stats.WeaponAttackPower || 0;
+
+      // 武器種を取得
+      const weaponData = candidate.sourceData as WeaponData;
+      const csvWeaponType = weaponData.武器種;
+      weaponType = CSV_WEAPON_TO_TYPE[csvWeaponType] || 'sword';
+    }
+
+    // 装備ステータスを合計（武器固有のステータスは除外）
+    // 注: 武器のCritDamageは武器専用のweaponCritDamageとして別管理するため除外
+    for (const [key, value] of Object.entries(stats)) {
+      if (typeof value === 'number' &&
+          key !== 'WeaponAttackPower' &&
+          key !== 'CoolTime' &&
+          key !== 'DamageCorrection' &&
+          key !== 'CritRate') {
+        // 武器スロットの場合、CritDamageは除外（weaponCritDamageとして管理）
+        if (slot === 'weapon' && key === 'CritDamage') {
+          continue;
+        }
+        equipmentStats[key] = (equipmentStats[key] || 0) + value;
+      }
+    }
+  }
+
+  // 職業ステータスを計算（calculateAllJobStatsを使用）
+  const jobLevel = context.jobMaxLevel || 100;
+  const emblemBonusPercent = extractEmblemBonusPercent(context.emblem);
+
+  // 職業ステータスを取得
+  let jobStats: StatBlock = {
+    HP: jobLevel,
+    Power: jobLevel * 2,
+    Magic: jobLevel * 2,
+    Mind: jobLevel,
+    Agility: 0,
+    Dex: 0,
+    CritDamage: 0,
+    Defense: 0,
+  };
+  let jobBonusPercent: StatBlock = {};
+
+  // SP振り分けをSPAllocation形式に変換（"A-1" -> { branch: 'A', tier: 1, spCost: X }）
+  // 注意: CSVの「必要SP」は累積SPなので、各ノード単体のコストに変換する必要がある
+  type SPAllocationItem = { branch: 'A' | 'B' | 'C'; tier: number; spCost: number };
+  const spAllocationArray: SPAllocationItem[] = [];
+  if (context.spAllocation && context.jobSPData) {
+    // まず有効なノードを収集してソート
+    const sortedAllocations: Array<{nodeId: string; branch: string; tier: number}> = [];
+
+    for (const [nodeId, level] of Object.entries(context.spAllocation)) {
+      if (level > 0) {
+        const match = nodeId.match(/^([A-C])-(\d+)$/);
+        if (match) {
+          sortedAllocations.push({
+            nodeId,
+            branch: match[1],
+            tier: parseInt(match[2])
+          });
+        }
+      }
+    }
+
+    // ブランチとティアでソート（A-1, A-2, ..., B-1, B-2, ...）
+    sortedAllocations.sort((a, b) => {
+      if (a.branch !== b.branch) return a.branch.localeCompare(b.branch);
+      return a.tier - b.tier;
+    });
+
+    // ブランチごとの前のティアの累積SPを追跡
+    const prevRequiredSP: Record<string, number> = { A: 0, B: 0, C: 0 };
+
+    for (const alloc of sortedAllocations) {
+      const tierData = context.jobSPData.find(row => row.解法段階 === alloc.nodeId);
+      const requiredSP = tierData
+        ? (typeof tierData.必要SP === 'string' ? parseFloat(tierData.必要SP) || 0 : tierData.必要SP || 0)
+        : 0;
+      // 単体コスト = 現在の累積必要SP - 前のティアの累積必要SP
+      const spCost = requiredSP - prevRequiredSP[alloc.branch];
+      prevRequiredSP[alloc.branch] = requiredSP;
+
+      spAllocationArray.push({
+        branch: alloc.branch as 'A' | 'B' | 'C',
+        tier: alloc.tier,
+        spCost
+      });
+    }
+  }
+
+  // SPから得られるステータスを計算
+  let spStats: StatBlock = {};
+
+  if (context.jobName && context.jobConst) {
+    try {
+      // 実際の職業ステータスを計算（SP振り分け含む）
+      const calculatedJobStats = calculateAllJobStats(
+        context.jobName,
+        jobLevel,
+        spAllocationArray,  // SP振り分けを渡す
+        context.jobConst,
+        context.jobSPData
+      );
+      jobStats = calculatedJobStats;
+
+      // 職業補正(%)を取得
+      if (context.jobSPData && context.jobSPData.length > 0) {
+        const spTree = convertToSPTree(context.jobSPData);
+        if (spTree.jobCorrection) {
+          // 注: convertToSPTreeは大文字キー（Power, Magic等）を使用
+          jobBonusPercent = {
+            Power: spTree.jobCorrection.Power || 0,
+            Magic: spTree.jobCorrection.Magic || 0,
+            HP: spTree.jobCorrection.HP || 0,
+            Mind: spTree.jobCorrection.Mind || 0,
+            Agility: spTree.jobCorrection.Agility || 0,
+            Dex: spTree.jobCorrection.Dex || 0,
+            CritDamage: spTree.jobCorrection.CritDamage || 0,
+            Defense: spTree.jobCorrection.Defense || 0,
+          };
+        }
+
+        // SPから得られるステータスを計算
+        if (spTree.spNodes && spAllocationArray.length > 0) {
+          for (const allocation of spAllocationArray) {
+            const node = spTree.spNodes.find(n => n.branch === allocation.branch && n.tier === allocation.tier);
+            if (node && node.stats) {
+              for (const [key, value] of Object.entries(node.stats)) {
+                if (typeof value === 'number') {
+                  spStats[key as keyof StatBlock] = ((spStats[key as keyof StatBlock] as number) || 0) + value;
+                }
+              }
+            }
+          }
+        }
+      }
+    } catch (e) {
+      console.warn('[evaluateCombination] calculateAllJobStats failed:', e);
+    }
+  }
+
+  const statusInput: StatusCalcInput = {
+    jobStats: {
+      initial: jobStats,
+      sp: spStats,  // SP振りを反映
+      bonusPercent: context.jobBonusPercent || jobBonusPercent,
+    },
+    jobLevel,
+    equipmentTotal: equipmentStats,
+    emblemBonusPercent,
+    weaponCritRate,
+    runestoneBonus: context.runestoneBonus,  // ルーンストーンボーナス
+  };
+
+  // calculateStatusを呼び出し
+  const calcResult = calculateStatus(statusInput);
+
+  // CalcResult型を処理（成功/失敗の判定）
+  let finalStats: StatBlock = {};
+  if (calcResult.success) {
+    finalStats = calcResult.data.final || {};
+  } else {
+    console.warn('[evaluateCombination] calculateStatus failed:', calcResult.error);
+  }
+
+  // 注: 武器の会心ダメージと、キャラクターの撃力（防具・アクセサリー・職業から）は分離して管理
+  // - weaponCritDamage: 武器固有の会心ダメージ（WeaponCritDamageとして計算式に使用）
+  // - finalStats.CritDamage: キャラクターの撃力（UserCritDamageとして計算式に使用）
+
+  // 最低必須ステータスのチェック
+  // DEBUG: 最低必須ステータスが設定されている場合、ステータスを確認
+  if (context.minimumStats?.Defense && context.minimumStats.Defense > 0) {
+    console.log('[evaluateCombination] minimumStats.Defense:', context.minimumStats.Defense);
+    console.log('[evaluateCombination] equipmentStats.Defense:', equipmentStats.Defense);
+    console.log('[evaluateCombination] finalStats.Defense:', finalStats.Defense);
+  }
+  const meetsMinimum = checkMinimumStats(finalStats, context.minimumStats);
+
+  // スコア計算
+  let score = 0;
+
+  switch (context.mode) {
+    case 'damage':
+    case 'dps': {
+      // calculateDamageを使用してダメージ計算
+      if (context.weaponCalc && context.skillCalc) {
+        // CalculatedStats型を構築
+        const calculatedStats: CalculatedStats = {
+          breakdown: {
+            equipment: equipmentStats,
+            jobInitial: jobStats,
+            jobSP: {},
+            food: {},
+            userOption: {},
+          },
+          base: finalStats,
+          bonusPercent: {
+            job: jobBonusPercent,
+            emblem: emblemBonusPercent,
+            total: {},
+          },
+          final: finalStats,
+          critRate: weaponCritRate,  // 会心率
+        };
+
+        const damageInput: DamageCalcInput = {
+          weaponType,
+          weaponAttackPower,
+          weaponCritRate,
+          weaponCritDamage,  // 武器固有の会心ダメージのみ（キャラクター撃力はUserCritDamageで参照）
+          damageCorrection: weaponDamageCorrection,
+          userStats: calculatedStats,
+          jobName: context.jobName,
+          enemy: {
+            defense: context.enemyDefense,
+            typeResistance: context.enemyTypeResistance,
+            attributeResistance: context.enemyAttributeResistance,
+          },
+          options: {
+            damageCorrectionMode: 'avg',
+            critMode: 'expected',
+            skillName: context.skillId,
+          },
+        };
+
+        const damageResult = calculateDamage(damageInput, context.weaponCalc, context.skillCalc);
+
+        if (damageResult.success) {
+          if (context.mode === 'damage') {
+            score = damageResult.data.finalDamage;
+          } else {
+            // DPS = ダメージ / CT
+            const ct = damageResult.data.ct || context.coolTime || 1;
+            score = damageResult.data.finalDamage / Math.max(ct, 1);
+          }
+        } else {
+          console.warn('[evaluateCombination] calculateDamage failed:', damageResult.error?.message || 'Unknown error');
+        }
+      } else {
+        // フォールバック：簡易計算（weaponCalc/skillCalcがない場合）
+        const mainStat = Math.max(finalStats.Power || 0, finalStats.Magic || 0);
+        const baseDamage = (weaponAttackPower + mainStat) * weaponDamageCorrection * context.skillMultiplier;
+        // 会心ダメージは武器+キャラクターの合計を使用
+        const totalCritDamageForFallback = weaponCritDamage + (finalStats.CritDamage || 0);
+        const critMultiplier = 1 + (weaponCritRate / 100) * (totalCritDamageForFallback / 100);
+        score = baseDamage * critMultiplier * context.hits;
+
+        if (context.mode === 'dps') {
+          const ct = Math.max(weaponCoolTime + context.coolTime, 1);
+          score = score / ct;
+        }
+      }
+      break;
+    }
+
+    case 'stat': {
+      // ステータス最大化
+      if (context.targetStat) {
+        score = finalStats[context.targetStat] || 0;
+      }
+      break;
+    }
+  }
+
+  // 最低必須ステータスを満たさない場合はペナルティ
+  if (!meetsMinimum) {
+    score = 0;
+  }
+
+  // 結果ステータスを返す（内部キーを含む）
+  // 表示用の合計会心ダメージ（武器+キャラクター）
+  const displayCritDamage = weaponCritDamage + (finalStats.CritDamage || 0);
+  const resultStats: SimpleStatBlock = {
+    ...finalStats,
+    WeaponAttackPower: weaponAttackPower,
+    CritRate: weaponCritRate,
+    CritDamage: displayCritDamage,  // 表示用の合計値
+    WeaponCritDamage: weaponCritDamage,  // 武器の会心ダメージ（参考用）
+    CoolTime: weaponCoolTime,
+    DamageCorrection: weaponDamageCorrection,
+  };
+
+  return { score, stats: resultStats, meetsMinimum };
+}
+
+// ===== 探索アルゴリズム =====
+
+/** 全探索の閾値（組み合わせ数がこれ以下なら全探索） */
+const EXHAUSTIVE_SEARCH_THRESHOLD = 10000;
+
+/** 解リストの最大サイズ（メモリ節約のため） */
+const MAX_SOLUTIONS_IN_MEMORY = 200;
+
+// ===== 評価キャッシュ（Option B） =====
+/** 評価結果のキャッシュ（同じ装備構成の再評価を回避） */
+const evaluationCache = new Map<string, { score: number; stats: SimpleStatBlock; meetsMinimum: boolean }>();
+
+/** キャッシュをクリア（新しい最適化開始時に呼び出し） */
+function clearEvaluationCache(): void {
+  evaluationCache.clear();
+}
+
+/** キャッシュキーを生成 */
+function generateCacheKey(
+  combination: Record<EquipSlot, CandidateEquipment | null>,
+  configIndices: Record<EquipSlot, number>,
+  contextKey: string  // emblem + runestoneの組み合わせを識別
+): string {
+  const slots: EquipSlot[] = ['weapon', 'head', 'body', 'leg', 'accessory1', 'accessory2'];
+  const parts = slots.map(slot => {
+    const cand = combination[slot];
+    if (!cand) return `${slot}:null`;
+    const cfgIdx = configIndices[slot] || 0;
+    const cfg = cand.configurations[cfgIdx];
+    const exStr = cfg?.exStats ? `${cfg.exStats.ex1}-${cfg.exStats.ex2 || ''}` : '';
+    const smithStr = cfg?.smithing ? JSON.stringify(cfg.smithing) : '';
+    return `${slot}:${cand.id}:${cfgIdx}:${exStr}:${smithStr}`;
+  });
+  return `${contextKey}|${parts.join('|')}`;
+}
+
+/** キャッシュ付き評価関数 */
+function evaluateCombinationCached(
+  combination: Record<EquipSlot, CandidateEquipment | null>,
+  configIndices: Record<EquipSlot, number>,
+  context: EvaluationContext,
+  eqConst: EqConstData,
+  contextKey: string
+): { score: number; stats: SimpleStatBlock; meetsMinimum: boolean } {
+  const cacheKey = generateCacheKey(combination, configIndices, contextKey);
+
+  const cached = evaluationCache.get(cacheKey);
+  if (cached) {
+    return cached;  // キャッシュヒット
+  }
+
+  // キャッシュミス：実際に評価
+  const result = evaluateCombination(combination, configIndices, context, eqConst);
+  evaluationCache.set(cacheKey, result);
+  return result;
+}
+
+/**
+ * 全探索で最適解を探す（非同期版 - UIスレッド解放あり）
+ * 組み合わせ数が閾値以下の場合に使用
+ */
+async function exhaustiveSearchAsync(
+  pool: EquipmentPool,
+  context: EvaluationContext,
+  eqConst: any,
+  maxResults: number = 10
+): Promise<ScoredCombination[]> {
+  const slots: EquipSlot[] = ['weapon', 'head', 'body', 'leg', 'accessory1', 'accessory2'];
+  const solutions: ScoredCombination[] = [];
+
+  // 各スロットの候補と構成インデックスを列挙
+  const slotOptions: Array<Array<{ candidate: CandidateEquipment | null; configIndex: number }>> = [];
+
+  for (const slot of slots) {
+    const options: Array<{ candidate: CandidateEquipment | null; configIndex: number }> = [];
+    const candidates = pool[slot];
+
+    if (candidates.length === 0) {
+      options.push({ candidate: null, configIndex: 0 });
+    } else {
+      for (const candidate of candidates) {
+        for (let configIdx = 0; configIdx < candidate.configurations.length; configIdx++) {
+          options.push({ candidate, configIndex: configIdx });
+        }
+      }
+    }
+    slotOptions.push(options);
+  }
+
+  // 全組み合わせを評価
+  const indices = new Array(6).fill(0);
+  const maxIndices = slotOptions.map(opts => opts.length);
+
+  let evaluationCount = 0;
+  const maxEvaluations = EXHAUSTIVE_SEARCH_THRESHOLD;
+  const YIELD_INTERVAL = 500; // 500回ごとにUIスレッド解放
+
+  while (evaluationCount < maxEvaluations) {
+    // 現在の組み合わせを構築
+    const combination: Record<EquipSlot, CandidateEquipment | null> = {
+      weapon: null, head: null, body: null, leg: null, accessory1: null, accessory2: null,
+    };
+    const configIndices: Record<EquipSlot, number> = {
+      weapon: 0, head: 0, body: 0, leg: 0, accessory1: 0, accessory2: 0,
+    };
+
+    for (let i = 0; i < 6; i++) {
+      const opt = slotOptions[i][indices[i]];
+      combination[slots[i]] = opt.candidate;
+      configIndices[slots[i]] = opt.configIndex;
+    }
+
+    // 評価
+    const { score, stats, meetsMinimum } = evaluateCombination(combination, configIndices, context, eqConst);
+    evaluationCount++;
+
+    if (meetsMinimum && score > 0) {
+      solutions.push({
+        equipmentSet: { ...combination },
+        configIndices: { ...configIndices },
+        score,
+        stats,
+      });
+
+      // 上位N件のみ保持（メモリ効率のため）
+      if (solutions.length > maxResults * 2) {
+        solutions.sort((a, b) => b.score - a.score);
+        solutions.length = maxResults;
+      }
+    }
+
+    // UIスレッド解放（定期的）
+    if (evaluationCount % YIELD_INTERVAL === 0) {
+      await new Promise(resolve => setTimeout(resolve, 0));
+    }
+
+    // 次の組み合わせへ
+    let carry = true;
+    for (let i = 5; i >= 0 && carry; i--) {
+      indices[i]++;
+      if (indices[i] >= maxIndices[i]) {
+        indices[i] = 0;
+      } else {
+        carry = false;
+      }
+    }
+
+    // 全組み合わせを評価し終わったら終了
+    if (carry) break;
+  }
+
+  // スコア降順でソート
+  solutions.sort((a, b) => b.score - a.score);
+
+  console.log(`[exhaustiveSearchAsync] Evaluated ${evaluationCount} combinations, found ${solutions.length} valid solutions`);
+
+  return solutions.slice(0, maxResults);
+}
+
+/**
+ * 組み合わせ数を計算
+ */
+function calculateCombinationCount(pool: EquipmentPool): number {
+  const slots: EquipSlot[] = ['weapon', 'head', 'body', 'leg', 'accessory1', 'accessory2'];
+  let count = 1;
+
+  for (const slot of slots) {
+    const candidates = pool[slot];
+    if (candidates.length === 0) {
+      // 空のスロットは1通り
+      continue;
+    }
+
+    let slotCount = 0;
+    for (const candidate of candidates) {
+      slotCount += candidate.configurations.length;
+    }
+    count *= Math.max(slotCount, 1);
+  }
+
+  return count;
+}
+
+/**
+ * 貪欲法で初期解を構築
+ */
+function greedyInitialSolution(
+  pool: EquipmentPool,
+  context: EvaluationContext,
+  eqConst: any
+): ScoredCombination {
+  const slots: EquipSlot[] = ['weapon', 'head', 'body', 'leg', 'accessory1', 'accessory2'];
+  const combination: Record<EquipSlot, CandidateEquipment | null> = {
+    weapon: null,
+    head: null,
+    body: null,
+    leg: null,
+    accessory1: null,
+    accessory2: null,
+  };
+  const configIndices: Record<EquipSlot, number> = {
+    weapon: 0,
+    head: 0,
+    body: 0,
+    leg: 0,
+    accessory1: 0,
+    accessory2: 0,
+  };
+
+  // 各スロットで最高スコアの装備を選択
+  for (const slot of slots) {
+    const candidates = pool[slot];
+    if (candidates.length === 0) continue;
+
+    let bestCandidate: CandidateEquipment | null = null;
+    let bestConfigIndex = 0;
+    let bestScore = -Infinity;
+
+    for (const candidate of candidates) {
+      for (let configIdx = 0; configIdx < candidate.configurations.length; configIdx++) {
+        // 一時的にこの装備を追加して評価
+        const tempCombination = { ...combination, [slot]: candidate };
+        const tempIndices = { ...configIndices, [slot]: configIdx };
+
+        const { score } = evaluateCombination(tempCombination, tempIndices, context, eqConst);
+
+        if (score > bestScore) {
+          bestScore = score;
+          bestCandidate = candidate;
+          bestConfigIndex = configIdx;
+        }
+      }
+    }
+
+    if (bestCandidate) {
+      combination[slot] = bestCandidate;
+      configIndices[slot] = bestConfigIndex;
+    }
+  }
+
+  const { score, stats } = evaluateCombination(combination, configIndices, context, eqConst);
+
+  return {
+    equipmentSet: combination,
+    configIndices,
+    score,
+    stats,
+  };
+}
+
+/**
+ * 貪欲法で初期解を構築（非同期版 - UIスレッド解放付き）
+ */
+async function greedyInitialSolutionAsync(
+  pool: EquipmentPool,
+  context: EvaluationContext,
+  eqConst: any,
+  contextKey: string = ''
+): Promise<ScoredCombination> {
+  const slots: EquipSlot[] = ['weapon', 'head', 'body', 'leg', 'accessory1', 'accessory2'];
+  const combination: Record<EquipSlot, CandidateEquipment | null> = {
+    weapon: null,
+    head: null,
+    body: null,
+    leg: null,
+    accessory1: null,
+    accessory2: null,
+  };
+  const configIndices: Record<EquipSlot, number> = {
+    weapon: 0,
+    head: 0,
+    body: 0,
+    leg: 0,
+    accessory1: 0,
+    accessory2: 0,
+  };
+
+  let evalCount = 0;
+  const YIELD_INTERVAL = 50; // 50回ごとにUIスレッド解放
+
+  // 各スロットで最高スコアの装備を選択
+  for (const slot of slots) {
+    const candidates = pool[slot];
+    if (candidates.length === 0) continue;
+
+    let bestCandidate: CandidateEquipment | null = null;
+    let bestConfigIndex = 0;
+    let bestScore = -Infinity;
+
+    for (const candidate of candidates) {
+      for (let configIdx = 0; configIdx < candidate.configurations.length; configIdx++) {
+        // 一時的にこの装備を追加して評価
+        const tempCombination = { ...combination, [slot]: candidate };
+        const tempIndices = { ...configIndices, [slot]: configIdx };
+
+        const { score } = evaluateCombinationCached(tempCombination, tempIndices, context, eqConst, contextKey);
+        evalCount++;
+
+        if (score > bestScore) {
+          bestScore = score;
+          bestCandidate = candidate;
+          bestConfigIndex = configIdx;
+        }
+
+        // UIスレッド解放
+        if (evalCount % YIELD_INTERVAL === 0) {
+          await new Promise(resolve => setTimeout(resolve, 0));
+        }
+      }
+    }
+
+    if (bestCandidate) {
+      combination[slot] = bestCandidate;
+      configIndices[slot] = bestConfigIndex;
+    }
+  }
+
+  const { score, stats } = evaluateCombinationCached(combination, configIndices, context, eqConst, contextKey);
+
+  return {
+    equipmentSet: combination,
+    configIndices,
+    score,
+    stats,
+  };
+}
+
+// ===== Multi-Start Greedy（Phase 1） =====
+/** スロット順序戦略 */
+type SlotOrderStrategy = 'default' | 'reverse' | 'stat_priority';
+
+/**
+ * 異なるスロット順序で貪欲法を実行
+ */
+async function greedyWithSlotOrder(
+  pool: EquipmentPool,
+  context: EvaluationContext,
+  eqConst: any,
+  slotOrder: EquipSlot[],
+  contextKey: string = ''
+): Promise<ScoredCombination> {
+  const combination: Record<EquipSlot, CandidateEquipment | null> = {
+    weapon: null,
+    head: null,
+    body: null,
+    leg: null,
+    accessory1: null,
+    accessory2: null,
+  };
+  const configIndices: Record<EquipSlot, number> = {
+    weapon: 0,
+    head: 0,
+    body: 0,
+    leg: 0,
+    accessory1: 0,
+    accessory2: 0,
+  };
+
+  let evalCount = 0;
+  const YIELD_INTERVAL = 50;
+
+  // 指定されたスロット順序で最高スコアの装備を選択
+  for (const slot of slotOrder) {
+    const candidates = pool[slot];
+    if (candidates.length === 0) continue;
+
+    let bestCandidate: CandidateEquipment | null = null;
+    let bestConfigIndex = 0;
+    let bestScore = -Infinity;
+
+    for (const candidate of candidates) {
+      for (let configIdx = 0; configIdx < candidate.configurations.length; configIdx++) {
+        const tempCombination = { ...combination, [slot]: candidate };
+        const tempIndices = { ...configIndices, [slot]: configIdx };
+
+        const { score } = evaluateCombinationCached(tempCombination, tempIndices, context, eqConst, contextKey);
+        evalCount++;
+
+        if (score > bestScore) {
+          bestScore = score;
+          bestCandidate = candidate;
+          bestConfigIndex = configIdx;
+        }
+
+        if (evalCount % YIELD_INTERVAL === 0) {
+          await new Promise(resolve => setTimeout(resolve, 0));
+        }
+      }
+    }
+
+    if (bestCandidate) {
+      combination[slot] = bestCandidate;
+      configIndices[slot] = bestConfigIndex;
+    }
+  }
+
+  const { score, stats } = evaluateCombinationCached(combination, configIndices, context, eqConst, contextKey);
+
+  return {
+    equipmentSet: combination,
+    configIndices,
+    score,
+    stats,
+  };
+}
+
+/**
+ * 最低必須ステータス優先のグリーディ探索
+ * minimumStatsが設定されている場合、そのステータスを達成するための装備を優先的に選択
+ * スコア最大化よりも最低必須ステータスの達成を優先する
+ */
+async function greedyWithMinimumStatsPriority(
+  pool: EquipmentPool,
+  context: EvaluationContext,
+  eqConst: any,
+  slotOrder: EquipSlot[],
+  contextKey: string = ''
+): Promise<ScoredCombination> {
+  const combination: Record<EquipSlot, CandidateEquipment | null> = {
+    weapon: null,
+    head: null,
+    body: null,
+    leg: null,
+    accessory1: null,
+    accessory2: null,
+  };
+  const configIndices: Record<EquipSlot, number> = {
+    weapon: 0,
+    head: 0,
+    body: 0,
+    leg: 0,
+    accessory1: 0,
+    accessory2: 0,
+  };
+
+  let evalCount = 0;
+  const YIELD_INTERVAL = 50;
+
+  // 最低必須ステータスが設定されているか確認
+  const hasMinimumStats = context.minimumStats &&
+    Object.values(context.minimumStats).some(v => v !== undefined && v > 0);
+
+  // 指定されたスロット順序で装備を選択
+  for (const slot of slotOrder) {
+    const candidates = pool[slot];
+    if (candidates.length === 0) continue;
+
+    let bestCandidate: CandidateEquipment | null = null;
+    let bestConfigIndex = 0;
+    let bestCombinedScore = -Infinity;
+
+    for (const candidate of candidates) {
+      for (let configIdx = 0; configIdx < candidate.configurations.length; configIdx++) {
+        const tempCombination = { ...combination, [slot]: candidate };
+        const tempIndices = { ...configIndices, [slot]: configIdx };
+
+        const { score, stats, meetsMinimum } = evaluateCombinationCached(tempCombination, tempIndices, context, eqConst, contextKey);
+        evalCount++;
+
+        // combinedScore: 最低必須ステータス達成度を加味したスコア
+        let combinedScore: number;
+
+        if (hasMinimumStats) {
+          // 最低必須ステータスが設定されている場合
+          const progress = calculateMinimumStatsProgress(stats, context.minimumStats);
+          const deficit = calculateMinimumStatsDeficit(stats, context.minimumStats);
+
+          if (meetsMinimum) {
+            // 最低必須を満たしている場合: 高いベーススコア + ダメージスコア
+            combinedScore = 1000000 + score;
+          } else {
+            // 最低必須を満たしていない場合: 達成度に基づくスコア + 少しのダメージボーナス
+            // deficit が小さいほど良い（不足分が少ない）
+            // progress が大きいほど良い（達成率が高い）
+            combinedScore = progress * 500000 - deficit * 100 + score * 0.001;
+          }
+        } else {
+          // 最低必須ステータスが設定されていない場合: 通常のスコアで評価
+          combinedScore = score;
+        }
+
+        if (combinedScore > bestCombinedScore) {
+          bestCombinedScore = combinedScore;
+          bestCandidate = candidate;
+          bestConfigIndex = configIdx;
+        }
+
+        if (evalCount % YIELD_INTERVAL === 0) {
+          await new Promise(resolve => setTimeout(resolve, 0));
+        }
+      }
+    }
+
+    if (bestCandidate) {
+      combination[slot] = bestCandidate;
+      configIndices[slot] = bestConfigIndex;
+    }
+  }
+
+  const { score, stats, meetsMinimum } = evaluateCombinationCached(combination, configIndices, context, eqConst, contextKey);
+
+  return {
+    equipmentSet: combination,
+    configIndices,
+    score: meetsMinimum ? score : 0, // 最終的に最低必須を満たしていない場合は0
+    stats,
+  };
+}
+
+/**
+ * Multi-Start Greedy + Crossover（Phase 1）
+ * 複数の初期点から探索を開始し、局所最適を回避
+ */
+async function multiStartGreedyAsync(
+  pool: EquipmentPool,
+  context: EvaluationContext,
+  eqConst: any,
+  contextKey: string = ''
+): Promise<ScoredCombination[]> {
+  const solutions: ScoredCombination[] = [];
+
+  // 最低必須ステータスが設定されているか確認
+  const hasMinimumStats = context.minimumStats &&
+    Object.values(context.minimumStats).some(v => v !== undefined && v > 0);
+
+  // Step 1: 異なる戦略で初期解を構築
+
+  // 初期点1: デフォルト順序（weapon→head→body→leg→accessory1→accessory2）
+  const defaultOrder: EquipSlot[] = ['weapon', 'head', 'body', 'leg', 'accessory1', 'accessory2'];
+  const solution1 = await greedyWithSlotOrder(pool, context, eqConst, defaultOrder, contextKey);
+  solutions.push(solution1);
+  console.log(`[MultiStart] Strategy 1 (default order): score=${solution1.score.toFixed(0)}`);
+
+  // 初期点2: 逆順序（accessory2→accessory1→leg→body→head→weapon）
+  const reverseOrder: EquipSlot[] = ['accessory2', 'accessory1', 'leg', 'body', 'head', 'weapon'];
+  const solution2 = await greedyWithSlotOrder(pool, context, eqConst, reverseOrder, contextKey);
+  solutions.push(solution2);
+  console.log(`[MultiStart] Strategy 2 (reverse order): score=${solution2.score.toFixed(0)}`);
+
+  // 初期点3: 最低必須ステータス優先探索（設定されている場合のみ）
+  if (hasMinimumStats) {
+    console.log('[MultiStart] Strategy 3 (minimum stats priority): enabled');
+
+    // 防具スロットを先に選択（head→body→leg→weapon→accessory1→accessory2）
+    const armorFirstOrder: EquipSlot[] = ['head', 'body', 'leg', 'weapon', 'accessory1', 'accessory2'];
+    const solution3 = await greedyWithMinimumStatsPriority(pool, context, eqConst, armorFirstOrder, contextKey);
+    if (solution3.score > 0) {
+      solutions.push(solution3);
+      console.log(`[MultiStart] Strategy 3a (armor first, minimum priority): score=${solution3.score.toFixed(0)}`);
+    }
+
+    // 逆順（accessory→leg→body→head→weapon）でも試す
+    const reverseArmorOrder: EquipSlot[] = ['accessory1', 'accessory2', 'leg', 'body', 'head', 'weapon'];
+    const solution4 = await greedyWithMinimumStatsPriority(pool, context, eqConst, reverseArmorOrder, contextKey);
+    if (solution4.score > 0) {
+      solutions.push(solution4);
+      console.log(`[MultiStart] Strategy 3b (reverse armor, minimum priority): score=${solution4.score.toFixed(0)}`);
+    }
+
+    // デフォルト順序でも最低必須優先探索
+    const solution5 = await greedyWithMinimumStatsPriority(pool, context, eqConst, defaultOrder, contextKey);
+    if (solution5.score > 0) {
+      solutions.push(solution5);
+      console.log(`[MultiStart] Strategy 3c (default order, minimum priority): score=${solution5.score.toFixed(0)}`);
+    }
+  }
+
+  // Step 2: Crossover（いいとこどり）
+  // 2つの解の各スロットを組み合わせて新しい解を生成
+  const crossoverSolutions = await generateCrossoverSolutions(
+    [solution1, solution2],
+    context,
+    eqConst,
+    contextKey
+  );
+  solutions.push(...crossoverSolutions);
+
+  // スコア順でソート
+  solutions.sort((a, b) => b.score - a.score);
+
+  console.log(`[MultiStart] Total candidates: ${solutions.length}, best score: ${solutions[0]?.score.toFixed(0) || 0}`);
+
+  return solutions;
+}
+
+/**
+ * Crossover: 2つの解から各スロットを組み合わせた新しい解を生成
+ */
+async function generateCrossoverSolutions(
+  parents: ScoredCombination[],
+  context: EvaluationContext,
+  eqConst: any,
+  contextKey: string
+): Promise<ScoredCombination[]> {
+  if (parents.length < 2) return [];
+
+  const [parent1, parent2] = parents;
+  const slots: EquipSlot[] = ['weapon', 'head', 'body', 'leg', 'accessory1', 'accessory2'];
+  const crossovers: ScoredCombination[] = [];
+
+  // Crossoverパターン: 武器スロットを固定し、防具/アクセサリーを混合
+  // パターン1: parent1の武器・頭・胴 + parent2の脚・アクセ
+  const crossover1Combination: Record<EquipSlot, CandidateEquipment | null> = {
+    weapon: parent1.equipmentSet.weapon,
+    head: parent1.equipmentSet.head,
+    body: parent1.equipmentSet.body,
+    leg: parent2.equipmentSet.leg,
+    accessory1: parent2.equipmentSet.accessory1,
+    accessory2: parent2.equipmentSet.accessory2,
+  };
+  const crossover1Indices: Record<EquipSlot, number> = {
+    weapon: parent1.configIndices.weapon,
+    head: parent1.configIndices.head,
+    body: parent1.configIndices.body,
+    leg: parent2.configIndices.leg,
+    accessory1: parent2.configIndices.accessory1,
+    accessory2: parent2.configIndices.accessory2,
+  };
+  const result1 = evaluateCombinationCached(crossover1Combination, crossover1Indices, context, eqConst, contextKey);
+  if (result1.meetsMinimum && result1.score > 0) {
+    crossovers.push({
+      equipmentSet: crossover1Combination,
+      configIndices: crossover1Indices,
+      score: result1.score,
+      stats: result1.stats,
+    });
+  }
+
+  // パターン2: parent2の武器・頭・胴 + parent1の脚・アクセ
+  const crossover2Combination: Record<EquipSlot, CandidateEquipment | null> = {
+    weapon: parent2.equipmentSet.weapon,
+    head: parent2.equipmentSet.head,
+    body: parent2.equipmentSet.body,
+    leg: parent1.equipmentSet.leg,
+    accessory1: parent1.equipmentSet.accessory1,
+    accessory2: parent1.equipmentSet.accessory2,
+  };
+  const crossover2Indices: Record<EquipSlot, number> = {
+    weapon: parent2.configIndices.weapon,
+    head: parent2.configIndices.head,
+    body: parent2.configIndices.body,
+    leg: parent1.configIndices.leg,
+    accessory1: parent1.configIndices.accessory1,
+    accessory2: parent1.configIndices.accessory2,
+  };
+  const result2 = evaluateCombinationCached(crossover2Combination, crossover2Indices, context, eqConst, contextKey);
+  if (result2.meetsMinimum && result2.score > 0) {
+    crossovers.push({
+      equipmentSet: crossover2Combination,
+      configIndices: crossover2Indices,
+      score: result2.score,
+      stats: result2.stats,
+    });
+  }
+
+  // パターン3: 武器parent1 + 防具parent2 + アクセparent1
+  const crossover3Combination: Record<EquipSlot, CandidateEquipment | null> = {
+    weapon: parent1.equipmentSet.weapon,
+    head: parent2.equipmentSet.head,
+    body: parent2.equipmentSet.body,
+    leg: parent2.equipmentSet.leg,
+    accessory1: parent1.equipmentSet.accessory1,
+    accessory2: parent1.equipmentSet.accessory2,
+  };
+  const crossover3Indices: Record<EquipSlot, number> = {
+    weapon: parent1.configIndices.weapon,
+    head: parent2.configIndices.head,
+    body: parent2.configIndices.body,
+    leg: parent2.configIndices.leg,
+    accessory1: parent1.configIndices.accessory1,
+    accessory2: parent1.configIndices.accessory2,
+  };
+  const result3 = evaluateCombinationCached(crossover3Combination, crossover3Indices, context, eqConst, contextKey);
+  if (result3.meetsMinimum && result3.score > 0) {
+    crossovers.push({
+      equipmentSet: crossover3Combination,
+      configIndices: crossover3Indices,
+      score: result3.score,
+      stats: result3.stats,
+    });
+  }
+
+  return crossovers;
+}
+
+/**
+ * ローカルサーチで解を改善（1-opt + 2-opt）同期版
+ */
+function localSearch(
+  initial: ScoredCombination,
+  pool: EquipmentPool,
+  context: EvaluationContext,
+  eqConst: any,
+  maxIterations: number = 100
+): ScoredCombination {
+  let current = { ...initial };
+  const slots: EquipSlot[] = ['weapon', 'head', 'body', 'leg', 'accessory1', 'accessory2'];
+
+  for (let iter = 0; iter < maxIterations; iter++) {
+    let improved = false;
+
+    // 1-opt: 各スロットで近傍探索
+    for (const slot of slots) {
+      const candidates = pool[slot];
+      if (candidates.length === 0) continue;
+
+      for (const candidate of candidates) {
+        for (let configIdx = 0; configIdx < candidate.configurations.length; configIdx++) {
+          // 現在と同じ場合はスキップ
+          if (
+            current.equipmentSet[slot]?.id === candidate.id &&
+            current.configIndices[slot] === configIdx
+          ) {
+            continue;
+          }
+
+          // 一時的に変更して評価
+          const tempCombination = { ...current.equipmentSet, [slot]: candidate };
+          const tempIndices = { ...current.configIndices, [slot]: configIdx };
+
+          const { score, stats } = evaluateCombination(tempCombination, tempIndices, context, eqConst);
+
+          if (score > current.score) {
+            current = {
+              equipmentSet: tempCombination,
+              configIndices: tempIndices,
+              score,
+              stats,
+            };
+            improved = true;
+          }
+        }
+      }
+    }
+
+    // 2-opt: 2スロット同時変更
+    if (!improved) {
+      for (let i = 0; i < slots.length && !improved; i++) {
+        for (let j = i + 1; j < slots.length && !improved; j++) {
+          const slot1 = slots[i];
+          const slot2 = slots[j];
+          const candidates1 = pool[slot1];
+          const candidates2 = pool[slot2];
+
+          if (candidates1.length === 0 || candidates2.length === 0) continue;
+
+          // サンプリング（計算量削減）：各スロット上位10件のみ
+          const sampled1 = candidates1.slice(0, 10);
+          const sampled2 = candidates2.slice(0, 10);
+
+          for (const cand1 of sampled1) {
+            for (let cfg1 = 0; cfg1 < cand1.configurations.length; cfg1++) {
+              for (const cand2 of sampled2) {
+                for (let cfg2 = 0; cfg2 < cand2.configurations.length; cfg2++) {
+                  // 両方とも現在と同じならスキップ
+                  if (
+                    current.equipmentSet[slot1]?.id === cand1.id &&
+                    current.configIndices[slot1] === cfg1 &&
+                    current.equipmentSet[slot2]?.id === cand2.id &&
+                    current.configIndices[slot2] === cfg2
+                  ) {
+                    continue;
+                  }
+
+                  const tempCombination = {
+                    ...current.equipmentSet,
+                    [slot1]: cand1,
+                    [slot2]: cand2,
+                  };
+                  const tempIndices = {
+                    ...current.configIndices,
+                    [slot1]: cfg1,
+                    [slot2]: cfg2,
+                  };
+
+                  const { score, stats } = evaluateCombination(tempCombination, tempIndices, context, eqConst);
+
+                  if (score > current.score) {
+                    current = {
+                      equipmentSet: tempCombination,
+                      configIndices: tempIndices,
+                      score,
+                      stats,
+                    };
+                    improved = true;
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+
+    // 改善がなければ終了
+    if (!improved) break;
+  }
+
+  return current;
+}
+
+/**
+ * ローカルサーチで解を改善（非同期版 - UIスレッド解放あり）
+ * Phase 3: Adaptive Local Search - 停滞時のみ限定的2-optを発動
+ */
+async function localSearchAsync(
+  initial: ScoredCombination,
+  pool: EquipmentPool,
+  context: EvaluationContext,
+  eqConst: any,
+  maxIterations: number = 50, // イテレーション数を削減
+  contextKey: string = ''
+): Promise<ScoredCombination> {
+  let current = { ...initial };
+  const slots: EquipSlot[] = ['weapon', 'head', 'body', 'leg', 'accessory1', 'accessory2'];
+  let evalCount = 0;
+  const YIELD_INTERVAL = 100;
+  let stagnationCount = 0;  // 連続停滞回数
+  const STAGNATION_THRESHOLD = 3;  // 3回連続改善なしで2-optを発動
+
+  for (let iter = 0; iter < maxIterations; iter++) {
+    let improved = false;
+
+    // 1-opt: 各スロットで近傍探索
+    for (const slot of slots) {
+      const candidates = pool[slot];
+      if (candidates.length === 0) continue;
+
+      for (const candidate of candidates) {
+        for (let configIdx = 0; configIdx < candidate.configurations.length; configIdx++) {
+          if (
+            current.equipmentSet[slot]?.id === candidate.id &&
+            current.configIndices[slot] === configIdx
+          ) {
+            continue;
+          }
+
+          const tempCombination = { ...current.equipmentSet, [slot]: candidate };
+          const tempIndices = { ...current.configIndices, [slot]: configIdx };
+          const { score, stats } = evaluateCombinationCached(tempCombination, tempIndices, context, eqConst, contextKey);
+          evalCount++;
+
+          if (evalCount % YIELD_INTERVAL === 0) {
+            await new Promise(resolve => setTimeout(resolve, 0));
+          }
+
+          if (score > current.score) {
+            current = { equipmentSet: tempCombination, configIndices: tempIndices, score, stats };
+            improved = true;
+          }
+        }
+      }
+    }
+
+    if (improved) {
+      stagnationCount = 0;  // 改善があれば停滞カウントをリセット
+    } else {
+      stagnationCount++;
+
+      // Phase 3: Adaptive 2-opt - 停滞時のみ依存ステータスに基づく2-optを発動
+      if (stagnationCount >= STAGNATION_THRESHOLD) {
+        const twoOptResult = await adaptiveTwoOptAsync(current, pool, context, eqConst, contextKey);
+        if (twoOptResult.score > current.score) {
+          current = twoOptResult;
+          improved = true;
+          stagnationCount = 0;
+          console.log(`[AdaptiveLocalSearch] 2-opt improved: ${twoOptResult.score.toFixed(0)}`);
+        } else {
+          // 2-optでも改善なし → 終了
+          break;
+        }
+      }
+    }
+
+    if (!improved && stagnationCount < STAGNATION_THRESHOLD) break;
+  }
+
+  return current;
+}
+
+/**
+ * Adaptive 2-opt: 依存ステータスに基づいて2スロット同時変更
+ * statCoefficientsから上位2ステータスを取得し、そのEXを持つスロット同士で2-optを実行
+ */
+async function adaptiveTwoOptAsync(
+  current: ScoredCombination,
+  pool: EquipmentPool,
+  context: EvaluationContext,
+  eqConst: any,
+  contextKey: string
+): Promise<ScoredCombination> {
+  let best = { ...current };
+  const evalCount = { count: 0 };
+  const YIELD_INTERVAL = 50;
+
+  // relevantStatsから依存ステータスを取得
+  const coeffs = context.relevantStats?.statCoefficients || {};
+  const sortedStats = Object.entries(coeffs)
+    .filter(([_, v]) => v > 0)
+    .sort((a, b) => b[1] - a[1])
+    .map(([k, _]) => k);
+
+  // 上位2ステータスのEXを持つスロットを特定
+  // 防具・アクセサリーのみが対象（武器はEXを持たない）
+  const armorSlots: EquipSlot[] = ['head', 'body', 'leg', 'accessory1', 'accessory2'];
+  const relevantSlots: EquipSlot[] = [];
+
+  // 現在の装備のEXタイプをチェック
+  for (const slot of armorSlots) {
+    const candidate = current.equipmentSet[slot];
+    if (!candidate) continue;
+
+    const configIdx = current.configIndices[slot] || 0;
+    const config = candidate.configurations[configIdx];
+    const ex1 = config?.exStats?.ex1;
+    const ex2 = config?.exStats?.ex2;
+
+    // 上位2ステータスに関連するEXを持つスロットを追加
+    // Speed → Agility にマッピング
+    const normalizedStats = sortedStats.slice(0, 2).map(s => s === 'Agility' ? 'Speed' : s);
+    if (ex1 && normalizedStats.includes(ex1)) {
+      relevantSlots.push(slot);
+    } else if (ex2 && normalizedStats.includes(ex2)) {
+      relevantSlots.push(slot);
+    }
+  }
+
+  // 関連スロットがない場合は全防具スロットを対象
+  const targetSlots = relevantSlots.length >= 2 ? relevantSlots : armorSlots;
+
+  // 2-optペアを生成（最大2ペア）
+  const pairs: [EquipSlot, EquipSlot][] = [];
+  for (let i = 0; i < targetSlots.length && pairs.length < 2; i++) {
+    for (let j = i + 1; j < targetSlots.length && pairs.length < 2; j++) {
+      pairs.push([targetSlots[i], targetSlots[j]]);
+    }
+  }
+
+  // 各ペアで2-optを実行
+  for (const [slot1, slot2] of pairs) {
+    const candidates1 = pool[slot1];
+    const candidates2 = pool[slot2];
+
+    if (candidates1.length === 0 || candidates2.length === 0) continue;
+
+    // サンプリング（上位10件のみ）
+    const sampled1 = candidates1.slice(0, 10);
+    const sampled2 = candidates2.slice(0, 10);
+
+    for (const cand1 of sampled1) {
+      for (let cfg1 = 0; cfg1 < Math.min(cand1.configurations.length, 3); cfg1++) {
+        for (const cand2 of sampled2) {
+          for (let cfg2 = 0; cfg2 < Math.min(cand2.configurations.length, 3); cfg2++) {
+            // 現在と同じならスキップ
+            if (
+              best.equipmentSet[slot1]?.id === cand1.id &&
+              best.configIndices[slot1] === cfg1 &&
+              best.equipmentSet[slot2]?.id === cand2.id &&
+              best.configIndices[slot2] === cfg2
+            ) {
+              continue;
+            }
+
+            const tempCombination = {
+              ...best.equipmentSet,
+              [slot1]: cand1,
+              [slot2]: cand2,
+            };
+            const tempIndices = {
+              ...best.configIndices,
+              [slot1]: cfg1,
+              [slot2]: cfg2,
+            };
+
+            const { score, stats } = evaluateCombinationCached(tempCombination, tempIndices, context, eqConst, contextKey);
+            evalCount.count++;
+
+            if (evalCount.count % YIELD_INTERVAL === 0) {
+              await new Promise(resolve => setTimeout(resolve, 0));
+            }
+
+            if (score > best.score) {
+              best = {
+                equipmentSet: tempCombination,
+                configIndices: tempIndices,
+                score,
+                stats,
+              };
+            }
+          }
+        }
+      }
+    }
+  }
+
+  return best;
+}
+
+/**
+ * 多様な解を生成（非同期版）
+ */
+async function generateDiverseSolutionsAsync(
+  pool: EquipmentPool,
+  context: EvaluationContext,
+  eqConst: any,
+  maxResults: number = 10
+): Promise<ScoredCombination[]> {
+  const solutions: ScoredCombination[] = [];
+  const usedWeapons = new Set<string>();
+  let count = 0;
+
+  // 各武器で最適化を試行（上位5件のみに制限）
+  const weaponsToTry = pool.weapon.slice(0, 5);
+  for (const weaponCandidate of weaponsToTry) {
+    if (solutions.length >= maxResults) break;
+    if (usedWeapons.has(weaponCandidate.name)) continue;
+
+    // 武器を固定して貪欲法
+    const fixedPool = {
+      ...pool,
+      weapon: [weaponCandidate],
+    };
+
+    const initial = greedyInitialSolution(fixedPool, context, eqConst);
+    const improved = await localSearchAsync(initial, fixedPool, context, eqConst);
+
+    // 重複チェック
+    const isDuplicate = solutions.some(
+      (s) => Math.abs(s.score - improved.score) < 0.001
+    );
+
+    if (!isDuplicate) {
+      solutions.push(improved);
+      usedWeapons.add(weaponCandidate.name);
+    }
+
+    count++;
+    // UIスレッド解放
+    if (count % 2 === 0) {
+      await new Promise(resolve => setTimeout(resolve, 0));
+    }
+  }
+
+  // スコア降順でソート
+  solutions.sort((a, b) => b.score - a.score);
+
+  return solutions.slice(0, maxResults);
+}
+
+// ===== ルーンストーン探索 =====
+
+/** ルーンストーン組み合わせ型 */
+interface RunestoneCombination {
+  runestones: RunestoneData[];
+  totalBonus: Record<string, number>;
+}
+
+/**
+ * 紋章のPareto支配フィルタリング
+ * 依存ステータスのみで比較し、全てで劣る（または等しい）紋章を除外
+ * @param emblems 紋章リスト
+ * @param relevantStats 依存ステータス（指定がない場合は全ステータスで比較）
+ */
+function filterDominatedEmblems(
+  emblems: EmblemData[],
+  relevantStats?: RelevantStats
+): EmblemData[] {
+  if (!emblems || emblems.length <= 1) {
+    return emblems;
+  }
+
+  // InternalStatKey -> 紋章CSVキーのマッピング
+  const statKeyMapping: Record<string, string> = {
+    'Power': '力（%不要）',
+    'Magic': '魔力（%不要）',
+    'HP': '体力（%不要）',
+    'Mind': '精神（%不要）',
+    'Agility': '素早さ（%不要）',
+    'Dex': '器用（%不要）',
+    'CritDamage': '撃力（%不要）',
+    'Defense': '守備力（%不要）',
+  };
+
+  // 依存ステータスに基づいて比較対象キーを決定
+  let compareKeys: string[];
+  if (relevantStats && relevantStats.directStats.size > 0) {
+    compareKeys = [];
+    const directStatsArray = Array.from(relevantStats.directStats);
+    for (const internalKey of directStatsArray) {
+      const csvKey = statKeyMapping[internalKey];
+      if (csvKey) {
+        compareKeys.push(csvKey);
+      }
+    }
+    // 撃力は常に重要（ダメージ計算に影響）なので追加
+    if (!compareKeys.includes('撃力（%不要）')) {
+      compareKeys.push('撃力（%不要）');
+    }
+  } else {
+    // relevantStatsがない場合は全ステータスで比較
+    compareKeys = Object.values(statKeyMapping);
+  }
+
+  console.log(`[Optimize] Emblem filter using stats: ${compareKeys.join(', ')}`);
+
+  const getStatValue = (emblem: EmblemData, key: string): number => {
+    const value = (emblem as unknown as Record<string, unknown>)[key];
+    return typeof value === 'number' ? value : 0;
+  };
+
+  // Pareto支配チェック: AがBに支配されているか（依存ステータスのみで比較）
+  const isDominated = (a: EmblemData, b: EmblemData): boolean => {
+    let allLessOrEqual = true;
+    let anyStrictlyLess = false;
+
+    for (const key of compareKeys) {
+      const aVal = getStatValue(a, key);
+      const bVal = getStatValue(b, key);
+      if (aVal > bVal) {
+        allLessOrEqual = false;
+        break;
+      }
+      if (aVal < bVal) {
+        anyStrictlyLess = true;
+      }
+    }
+
+    return allLessOrEqual && anyStrictlyLess;
+  };
+
+  // 支配されていない紋章のみを残す
+  const result: EmblemData[] = [];
+  for (let i = 0; i < emblems.length; i++) {
+    let dominated = false;
+    for (let j = 0; j < emblems.length; j++) {
+      if (i !== j && isDominated(emblems[i], emblems[j])) {
+        dominated = true;
+        break;
+      }
+    }
+    if (!dominated) {
+      result.push(emblems[i]);
+    }
+  }
+
+  console.log(`[Optimize] Emblem Pareto filter: ${emblems.length} -> ${result.length} (pruned ${emblems.length - result.length})`);
+  return result;
+}
+
+/**
+ * ルーンストーン組み合わせを生成
+ * グレード制約: 各グレードから最大1個まで装備可能（計最大4個）
+ */
+function buildRunestoneCombinations(
+  runestones: RunestoneData[],
+  relevantStats?: RelevantStats
+): RunestoneCombination[] {
+  if (!runestones || runestones.length === 0) {
+    return [{ runestones: [], totalBonus: {} }];
+  }
+
+  // グレード別にグループ化
+  const grades = ['ノーマル', 'グレート', 'バスター', 'レプリカ'] as const;
+  const byGrade: Map<string, RunestoneData[]> = new Map();
+  for (const grade of grades) {
+    byGrade.set(grade, []);
+  }
+  for (const rune of runestones) {
+    const gradeList = byGrade.get(rune.グレード);
+    if (gradeList) {
+      gradeList.push(rune);
+    }
+  }
+
+  // 各グレードから「なし」または「1個」を選択する組み合わせを生成
+  // 4グレード × 各N種 = 最大 (N+1)^4 組み合わせ
+  const combinations: RunestoneCombination[] = [];
+
+  // 各グレードの選択肢を配列化（nullは「選択なし」）
+  const gradeOptions: (RunestoneData | null)[][] = grades.map(grade => {
+    const runesInGrade = byGrade.get(grade) || [];
+    return [null, ...runesInGrade]; // nullは「このグレードでは選択しない」
+  });
+
+  // 全組み合わせを探索
+  const generateCombinations = (
+    gradeIndex: number,
+    currentRunes: RunestoneData[]
+  ): void => {
+    if (gradeIndex >= gradeOptions.length) {
+      // 組み合わせ完成
+      const totalBonus = calculateRunestoneBonus(currentRunes);
+      combinations.push({
+        runestones: [...currentRunes],
+        totalBonus,
+      });
+      return;
+    }
+
+    for (const option of gradeOptions[gradeIndex]) {
+      if (option === null) {
+        // このグレードでは選択しない
+        generateCombinations(gradeIndex + 1, currentRunes);
+      } else {
+        // このルーンストーンを選択
+        generateCombinations(gradeIndex + 1, [...currentRunes, option]);
+      }
+    }
+  };
+
+  generateCombinations(0, []);
+
+  // relevantStatsがある場合、Pareto支配による枝刈りを実行
+  if (relevantStats) {
+    // 依存ステータスに基づく比較対象キーを決定
+    const compareKeys: string[] = [];
+    const directStatsArray = Array.from(relevantStats.directStats);
+    const statKeyMapping: Record<string, string> = {
+      'Power': '力',
+      'Magic': '魔力',
+      'HP': '体力',
+      'Mind': '精神',
+      'Agility': '素早さ',
+      'Dex': '器用',
+      'CritDamage': '撃力',
+      'Defense': '守備力',
+    };
+
+    for (const internalKey of directStatsArray) {
+      const csvKey = statKeyMapping[internalKey];
+      if (csvKey) {
+        compareKeys.push(csvKey);
+      }
+    }
+    // 撃力は常に重要（ダメージ計算に影響）
+    if (!compareKeys.includes('撃力')) {
+      compareKeys.push('撃力');
+    }
+
+    console.log(`[Optimize] Runestone filter using stats: ${compareKeys.join(', ')}`);
+
+    const getStatValue = (comb: RunestoneCombination, key: string): number => {
+      return (comb.totalBonus as Record<string, number>)[key] || 0;
+    };
+
+    // Pareto支配チェック: AがBに支配されているか（依存ステータスのみで比較）
+    const isDominated = (a: RunestoneCombination, b: RunestoneCombination): boolean => {
+      let dominated = true;
+      let strictlyWorse = false;
+
+      for (const key of compareKeys) {
+        const aVal = getStatValue(a, key);
+        const bVal = getStatValue(b, key);
+        if (aVal > bVal) {
+          dominated = false;
+          break;
+        }
+        if (aVal < bVal) {
+          strictlyWorse = true;
+        }
+      }
+
+      return dominated && strictlyWorse;
+    };
+
+    // Pareto支配されていない組み合わせのみを残す
+    const nonDominated: RunestoneCombination[] = [];
+    for (const comb of combinations) {
+      let dominated = false;
+      for (const other of combinations) {
+        if (comb !== other && isDominated(comb, other)) {
+          dominated = true;
+          break;
+        }
+      }
+      if (!dominated) {
+        nonDominated.push(comb);
+      }
+    }
+
+    console.log(`[Optimize] Runestone Pareto filter: ${combinations.length} -> ${nonDominated.length} (pruned ${combinations.length - nonDominated.length})`);
+    return nonDominated;
+  }
+
+  console.log(`[Optimize] Runestone combinations: ${combinations.length}`);
+  return combinations;
+}
+
+/**
+ * ルーンストーンのステータスボーナスを計算
+ */
+function calculateRunestoneBonus(runestones: RunestoneData[]): Record<string, number> {
+  const bonus: Record<string, number> = {};
+
+  for (const rune of runestones) {
+    if (rune.力) bonus['力'] = (bonus['力'] || 0) + rune.力;
+    if (rune.魔力) bonus['魔力'] = (bonus['魔力'] || 0) + rune.魔力;
+    if (rune.体力) bonus['体力'] = (bonus['体力'] || 0) + rune.体力;
+    if (rune.精神) bonus['精神'] = (bonus['精神'] || 0) + rune.精神;
+    if (rune.素早さ) bonus['素早さ'] = (bonus['素早さ'] || 0) + rune.素早さ;
+    if (rune.器用) bonus['器用'] = (bonus['器用'] || 0) + rune.器用;
+    if (rune.撃力) bonus['撃力'] = (bonus['撃力'] || 0) + rune.撃力;
+    if (rune.守備力) bonus['守備力'] = (bonus['守備力'] || 0) + rune.守備力;
+  }
+
+  return bonus;
+}
+
+// ===== メインエントリーポイント =====
+
+/** 最適化オプション */
+export interface OptimizeOptions {
+  mode: OptimizeMode;
+  targetStat?: InternalStatKey;
+  skillMultiplier?: number;
+  skillHits?: number;
+  skillCoolTime?: number;
+  availableWeaponTypes?: string[];
+  availableArmorTypes?: string[];
+  selectedWeaponType?: string | null;  // 評価用の選択武器種（複数武器種職業用）
+  // 新しい制約条件
+  minimumStats?: MinimumStatRequirements;
+  jobGrade?: string;
+  jobMaxLevel?: number;
+  jobName?: string;  // 職業名（YAML形式）
+  jobNameJP?: string;  // 職業名（日本語、SPデータ検索用）
+  spAllocation?: Record<string, number>;  // SP振り分け（ユーザー必須分）
+  runestoneBonus?: StatBlock;  // ルーンストーンボーナス（固定値）
+  // バフ設定
+  buffSettings?: {
+    enabledBuffIds: string[];  // 有効なバフID
+    skillLevel: number;        // スキルレベル
+  };
+  unlockedSkills?: string[];   // 解放済みスキル（バフ判定用）
+  // ルーンストーン探索オプション
+  enableRunestoneSearch?: boolean;  // ルーンストーン探索を有効化
+}
+
+/** 探索統計 */
+export interface SearchStats {
+  totalCandidates: number;
+  evaluatedCombinations: number;
+  prunedCombinations: number;
+  elapsedTime: number;
+  phase: string;
+}
+
+/** 最適化結果（統計付き） */
+export interface OptimizeResultWithStats {
+  results: OptimizeResult[];
+  searchStats: SearchStats;
+  warnings?: string[];  // 警告メッセージ
+}
+
+/**
+ * 装備の最適化を実行
+ */
+export async function optimizeEquipment(
+  currentBuild: CharacterBuild,
+  targetSlots: EquipSlot[],
+  constraints: OptimizeConstraints,
+  skillForEvaluation: string,
+  enemyParams: EnemyParams,
+  gameData: OptimizeGameData,
+  onProgress?: (progress: OptimizeProgress) => void,
+  options?: OptimizeOptions
+): Promise<OptimizeResultWithStats> {
+  const startTime = Date.now();
+
+  // 探索統計を追跡
+  let evaluatedCombinations = 0;
+
+  // 中間結果用：現在の最良解を追跡
+  let currentBestSolution: (ScoredCombination & { usedEmblem?: EmblemData | null }) | null = null;
+  let lastIntermediateReportTime = Date.now();
+  const INTERMEDIATE_REPORT_INTERVAL = 30000; // 30秒
+
+  // 進捗報告（拡張版：中間結果を含む）
+  const reportProgress = (
+    phase: string,
+    current: number,
+    total: number,
+    message: string,
+    bestScore?: number,
+    bestSolution?: (ScoredCombination & { usedEmblem?: EmblemData | null }) | null
+  ) => {
+    if (onProgress) {
+      const elapsedTime = Date.now() - startTime;
+      const now = Date.now();
+
+      // 中間結果の装備情報を生成
+      let intermediateEquipment: { weapon?: string; head?: string; body?: string; leg?: string; accessory1?: string; accessory2?: string; emblem?: string } | undefined;
+      let intermediateStats: { Power?: number; Magic?: number; HP?: number; Agility?: number; CritDamage?: number } | undefined;
+
+      // 30秒ごと、または明示的に指定された場合に中間結果を報告
+      const solutionToReport = bestSolution || currentBestSolution;
+      if (solutionToReport && (now - lastIntermediateReportTime >= INTERMEDIATE_REPORT_INTERVAL || bestSolution)) {
+        lastIntermediateReportTime = now;
+
+        // 装備名を抽出
+        intermediateEquipment = {};
+        for (const slot of ['weapon', 'head', 'body', 'leg', 'accessory1', 'accessory2'] as const) {
+          const eq = solutionToReport.equipmentSet[slot];
+          if (eq) {
+            intermediateEquipment[slot] = eq.name;
+          }
+        }
+        if (solutionToReport.usedEmblem) {
+          intermediateEquipment.emblem = solutionToReport.usedEmblem['アイテム名'] || solutionToReport.usedEmblem.name;
+        }
+
+        // ステータスを抽出
+        if (solutionToReport.stats) {
+          intermediateStats = {
+            Power: Math.round(solutionToReport.stats.Power || 0),
+            Magic: Math.round(solutionToReport.stats.Magic || 0),
+            HP: Math.round(solutionToReport.stats.HP || 0),
+            Agility: Math.round(solutionToReport.stats.Agility || 0),
+            CritDamage: Math.round(solutionToReport.stats.CritDamage || 0),
+          };
+        }
+      }
+
+      onProgress({
+        phase: phase as any,
+        current,
+        total,
+        percentage: total > 0 ? Math.round((current / total) * 100) : 0,
+        currentBest: bestScore ?? (currentBestSolution?.score || 0),
+        message,
+        elapsedTime,
+        intermediateEquipment,
+        intermediateStats,
+      });
+    }
+  };
+
+  // 最適化開始時に動的ステータスをクリア
+  clearCurrentOptimizationStats();
+
+  // 評価キャッシュをクリア（新しい最適化セッション開始）
+  clearEvaluationCache();
+  console.log('[Optimize] Evaluation cache cleared for new session');
+
+  reportProgress('initializing', 0, 100, '初期化中...');
+
+  // 使用可能な武器・防具タイプを取得
+  const availableWeaponTypes: string[] = options?.availableWeaponTypes || [];
+  const availableArmorTypes: string[] = options?.availableArmorTypes || [];
+
+  console.log('[Optimize] availableWeaponTypes:', availableWeaponTypes);
+  console.log('[Optimize] availableArmorTypes:', availableArmorTypes);
+  console.log('[Optimize] constraints:', constraints);
+  console.log('[Optimize] gameData weapons count:', gameData.weapons?.length);
+
+  // スキル依存ステータスを分析（EX選択・叩き配分用）
+  // V2を優先使用（武器種が指定されている場合）
+  // ※buildEquipmentPoolより前に実行する必要がある
+  let relevantStats: RelevantStats;
+  // 選択武器種が指定されていればそれを使用、なければavailableWeaponTypesの先頭
+  const primaryWeaponType = options?.selectedWeaponType || (availableWeaponTypes.length > 0 ? availableWeaponTypes[0] : 'Sword');
+
+  // V2を使用して動的重みを計算（より正確な感度分析）
+  if (availableWeaponTypes.length > 0) {
+    // V2パラメータを構築
+    const v2Params: Partial<WeightCalculationParams> = {
+      currentStats: DEFAULT_STATS,
+      weaponAttackPower: DEFAULT_WEAPON_PARAMS.weaponAttackPower,
+      weaponCritDamage: DEFAULT_WEAPON_PARAMS.weaponCritDamage,
+      critRate: DEFAULT_WEAPON_PARAMS.critRate,
+      jobName: options?.jobName,
+    };
+
+    // V2で解析（内部でスキルID正規化を行う）
+    relevantStats = analyzeSkillDependenciesV2(skillForEvaluation, primaryWeaponType, v2Params);
+
+    // V2の重み情報もログ出力
+    const weights = getWeightsForSkill(normalizeSkillId(skillForEvaluation), primaryWeaponType, {
+      currentStats: DEFAULT_STATS,
+      weaponAttackPower: DEFAULT_WEAPON_PARAMS.weaponAttackPower,
+      weaponCritDamage: DEFAULT_WEAPON_PARAMS.weaponCritDamage,
+      critRate: DEFAULT_WEAPON_PARAMS.critRate,
+      jobName: options?.jobName,
+    });
+    console.log('[Optimize] V2 weights:', formatWeightsV2(weights));
+  } else {
+    // フォールバック: 従来の分析
+    relevantStats = analyzeSkillDependencies(
+      skillForEvaluation,
+      gameData.skillCalc,
+      gameData.weaponCalc,
+      options?.jobName
+    );
+  }
+  console.log('[Optimize] Skill dependencies analyzed:', formatRelevantStats(relevantStats));
+
+  reportProgress('building_pool', 10, 100, '装備候補を構築中...');
+
+  // 選択武器種（複数武器種職業用）
+  const selectedWeaponType = options?.selectedWeaponType ?? null;
+
+  // 装備プールを構築（relevantStatsとminimumStatsを渡してEX・叩き配分を最適化）
+  const pool = buildEquipmentPool(gameData, constraints, availableWeaponTypes, availableArmorTypes, selectedWeaponType, relevantStats, options?.minimumStats);
+
+  console.log('[Optimize] Pool sizes:', {
+    weapon: pool.weapon.length,
+    head: pool.head.length,
+    body: pool.body.length,
+    leg: pool.leg.length,
+    accessory1: pool.accessory1.length,
+    accessory2: pool.accessory2.length,
+  });
+
+  const totalCandidates =
+    pool.weapon.length +
+    pool.head.length +
+    pool.body.length +
+    pool.leg.length +
+    pool.accessory1.length +
+    pool.accessory2.length;
+
+  reportProgress('building_pool', 30, 100, `装備候補: ${totalCandidates}件`);
+
+  // 紋章データを取得（常に自動選択）
+  const emblems = gameData.emblems || [];
+  console.log('[Optimize] Emblem auto-selection enabled, candidates:', emblems.length);
+
+  // 職業SPデータを取得（日本語名で検索）
+  const jobNameForSPLookup = options?.jobNameJP || options?.jobName;
+  const jobSPData = jobNameForSPLookup && gameData.jobSPData
+    ? gameData.jobSPData.get(jobNameForSPLookup) || []
+    : [];
+  console.log('[Optimize] jobSPData lookup:', jobNameForSPLookup, 'found:', jobSPData.length, 'entries');
+
+  // ※relevantStatsは前方で既に取得済み（buildEquipmentPoolで使用）
+
+  // スキル名を正規化（damageCalculatorでのスキル検索用）
+  const normalizedSkillId = normalizeSkillId(skillForEvaluation);
+  console.log('[Optimize] Normalized skill ID:', normalizedSkillId, '(from:', skillForEvaluation, ')');
+
+  // 評価コンテキストを設定
+  const context: EvaluationContext = {
+    mode: options?.mode || 'damage',
+    targetStat: options?.targetStat,
+    skillId: normalizedSkillId,           // スキルID（正規化済み）
+    skillMultiplier: options?.skillMultiplier || 1.0,
+    hits: options?.skillHits || 1,
+    coolTime: options?.skillCoolTime || 5,
+    enemyDefense: enemyParams.defense,
+    enemyTypeResistance: enemyParams.typeResistance,
+    enemyAttributeResistance: enemyParams.attributeResistance,
+    // 新しいコンテキストフィールド
+    jobMaxLevel: options?.jobMaxLevel || 100,
+    jobName: options?.jobName,
+    jobConst: gameData.jobConst,
+    jobSPData,
+    emblem: null,  // 紋章は探索ループ内で設定
+    minimumStats: options?.minimumStats,
+    // ダメージ計算用
+    weaponCalc: gameData.weaponCalc,
+    skillCalc: gameData.skillCalc,
+    // スキル依存ステータス（EX選択用）
+    relevantStats,
+    // SP振り分けとルーンストーン
+    spAllocation: options?.spAllocation,
+    runestoneBonus: options?.runestoneBonus,
+  };
+
+  reportProgress('greedy', 40, 100, '初期解を構築中...');
+
+  // 組み合わせ数を計算して探索戦略を決定
+  const combinationCount = calculateCombinationCount(pool);
+  // 紋章探索がある場合は全探索を無効化（計算量爆発を防ぐ）
+  const hasEmblemSearch = emblems.length > 1;
+  const useExhaustiveSearch = combinationCount <= EXHAUSTIVE_SEARCH_THRESHOLD && !hasEmblemSearch;
+  console.log(`[Optimize] Combination count: ${combinationCount}, Use exhaustive search: ${useExhaustiveSearch}, hasEmblemSearch: ${hasEmblemSearch}`);
+
+  // 紋章探索とルーンストーン探索を効率的に行う
+  // 解決策に紋章・ルーンストーン情報も追跡
+  let allSolutions: (ScoredCombination & {
+    usedEmblem?: EmblemData | null;
+    usedRunestones?: RunestoneCombination;
+  })[] = [];
+
+  // メモリ節約: 解リストが大きくなりすぎたら上位のみ保持
+  const trimSolutions = () => {
+    if (allSolutions.length > MAX_SOLUTIONS_IN_MEMORY * 2) {
+      allSolutions.sort((a, b) => b.score - a.score);
+      allSolutions.length = MAX_SOLUTIONS_IN_MEMORY;
+    }
+  };
+
+  // Branch and Bound: 現在の最良スコアを追跡
+  let globalBestScore = 0;
+
+  // 紋章をPareto支配でフィルタリング（依存ステータスのみで比較）
+  const emblemsForSearch = filterDominatedEmblems(emblems, relevantStats);
+
+  // ルーンストーン探索の準備
+  const enableRunestoneSearch = options?.enableRunestoneSearch ?? false;
+  let runestoneCombs: RunestoneCombination[] = [];
+  if (enableRunestoneSearch && gameData.runestones && gameData.runestones.length > 0) {
+    runestoneCombs = buildRunestoneCombinations(gameData.runestones, relevantStats);
+    console.log(`[Optimize] Runestone search enabled: ${runestoneCombs.length} combinations to evaluate`);
+  } else {
+    // ルーンストーン探索無効の場合は固定値を使用
+    runestoneCombs = [{ runestones: [], totalBonus: options?.runestoneBonus || {} }];
+  }
+
+  // 枝刈りカウンター
+  let prunedEmblems = 0;
+  let prunedRunestones = 0;
+
+  // 進捗計算用
+  const totalIterations = runestoneCombs.length * Math.max(emblemsForSearch.length, 1);
+  let completedIterations = 0;
+
+  // ルーンストーン探索ループ
+  for (let runeIndex = 0; runeIndex < runestoneCombs.length; runeIndex++) {
+    const runeComb = runestoneCombs[runeIndex];
+
+    // ルーンストーンボーナスをコンテキストに反映
+    const runeContext = { ...context, runestoneBonus: runeComb.totalBonus };
+
+    // Branch and Bound: 枝刈り（グローバルベストの50%未満ならスキップ）
+    if (enableRunestoneSearch && globalBestScore > 0 && runeIndex > 5) {
+      // 上位5つ以降は枝刈り対象
+      // ルーンストーンの貢献度を概算
+      const runeContribution = Object.values(runeComb.totalBonus).reduce((sum: number, v) => sum + (v as number || 0), 0);
+      const bestRuneContribution = Object.values(runestoneCombs[0].totalBonus).reduce((sum: number, v) => sum + (v as number || 0), 0);
+      if (runeContribution < bestRuneContribution * 0.5) {
+        prunedRunestones++;
+        completedIterations += Math.max(emblemsForSearch.length, 1);
+        continue;
+      }
+    }
+
+    if (emblemsForSearch.length > 0) {
+      // 紋章で探索（常に自動選択）
+      let emblemIdx = 0;
+      for (const emblem of emblemsForSearch) {
+        emblemIdx++;
+        completedIterations++;
+
+        // 進捗更新（5%刻みで報告）
+        const progressPercent = Math.floor((completedIterations / totalIterations) * 40) + 40; // 40-80%
+        if (completedIterations % Math.max(1, Math.floor(totalIterations / 20)) === 0) {
+          reportProgress('local_search', progressPercent, 100, `ルーン${runeIndex + 1}/${runestoneCombs.length} × 紋章${emblemIdx}/${emblemsForSearch.length} (計${completedIterations}/${totalIterations})`, globalBestScore, currentBestSolution);
+        }
+
+        // UIスレッド解放（5個ごと）
+        if (emblemIdx % 5 === 0) {
+          await new Promise(resolve => setTimeout(resolve, 0));
+        }
+
+        const emblemContext = { ...runeContext, emblem };
+
+        // キャッシュキー用コンテキスト識別子
+        const contextKey = `rune${runeIndex}:emblem${emblemIdx}`;
+
+        if (useExhaustiveSearch) {
+          // 全探索を使用（最適解を保証）
+          const exhaustiveResults = await exhaustiveSearchAsync(pool, emblemContext, gameData.eqConst, constraints.maxResults || 10);
+          for (const sol of exhaustiveResults) {
+            const solutionWithMeta = { ...sol, usedEmblem: emblem, usedRunestones: runeComb };
+            allSolutions.push(solutionWithMeta);
+            if (sol.score > globalBestScore) {
+              globalBestScore = sol.score;
+              currentBestSolution = solutionWithMeta;
+              // 動的ステータス更新：ベスト装備のステータスで重み計算を更新
+              if (sol.stats) {
+                setCurrentOptimizationStats(sol.stats);
+              }
+            }
+          }
+        } else {
+          // Phase 1: Multi-Start Greedy + Crossoverを使用
+          const multiStartSolutions = await multiStartGreedyAsync(pool, emblemContext, gameData.eqConst, contextKey);
+
+          // 最良の初期解でローカルサーチをスキップするか判定
+          const bestInitialSolution = multiStartSolutions[0];
+          if (!bestInitialSolution) {
+            prunedEmblems++;
+            continue;
+          }
+
+          // 初期解が現在の最良スコアの60%未満なら、ローカルサーチをスキップ（計算量削減）
+          // Phase 2: 閾値を0.7→0.6に緩和して、より多くの紋章候補を探索
+          if (globalBestScore > 0 && bestInitialSolution.score < globalBestScore * 0.6) {
+            prunedEmblems++;
+            continue;
+          }
+
+          // 上位2つの初期解をローカルサーチで改善
+          const solutionsToImprove = multiStartSolutions.slice(0, 2);
+          for (const initialSolution of solutionsToImprove) {
+            const improvedSolution = await localSearchAsync(
+              initialSolution, pool, emblemContext, gameData.eqConst, 50, contextKey
+            );
+
+            // 最低必須ステータスを満たす解のみ追加
+            if (improvedSolution.score > 0) {
+              const solutionWithMeta = { ...improvedSolution, usedEmblem: emblem, usedRunestones: runeComb };
+              allSolutions.push(solutionWithMeta);
+
+              // 最良スコアを更新
+              if (improvedSolution.score > globalBestScore) {
+                globalBestScore = improvedSolution.score;
+                currentBestSolution = solutionWithMeta;
+                // 動的ステータス更新：ベスト装備のステータスで重み計算を更新
+                if (improvedSolution.stats) {
+                  setCurrentOptimizationStats(improvedSolution.stats);
+                }
+              }
+            }
+          }
+        }
+      }
+    } else {
+      // 紋章なしで探索
+      completedIterations++;
+
+      // 進捗更新
+      const progressPercent = Math.floor((completedIterations / totalIterations) * 40) + 40;
+      reportProgress('local_search', progressPercent, 100, `ルーン${runeIndex + 1}/${runestoneCombs.length} × 紋章なし (計${completedIterations}/${totalIterations})`, globalBestScore, currentBestSolution);
+
+      // キャッシュキー用コンテキスト識別子
+      const contextKey = `rune${runeIndex}:noemblem`;
+
+      if (useExhaustiveSearch) {
+        // 全探索を使用
+        const exhaustiveResults = await exhaustiveSearchAsync(pool, runeContext, gameData.eqConst, constraints.maxResults || 10);
+        for (const sol of exhaustiveResults) {
+          const solutionWithMeta = { ...sol, usedEmblem: null as EmblemData | null, usedRunestones: runeComb };
+          allSolutions.push(solutionWithMeta);
+          if (sol.score > globalBestScore) {
+            globalBestScore = sol.score;
+            currentBestSolution = solutionWithMeta;
+            // 動的ステータス更新：ベスト装備のステータスで重み計算を更新
+            if (sol.stats) {
+              setCurrentOptimizationStats(sol.stats);
+            }
+          }
+        }
+      } else {
+        // Phase 1: Multi-Start Greedy + Crossoverを使用
+        const multiStartSolutions = await multiStartGreedyAsync(pool, runeContext, gameData.eqConst, contextKey);
+
+        // 上位2つの初期解をローカルサーチで改善
+        const solutionsToImprove = multiStartSolutions.slice(0, 2);
+        for (const initialSolution of solutionsToImprove) {
+          const improvedSolution = await localSearchAsync(
+            initialSolution, pool, runeContext, gameData.eqConst, 50, contextKey
+          );
+          if (improvedSolution.score > 0) {
+            const solutionWithMeta = { ...improvedSolution, usedEmblem: null as EmblemData | null, usedRunestones: runeComb };
+            allSolutions.push(solutionWithMeta);
+
+            // 最良スコアを更新
+            if (improvedSolution.score > globalBestScore) {
+              globalBestScore = improvedSolution.score;
+              currentBestSolution = solutionWithMeta;
+              // 動的ステータス更新：ベスト装備のステータスで重み計算を更新
+              if (improvedSolution.stats) {
+                setCurrentOptimizationStats(improvedSolution.stats);
+              }
+            }
+          }
+        }
+      }
+    }
+
+    // ルーンストーンループごとにUIスレッド解放 + メモリ管理
+    trimSolutions();
+    await new Promise(resolve => setTimeout(resolve, 0));
+  }
+
+  console.log(`[Optimize] B&B pruning: ${prunedEmblems} emblem, ${prunedRunestones} runestone evaluations skipped`);
+
+  // スコアでソート
+  allSolutions.sort((a, b) => b.score - a.score);
+  console.log('[Optimize] Solutions after emblem search:', allSolutions.length);
+
+  reportProgress('finalizing', 80, 100, '多様な解を生成中...');
+
+  // 多様な解を生成（既存の解に追加）
+  // 各解に異なるルーンストーン/紋章の組み合わせを割り当て
+  const diverseResults = await generateDiverseSolutionsAsync(
+    pool,
+    context,
+    gameData.eqConst,
+    constraints.maxResults || 10
+  );
+
+  // 多様な解に対して、異なるルーンストーン組み合わせを割り当て
+  // allSolutionsから使用済みのルーンストーン組み合わせを取得し、循環させる
+  const usedRunestonePatterns = allSolutions
+    .filter(s => s.usedRunestones)
+    .map(s => s.usedRunestones!);
+  const usedEmblemPatterns = allSolutions
+    .filter(s => s.usedEmblem)
+    .map(s => s.usedEmblem!);
+
+  const diverseSolutions = diverseResults.map((sol, idx) => {
+    // 異なるルーンストーン/紋章パターンを循環して割り当て
+    const runeIndex = idx % Math.max(usedRunestonePatterns.length, 1);
+    const emblemIndex = idx % Math.max(usedEmblemPatterns.length, 1);
+    return {
+      ...sol,
+      usedEmblem: usedEmblemPatterns[emblemIndex] || null,
+      usedRunestones: usedRunestonePatterns[runeIndex] || undefined,
+    };
+  });
+
+  // 既存の解と統合してスコアでソート（メモリ節約のため上位のみ処理）
+  const combinedSolutions = [...allSolutions, ...diverseSolutions];
+  combinedSolutions.sort((a, b) => b.score - a.score);
+  const limitedSolutions = combinedSolutions.slice(0, MAX_SOLUTIONS_IN_MEMORY);
+
+  // 支配性チェック：明らかに劣るビルドを除去
+  const nonDominatedSolutions = filterDominatedBuilds(limitedSolutions);
+  console.log(`[Optimize] After dominance filtering: ${nonDominatedSolutions.length} solutions`);
+
+  // 重複を除去して上位N件を取得
+  const seenKeys = new Set<string>();
+  const solutions: (ScoredCombination & {
+    usedEmblem?: EmblemData | null;
+    usedRunestones?: RunestoneCombination;
+  })[] = [];
+
+  // 警告メッセージを収集
+  const warnings: string[] = [];
+
+  // まずスコア > 0 の結果を収集
+  for (const sol of nonDominatedSolutions) {
+    // 装備名+EX+紋章+ルーンストーンでユニークキーを生成
+    const equipmentKey = Object.entries(sol.equipmentSet).map(([slot, e]) => {
+      if (!e) return `${slot}:null`;
+      const configIdx = sol.configIndices[slot as EquipSlot] || 0;
+      const config = e.configurations[configIdx];
+      const exStr = config?.exStats ? `${config.exStats.ex1}-${config.exStats.ex2 || ''}` : '';
+      return `${slot}:${e.name}:${exStr}`;
+    }).join('|');
+    // 紋章とルーンストーンもキーに含める
+    const emblemKey = sol.usedEmblem?.アイテム名 || 'noEmblem';
+    const runeKey = sol.usedRunestones?.runestones?.map(r => r.name).join(',') || 'noRunes';
+    const key = `${equipmentKey}||${emblemKey}||${runeKey}`;
+    if (!seenKeys.has(key) && sol.score > 0) {
+      seenKeys.add(key);
+      solutions.push(sol);
+      if (solutions.length >= (constraints.maxResults || 10)) break;
+    }
+  }
+
+  // スコア > 0 の結果がない場合、最低必須ステータスを満たせなかった可能性
+  // 最低必須ステータスの条件を緩和して参考結果を返す
+  if (solutions.length === 0 && nonDominatedSolutions.length > 0) {
+    // 最低必須ステータスが設定されている場合
+    const hasMinimumStats = options?.minimumStats &&
+      Object.values(options.minimumStats).some(v => v !== undefined && v > 0);
+
+    if (hasMinimumStats) {
+      warnings.push('指定された最低必須ステータスを満たす装備構成が見つかりませんでした。条件を緩和するか、別の防具タイプを検討してください。');
+      console.log('[Optimize] No solutions meet minimum stats requirements. Adding warning.');
+    } else {
+      warnings.push('有効な装備構成が見つかりませんでした。');
+    }
+  }
+
+  console.log('[Optimize] Generated solutions count:', solutions.length);
+  if (solutions.length > 0) {
+    console.log('[Optimize] Best solution score:', solutions[0].score);
+    const bestEquipment = solutions[0].equipmentSet;
+    const equipmentNames = Object.keys(bestEquipment).map(slot => {
+      const eq = bestEquipment[slot as EquipSlot];
+      return `${slot}: ${eq?.name || 'none'}`;
+    });
+    console.log('[Optimize] Best solution equipment:', equipmentNames);
+  }
+
+  reportProgress('completed', 100, 100, '完了');
+
+  // 結果を変換（紋章とSPパターン情報を含む）
+  const results: OptimizeResult[] = solutions.map((solution, index) => {
+    // 装備セットを構築
+    const equipment: Record<string, any> = {};
+    const slots: EquipSlot[] = ['weapon', 'head', 'body', 'leg', 'accessory1', 'accessory2'];
+
+    for (const slot of slots) {
+      const candidate = solution.equipmentSet[slot];
+      if (candidate) {
+        const configIndex = solution.configIndices[slot] || 0;
+        const config = candidate.configurations[configIndex];
+
+        equipment[slot] = {
+          name: candidate.name,
+          type: candidate.type,
+          sourceData: candidate.sourceData,
+          configuration: config,
+          stats: calculateEquipmentStatsFn(candidate, configIndex, gameData.eqConst, context.relevantStats),
+        };
+      }
+    }
+
+    // DEBUG: 装備構成を確認
+    if (index === 0) {
+      console.log('[Optimize] Result equipment keys:', Object.keys(equipment));
+      console.log('[Optimize] Result equipment:', JSON.stringify(equipment, null, 2).substring(0, 500));
+    }
+
+    return {
+      rank: index + 1,
+      build: currentBuild,
+      equipment,
+      expectedDamage: solution.score,
+      calculatedStats: solution.stats,
+      damageDetails: {
+        baseDamage: solution.score,
+        critRate: solution.stats.CritRate || 0,
+        hitRate: 100,
+      },
+      // 紋章情報を追加
+      selectedEmblem: solution.usedEmblem || null,
+      // ルーンストーン情報を追加
+      selectedRunestones: solution.usedRunestones ? {
+        runestones: solution.usedRunestones.runestones.map(r => ({
+          name: r.name || r['アイテム名（・<グレード>）は不要'],
+          grade: r.グレード,
+        })),
+        totalBonus: solution.usedRunestones.totalBonus,
+      } : null,
+    };
+  });
+
+  // 探索統計を計算
+  const elapsedTime = Date.now() - startTime;
+  const totalPruned = prunedEmblems + prunedRunestones;
+  const searchStats: SearchStats = {
+    totalCandidates,
+    evaluatedCombinations: allSolutions.length,
+    prunedCombinations: totalPruned,
+    elapsedTime,
+    phase: 'completed',
+  };
+
+  console.log(`[Optimize] Total evaluated: ${allSolutions.length}, Pruned: ${totalPruned} (${prunedEmblems} emblems, ${prunedRunestones} runestones)`);
+
+  console.log('[Optimize] Search stats:', searchStats);
+
+  // 最適化終了時: 最終結果のステータスを保持（クリアしない）
+  // これにより、重み表示が最終結果に基づいたものになる
+  // 次の最適化開始時にクリアされる
+
+  return { results, searchStats, warnings: warnings.length > 0 ? warnings : undefined };
+}
+
+/**
+ * CSV出力用のデータを生成
+ */
+export function generateOptimizeResultCSV(results: OptimizeResult[]): string {
+  if (results.length === 0) return '';
+
+  const headers = ['順位', '期待ダメージ', '力', '魔力', '体力', '素早さ', '会心率', '会心ダメージ'];
+  const rows = results.map((r) => [
+    r.rank,
+    Math.round(r.expectedDamage),
+    r.calculatedStats.Power || 0,
+    r.calculatedStats.Magic || 0,
+    r.calculatedStats.HP || 0,
+    r.calculatedStats.Agility || 0,
+    r.calculatedStats.CritRate || 0,
+    r.calculatedStats.CritDamage || 0,
+  ]);
+
+  return [headers.join(','), ...rows.map((row) => row.join(','))].join('\n');
+}
