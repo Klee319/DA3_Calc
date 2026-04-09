@@ -635,18 +635,6 @@ export function evaluateCombination(
   // メモ化されたジョブステータス計算
   const { jobStats, jobBonusPercent, spStats } = getJobStatsWithMemo(context, jobLevel, spAllocationArray);
 
-  // タロット%ボーナスを紋章%にマージ（同じ乗算枠: (1 + job%/100 + emblem%/100 + tarot%/100)）
-  let mergedEmblemBonusPercent = emblemBonusPercent;
-  if (context.tarotBonusPercent) {
-    mergedEmblemBonusPercent = { ...emblemBonusPercent };
-    for (const [key, value] of Object.entries(context.tarotBonusPercent)) {
-      if (typeof value === 'number' && value !== 0) {
-        (mergedEmblemBonusPercent as Record<string, number>)[key] =
-          ((mergedEmblemBonusPercent as Record<string, number>)[key] || 0) + value;
-      }
-    }
-  }
-
   // タロット武器ボーナス（CritR, CritD, AttackP, DamageC）を武器パラメータに加算
   let adjustedWeaponCritRate = weaponCritRate;
   let adjustedWeaponCritDamage = weaponCritDamage;
@@ -659,6 +647,15 @@ export function evaluateCombination(
     adjustedWeaponDamageCorrection += context.tarotWeaponBonus['DamageC'] || 0;
   }
 
+  // タロット%ボーナスはuserPercentBonusとして渡す（buildStoreと同じ方式）
+  // statusCalculator.tsでは:
+  //   emblemBonusPercent → (1 + job%/100 + emblem%/100) の乗算枠
+  //   userPercentBonus → applyUserPercentBonus()で別途適用
+  //   Tarot.Bonus.<Stat> → YAML式内でハードコード0のため、userPercentBonusで補う
+  const userPercentBonus: StatBlock = context.tarotBonusPercent
+    ? { ...context.tarotBonusPercent }
+    : {};
+
   const statusInput: StatusCalcInput = {
     jobStats: {
       initial: jobStats,
@@ -667,11 +664,12 @@ export function evaluateCombination(
     },
     jobLevel,
     equipmentTotal: equipmentStats,
-    emblemBonusPercent: mergedEmblemBonusPercent,
+    emblemBonusPercent,
     weaponCritRate: adjustedWeaponCritRate,
     runestoneBonus: context.runestoneBonus,
     userOption: context.userOption,
     food: context.food,
+    userPercentBonus: Object.keys(userPercentBonus).length > 0 ? userPercentBonus : undefined,
   };
 
   const calcResult = calculateStatus(statusInput);
@@ -872,14 +870,18 @@ export function evaluateCombination(
   // 撃力は装備・ルーンストーンからのみ（武器会心ダメージは別管理）
   const resultStats: SimpleStatBlock = {
     ...finalStats,
-    WeaponAttackPower: weaponAttackPower,
+    WeaponAttackPower: adjustedWeaponAttackPower,
     CritRate: actualCritRate,  // 器用さ込みの会心率
     CritDamage: finalStats.CritDamage || 0,  // 武器会心ダメージは含まない
-    WeaponCritDamage: weaponCritDamage,
+    WeaponCritDamage: adjustedWeaponCritDamage,
     CoolTime: weaponCoolTime,
-    DamageCorrection: weaponDamageCorrection,
+    DamageCorrection: adjustedWeaponDamageCorrection,
     MaxDamage: maxDamage,  // 最大ダメージ（会心時）
     MinDamage: minDamage,  // 最小ダメージ（非会心時）
+    // SP自動配分情報（表示用）
+    _SP_A: (context.spAllocation as Record<string, number>)?.['A'] ?? 0,
+    _SP_B: (context.spAllocation as Record<string, number>)?.['B'] ?? 0,
+    _SP_C: (context.spAllocation as Record<string, number>)?.['C'] ?? 0,
   };
 
   return { score: sortScore, originalScore, stats: resultStats, meetsMinimum };

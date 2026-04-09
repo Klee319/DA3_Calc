@@ -354,23 +354,48 @@ export function OptimizeResults({ results: propResults, onApplyResult, totalUsed
                     );
                   })()}
 
+                  {/* SP自動配分 */}
+                  {(() => {
+                    const cs = result.calculatedStats as Record<string, number> | undefined;
+                    const spA = cs?.['_SP_A'];
+                    const spB = cs?.['_SP_B'];
+                    const spC = cs?.['_SP_C'];
+                    if (!spA && !spB && !spC) return null;
+                    return (
+                      <div className="p-2 bg-blue-500/10 rounded-lg">
+                        <div className="flex items-center gap-2">
+                          <span className="text-xs text-white/40 font-medium">SP配分</span>
+                          <div className="flex gap-2 text-[10px]">
+                            {spA ? <span className="px-1.5 py-0.5 bg-red-500/20 text-red-300 rounded">A: {spA}</span> : null}
+                            {spB ? <span className="px-1.5 py-0.5 bg-blue-500/20 text-blue-300 rounded">B: {spB}</span> : null}
+                            {spC ? <span className="px-1.5 py-0.5 bg-green-500/20 text-green-300 rounded">C: {spC}</span> : null}
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })()}
+
                   {/* 最終ステータス */}
                   {result.calculatedStats && (
                     <div className="pt-2 border-t border-white/10">
                       <h5 className="text-xs font-medium text-white/50 mb-1">最終ステータス</h5>
                       <div className="grid grid-cols-4 gap-2 text-[10px]">
-                        {['Power', 'Magic', 'HP', 'Mind', 'Agility', 'Dex', 'CritDamage', 'Defense'].map(stat => {
+                        {['Power', 'Magic', 'HP', 'Mind', 'Agility', 'Dex', 'CritDamage', 'Defense', 'CritRate'].map(stat => {
                           const calcStats = result.calculatedStats as unknown as Record<string, number> | undefined;
                           const value = calcStats?.[stat];
                           if (!value && value !== 0) return null;
                           const nameMap: Record<string, string> = {
                             Power: '力', Magic: '魔力', HP: '体力', Mind: '精神',
                             Agility: '速さ', Dex: '器用', CritDamage: '撃力', Defense: '守備',
+                            CritRate: '会心率',
                           };
+                          const isPercent = stat === 'CritRate';
                           return (
                             <div key={stat} className="flex justify-between text-white/60">
                               <span>{nameMap[stat]}</span>
-                              <span className="text-white/80">{Math.round(value)}</span>
+                              <span className={`text-white/80 ${stat === 'CritRate' ? 'text-yellow-400' : ''}`}>
+                                {isPercent ? `${Math.round(value * 10) / 10}%` : Math.round(value)}
+                              </span>
                             </div>
                           );
                         })}
