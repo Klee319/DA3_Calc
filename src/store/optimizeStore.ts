@@ -428,7 +428,8 @@ export const useOptimizeStore = create<OptimizeStoreState & OptimizeStoreActions
           enableTarotSearch: state.enableTarotSearch,
           // Beam Search設定
           beamWidth: state.beamWidth,
-        }
+        },
+        abortController.signal
       );
 
       // 結果を抽出

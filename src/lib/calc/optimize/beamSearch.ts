@@ -187,6 +187,7 @@ export async function beamSearchOptimize(
   emblemCandidates: EmblemData[],
   runestoneCombs: RunestoneCombination[],
   onProgress?: (progress: OptimizeProgress) => void,
+  abortSignal?: AbortSignal,
 ): Promise<ScoredCombination[]> {
   const startTime = Date.now();
   const beamWidth = config.beamWidth || BEAM_SEARCH_DEFAULTS.beamWidth;
@@ -315,37 +316,49 @@ export async function beamSearchOptimize(
 
     // UIスレッドに制御を返す
     await new Promise(resolve => setTimeout(resolve, 0));
+    if (abortSignal?.aborted) throw new DOMException('Aborted', 'AbortError');
   }
 
-  // === 紋章スロット展開 ===
+  // === 紋章スロット展開（上位K個のルーンストーン組み合わせも展開） ===
   if (emblemCandidates.length > 0) {
     const nextStates: InternalBeamState[] = [];
-    const bestRunestone = runestoneCombs.length > 0 ? runestoneCombs[0] : { runestones: [], totalBonus: {} };
+    // 上位3個のルーンストーン組み合わせを展開（性能とカバレッジのバランス）
+    const topRunestones = runestoneCombs.length > 0
+      ? runestoneCombs.slice(0, Math.min(3, runestoneCombs.length))
+      : [{ runestones: [] as any[], totalBonus: {} as Record<string, number> }];
 
     for (const state of beamStates) {
       for (const emblem of emblemCandidates) {
         const emblemBonus = extractEmblemBonusPercent(emblem);
-        // 紋章は%ボーナスなので依存ステ合計に直接加算できない
-        // → 近似的にボーナス値をそのまま加算
-        const newSum = addStats(state.dependentStatsSum, emblemBonus as Record<string, number>);
 
-        // ルーンストーンボーナスも加算
-        const runeBonus = bestRunestone.totalBonus || {};
-        const withRune = addStats(newSum, runeBonus);
+        for (const runeComb of topRunestones) {
+          // 紋章は%ボーナスなので近似的にボーナス値をそのまま加算
+          const newSum = addStats(state.dependentStatsSum, emblemBonus as Record<string, number>);
 
-        const score = approximateScore(
-          withRune, relevantStats, context.mode, context.targetStat, context.minimumStats
-        );
+          // ルーンストーンボーナスも加算
+          const runeBonus = runeComb.totalBonus || {};
+          const withRune = addStats(newSum, runeBonus);
 
-        nextStates.push({
-          ...state,
-          dependentStatsSum: withRune,
-          approximateScore: score,
-          completedSlots: [...state.completedSlots, 'emblem'],
-          emblemData: emblem,
-          runestoneData: bestRunestone,
-        });
+          const score = approximateScore(
+            withRune, relevantStats, context.mode, context.targetStat, context.minimumStats
+          );
+
+          nextStates.push({
+            ...state,
+            dependentStatsSum: withRune,
+            approximateScore: score,
+            completedSlots: [...state.completedSlots, 'emblem'],
+            emblemData: emblem,
+            runestoneData: runeComb,
+          });
+        }
       }
+    }
+
+    // 紋章×ルーンで膨張するため中間刈り込み
+    if (nextStates.length > beamWidth * 10) {
+      nextStates.sort((a, b) => b.approximateScore - a.approximateScore);
+      nextStates.length = beamWidth * 2;
     }
 
     nextStates.sort((a, b) => b.approximateScore - a.approximateScore);
@@ -359,6 +372,7 @@ export async function beamSearchOptimize(
     );
 
     await new Promise(resolve => setTimeout(resolve, 0));
+    if (abortSignal?.aborted) throw new DOMException('Aborted', 'AbortError');
   } else {
     // 紋章候補がなくてもルーンストーンボーナスは適用
     const defaultRunestone = runestoneCombs.length > 0
@@ -404,6 +418,7 @@ export async function beamSearchOptimize(
     );
 
     await new Promise(resolve => setTimeout(resolve, 0));
+    if (abortSignal?.aborted) throw new DOMException('Aborted', 'AbortError');
   }
 
   // === 詳細化段階: 上位N状態をブラックボックス評価 ===
@@ -457,6 +472,7 @@ export async function beamSearchOptimize(
     if (state.tarotCandidate) {
       evalContext.tarotBonusPercent = state.tarotCandidate.totalBonus;
       evalContext.tarotWeaponBonus = state.tarotCandidate.weaponBonus;
+      evalContext.tarotDamageBuffs = state.tarotCandidate.damageBuffs;
     }
 
     // ブラックボックス評価
@@ -488,6 +504,7 @@ export async function beamSearchOptimize(
         slotPhase: 'fine',
       });
       await new Promise(resolve => setTimeout(resolve, 0));
+    if (abortSignal?.aborted) throw new DOMException('Aborted', 'AbortError');
     }
   }
 

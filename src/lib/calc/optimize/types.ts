@@ -42,6 +42,7 @@ export interface EvaluationContext {
   food?: StatBlock;
   tarotBonusPercent?: StatBlock;
   tarotWeaponBonus?: Record<string, number>;
+  tarotDamageBuffs?: Record<string, number>;
 }
 
 /** スコア付き組み合わせ */

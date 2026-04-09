@@ -125,7 +125,8 @@ export async function optimizeEquipment(
   enemyParams: EnemyParams,
   gameData: OptimizeGameData,
   onProgress?: (progress: OptimizeProgress) => void,
-  options?: OptimizeOptions
+  options?: OptimizeOptions,
+  abortSignal?: AbortSignal
 ): Promise<OptimizeResultWithStats> {
   try {
   const startTime = Date.now();
@@ -333,6 +334,7 @@ export async function optimizeEquipment(
         emblemsForSearch,
         runestoneCombs,
         (progress) => { reportProgress(progress.phase, progress.percentage, 100, progress.message, progress.currentBest); },
+        abortSignal,
       );
 
       for (const beamResult of beamResults) {
@@ -399,6 +401,7 @@ export async function optimizeEquipment(
 
         if (emblemIdx % 5 === 0) {
           await new Promise(resolve => setTimeout(resolve, 0));
+          if (abortSignal?.aborted) throw new DOMException('Aborted', 'AbortError');
         }
 
         const emblemContext = { ...runeContext, emblem };
@@ -513,6 +516,7 @@ export async function optimizeEquipment(
 
     trimSolutions();
     await new Promise(resolve => setTimeout(resolve, 0));
+    if (abortSignal?.aborted) throw new DOMException('Aborted', 'AbortError');
   }
 
   allSolutions.sort((a, b) => b.score - a.score);

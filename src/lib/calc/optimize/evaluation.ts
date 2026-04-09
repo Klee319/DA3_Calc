@@ -747,11 +747,20 @@ export function evaluateCombination(
         }
 
         if (damageResult.success) {
+          let dmg = damageResult.data.finalDamage;
+          // タロットダメージバフを事後乗算 (1+AllBuff/100)*(1+AttackBuff/100)
+          if (context.tarotDamageBuffs) {
+            const allBuff = context.tarotDamageBuffs['AllBuff'] || 0;
+            const physBuff = context.tarotDamageBuffs['AttackBuff.Physical'] || 0;
+            const magBuff = context.tarotDamageBuffs['AttackBuff.Magic'] || 0;
+            const atkBuff = Math.max(physBuff, magBuff); // 武器種に応じた方を適用
+            dmg = dmg * (1 + allBuff / 100) * (1 + atkBuff / 100);
+          }
           if (context.mode === 'damage') {
-            score = damageResult.data.finalDamage;
+            score = dmg;
           } else {
             const ct = damageResult.data.ct || context.coolTime || 1;
-            score = damageResult.data.finalDamage / Math.max(ct, 1);
+            score = dmg / Math.max(ct, 1);
           }
         } else {
           // calculateDamageが失敗した場合のフォールバック（タロット武器補正含む）
