@@ -360,10 +360,11 @@ export async function optimizeEquipment(
 
   const useBeamSearch = !useExhaustiveSearch;
 
-  // 各SP配分に対してBeam Searchを実行
-  for (const spAlloc of topSPAllocations) {
-    // SP配分を更新したcontextを作成
+  // 各SP配分に対してBeam Searchを実行（2番目以降はbeam幅半減で高速化）
+  for (let spIdx = 0; spIdx < topSPAllocations.length; spIdx++) {
+    const spAlloc = topSPAllocations[spIdx];
     const spContext = { ...context, spAllocation: spAlloc };
+    const isFirstSP = spIdx === 0;
 
     // jobSPBaseStatsも再計算
     if (gameData.jobConst && options?.jobName) {
@@ -397,9 +398,11 @@ export async function optimizeEquipment(
         ? buildTarotCandidates(gameData.tarots, gameData.tarotCalcData, relevantStats, options?.mode || 'damage')
         : [];
 
+      const baseBeamWidth = options?.beamWidth || DEFAULT_BEAM_SEARCH_CONFIG.beamWidth;
       const beamConfig = {
         ...DEFAULT_BEAM_SEARCH_CONFIG,
-        beamWidth: options?.beamWidth || DEFAULT_BEAM_SEARCH_CONFIG.beamWidth,
+        beamWidth: isFirstSP ? baseBeamWidth : Math.floor(baseBeamWidth / 3),
+        refinementCount: isFirstSP ? DEFAULT_BEAM_SEARCH_CONFIG.refinementTopN : 20,
       };
 
       const extendedPool = {
@@ -427,7 +430,8 @@ export async function optimizeEquipment(
         abortSignal,
       );
 
-      // Beam結果の上位にLocal Searchを適用（ローカル最適からの脱出）
+      // Beam結果の上位にLocal Searchを適用（1番目のSPのみ）
+      if (isFirstSP) {
       reportProgress('local_search', 85, 100, 'Beam結果をLocal Searchで改善中...', globalBestOriginalScore);
       for (let i = 0; i < Math.min(beamResults.length, 3); i++) {
         if (abortSignal?.aborted) break;
@@ -440,6 +444,7 @@ export async function optimizeEquipment(
           }
         } catch { break; }
       }
+      } // isFirstSP LocalSearch
 
       for (const beamResult of beamResults) {
         const br = beamResult as any;
