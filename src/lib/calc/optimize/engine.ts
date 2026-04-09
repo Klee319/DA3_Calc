@@ -648,7 +648,12 @@ export async function optimizeEquipment(
         const reoptSP = optimizeRemainingSP(userSP, jobSPData, maxSP, relevantStats, options?.jobName, testEquipStats);
         const testContext = { ...context, spAllocation: reoptSP.allocation };
 
+        // キャッシュをクリアして正確に再評価
+        clearEvaluationCache();
         const result = evaluateCombination(testCombination, testIndices, testContext, gameData.eqConst);
+        if (forcedCount < 4) {
+          console.log(`[OptDebug] body=${bodyCandidate.name} leg=${legCandidate.name} SP=${JSON.stringify(reoptSP.allocation)} score=${Math.round(result.originalScore)} equip力=${testEquipStats['Power']||0} 魔=${testEquipStats['Magic']||0} 撃=${testEquipStats['CritDamage']||0}`);
+        }
         if (result.score > 0) {
           allSolutions.push({
             equipmentSet: testCombination,
