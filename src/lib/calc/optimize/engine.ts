@@ -390,6 +390,17 @@ export async function optimizeEquipment(
         abortSignal,
       );
 
+      // Beam結果の上位にLocal Searchを適用（ローカル最適からの脱出）
+      reportProgress('local_search', 85, 100, 'Beam結果をLocal Searchで改善中...', globalBestOriginalScore);
+      for (let i = 0; i < Math.min(beamResults.length, 5); i++) {
+        const improved = await localSearchAsync(
+          beamResults[i], pool, context, gameData.eqConst, 100, `beam_ls_${i}`
+        );
+        if (improved.score > beamResults[i].score) {
+          beamResults[i] = improved;
+        }
+      }
+
       for (const beamResult of beamResults) {
         const br = beamResult as any;
         const solutionWithMeta = {
