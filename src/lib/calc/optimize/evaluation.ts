@@ -758,16 +758,20 @@ export function evaluateCombination(
           minDamage = minDamageResult.data.finalDamage;
         }
 
+        // タロットダメージバフ乗数を事前計算（score/min/max全てに適用）
+        let tarotDmgMultiplier = 1;
+        if (context.tarotDamageBuffs) {
+          const allBuff = context.tarotDamageBuffs['AllBuff'] || 0;
+          const physBuff = context.tarotDamageBuffs['AttackBuff.Physical'] || 0;
+          const magBuff = context.tarotDamageBuffs['AttackBuff.Magic'] || 0;
+          const atkBuff = Math.max(physBuff, magBuff);
+          tarotDmgMultiplier = (1 + allBuff / 100) * (1 + atkBuff / 100);
+        }
+        maxDamage = maxDamage * tarotDmgMultiplier;
+        minDamage = minDamage * tarotDmgMultiplier;
+
         if (damageResult.success) {
-          let dmg = damageResult.data.finalDamage;
-          // タロットダメージバフを事後乗算 (1+AllBuff/100)*(1+AttackBuff/100)
-          if (context.tarotDamageBuffs) {
-            const allBuff = context.tarotDamageBuffs['AllBuff'] || 0;
-            const physBuff = context.tarotDamageBuffs['AttackBuff.Physical'] || 0;
-            const magBuff = context.tarotDamageBuffs['AttackBuff.Magic'] || 0;
-            const atkBuff = Math.max(physBuff, magBuff); // 武器種に応じた方を適用
-            dmg = dmg * (1 + allBuff / 100) * (1 + atkBuff / 100);
-          }
+          let dmg = damageResult.data.finalDamage * tarotDmgMultiplier;
           if (context.mode === 'damage') {
             score = dmg;
           } else {
@@ -783,7 +787,7 @@ export function evaluateCombination(
           score = baseDamage * critMultiplier * context.hits;
 
           if (context.mode === 'dps') {
-            const ct = Math.max(weaponCoolTime + context.coolTime, 1);
+            const ct = Math.max(context.coolTime || 1, 1);
             score = score / ct;
           }
         }
@@ -832,10 +836,10 @@ export function evaluateCombination(
     try {
       const damageInputForSensitivity: DamageCalcInput = {
         weaponType,
-        weaponAttackPower,
-        weaponCritRate,
-        weaponCritDamage,
-        damageCorrection: weaponDamageCorrection,
+        weaponAttackPower: adjustedWeaponAttackPower,
+        weaponCritRate: adjustedWeaponCritRate,
+        weaponCritDamage: adjustedWeaponCritDamage,
+        damageCorrection: adjustedWeaponDamageCorrection,
         userStats: {
           breakdown: { equipment: equipmentStats, jobInitial: jobStats, jobSP: {}, food: {}, userOption: {} },
           base: finalStats,

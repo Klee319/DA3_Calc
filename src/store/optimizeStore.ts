@@ -470,7 +470,8 @@ export const useOptimizeStore = create<OptimizeStoreState & OptimizeStoreActions
             calculatedStats: r.calculatedStats as any,
             breakdown: {
               expectedDamage: r.expectedDamage,
-              critDamage: r.damageDetails.critRate,
+              critDamage: r.damageDetails.baseDamage,
+              critRate: r.damageDetails.critRate,
             },
             // 紋章とSPパターン情報を追加
             selectedEmblem: (r as any).selectedEmblem || null,

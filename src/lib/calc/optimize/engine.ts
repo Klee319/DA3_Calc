@@ -542,22 +542,15 @@ export async function optimizeEquipment(
     constraints.maxResults || 10
   );
 
-  const usedRunestonePatterns = allSolutions
-    .filter(s => s.usedRunestones)
-    .map(s => s.usedRunestones!);
-  const usedEmblemPatterns = allSolutions
-    .filter(s => s.usedEmblem)
-    .map(s => s.usedEmblem!);
+  // 多様解には最良解のemblem/runeを適用（round-robinではなく一貫性のある割り当て）
+  const bestEmblem = allSolutions.find(s => s.usedEmblem)?.usedEmblem || null;
+  const bestRunestone = allSolutions.find(s => s.usedRunestones)?.usedRunestones;
 
-  const diverseSolutions = diverseResults.map((sol, idx) => {
-    const runeIndex = idx % Math.max(usedRunestonePatterns.length, 1);
-    const emblemIndex = idx % Math.max(usedEmblemPatterns.length, 1);
-    return {
-      ...sol,
-      usedEmblem: usedEmblemPatterns[emblemIndex] || null,
-      usedRunestones: usedRunestonePatterns[runeIndex] || undefined,
-    };
-  });
+  const diverseSolutions = diverseResults.map((sol) => ({
+    ...sol,
+    usedEmblem: bestEmblem,
+    usedRunestones: bestRunestone,
+  }));
 
   const combinedSolutions = [...allSolutions, ...diverseSolutions];
   combinedSolutions.sort((a, b) => b.score - a.score);

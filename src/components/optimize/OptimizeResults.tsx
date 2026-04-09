@@ -71,6 +71,7 @@ export function OptimizeResults({ results: propResults, onApplyResult, totalUsed
     link.href = URL.createObjectURL(blob);
     link.download = `optimize_results_${Date.now()}.csv`;
     link.click();
+    setTimeout(() => URL.revokeObjectURL(link.href), 1000);
   };
 
   return (
@@ -154,7 +155,7 @@ export function OptimizeResults({ results: propResults, onApplyResult, totalUsed
                       const cs = result.calculatedStats as Record<string, number> | undefined;
                       const minDmg = cs?.MinDamage;
                       const maxDmg = cs?.MaxDamage;
-                      if (minDmg || maxDmg) {
+                      if (minDmg != null || maxDmg != null) {
                         return (
                           <div className="text-xs text-white/50">
                             {minDmg ? `最小: ${Math.round(minDmg).toLocaleString()}` : ''}
@@ -294,21 +295,23 @@ export function OptimizeResults({ results: propResults, onApplyResult, totalUsed
                           {emblem['撃力（%不要）'] > 0 && <span className="text-[10px] px-1.5 py-0.5 bg-purple-500/20 text-purple-300 rounded">撃力+{emblem['撃力（%不要）']}%</span>}
                           {emblem['体力（%不要）'] > 0 && <span className="text-[10px] px-1.5 py-0.5 bg-green-500/20 text-green-300 rounded">体力+{emblem['体力（%不要）']}%</span>}
                         </div>
-                        {/* ルーンストーン */}
-                        {(result as any).selectedRunestones?.runestones?.length > 0 && (
-                          <div className="mt-2 pt-2 border-t border-white/10">
-                            <div className="flex flex-wrap gap-1">
-                              {(result as any).selectedRunestones.runestones.map((r: { name: string; grade: string }, i: number) => (
-                                <span key={i} className="text-[10px] px-1.5 py-0.5 bg-purple-500/20 text-purple-300 rounded-lg border border-purple-500/30">
-                                  [{i + 1}] {r.name} ({r.grade})
-                                </span>
-                              ))}
-                            </div>
-                          </div>
-                        )}
                       </div>
                     );
                   })()}
+
+                  {/* ルーンストーン（紋章と独立表示） */}
+                  {(result as any).selectedRunestones?.runestones?.length > 0 && (
+                    <div className="p-2 bg-purple-500/10 rounded-lg">
+                      <span className="text-xs text-white/40 font-medium">ルーンストーン</span>
+                      <div className="flex flex-wrap gap-1 mt-1">
+                        {(result as any).selectedRunestones.runestones.map((r: { name: string; grade: string }, i: number) => (
+                          <span key={i} className="text-[10px] px-1.5 py-0.5 bg-purple-500/20 text-purple-300 rounded-lg border border-purple-500/30">
+                            [{i + 1}] {r.name} ({r.grade})
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                  )}
 
                   {/* タロット */}
                   {(() => {
