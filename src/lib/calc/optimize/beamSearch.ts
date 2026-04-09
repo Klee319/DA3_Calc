@@ -537,5 +537,88 @@ export async function beamSearchOptimize(
     }
   }
 
-  return deduplicated;
+  // === EX構成の事後最適化（全スロット横断でP=Mバランスを改善）===
+  // Beam Searchの近似評価で決定したEX/叩き構成を、ブラックボックス評価で再調整。
+  // 各スロットの構成を1つずつ差し替え、スコアが改善するか試行する。
+  // SpellRefactor等P=Mバランスが重要な職業で特に効果が大きい。
+  onProgress?.({
+    phase: 'beam_refine',
+    current: refinementCount,
+    total: refinementCount,
+    percentage: 96,
+    currentBest: deduplicated.length > 0 ? Math.max(...deduplicated.map(r => r.originalScore)) : 0,
+    message: 'EX構成を再最適化中...',
+    elapsedTime: Date.now() - startTime,
+    slotPhase: 'fine',
+  });
+
+  const rebalancedResults: ScoredCombination[] = [];
+
+  for (const result of deduplicated) {
+    const br = result as any;
+
+    // この結果固有の紋章・ルーン・タロットでevalContextを構築
+    const rebalanceCtx: EvaluationContext = {
+      ...context,
+      emblem: br._emblemData || context.emblem,
+      runestoneBonus: br._runestoneData?.totalBonus || context.runestoneBonus,
+    };
+    if (br._tarotCandidate) {
+      rebalanceCtx.tarotBonusPercent = br._tarotCandidate.totalBonus;
+      rebalanceCtx.tarotWeaponBonus = br._tarotCandidate.weaponBonus;
+      rebalanceCtx.tarotDamageBuffs = br._tarotCandidate.damageBuffs;
+    }
+
+    let best = result;
+
+    // 最大3反復の局所探索（各反復で全スロットの構成を再検討）
+    for (let iter = 0; iter < 3; iter++) {
+      let foundImprovement = false;
+
+      for (const slot of equipSlots) {
+        const candidate = best.equipmentSet[slot];
+        if (!candidate || candidate.configurations.length <= 1) continue;
+
+        const currentCI = best.configIndices[slot] || 0;
+        let bestScore = best.score;
+        let bestCI = currentCI;
+
+        for (let ci = 0; ci < candidate.configurations.length; ci++) {
+          if (ci === currentCI) continue;
+          const newIndices = { ...best.configIndices, [slot]: ci } as Record<EquipSlot, number>;
+          const ev = evaluateCombination(best.equipmentSet, newIndices, rebalanceCtx, eqConst);
+          if (ev.score > bestScore) {
+            bestScore = ev.score;
+            bestCI = ci;
+          }
+        }
+
+        if (bestCI !== currentCI) {
+          const newIndices = { ...best.configIndices, [slot]: bestCI } as Record<EquipSlot, number>;
+          const ev = evaluateCombination(best.equipmentSet, newIndices, rebalanceCtx, eqConst);
+          best = {
+            ...best,
+            configIndices: newIndices,
+            score: ev.score,
+            originalScore: ev.originalScore,
+            stats: ev.stats,
+            meetsMinimum: ev.meetsMinimum,
+          };
+          foundImprovement = true;
+        }
+      }
+
+      if (!foundImprovement) break;
+    }
+
+    rebalancedResults.push(best);
+
+    await new Promise(resolve => setTimeout(resolve, 0));
+    if (abortSignal?.aborted) break;
+  }
+
+  // EX再最適化後に再ソート
+  rebalancedResults.sort((a, b) => b.score - a.score);
+
+  return rebalancedResults;
 }
