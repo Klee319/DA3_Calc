@@ -126,7 +126,7 @@ export function getSkillWeightsFromCache(
   }
 
   // 通常攻撃
-  if ((skillName === '通常攻撃' || skillName === 'basic_attack') && weaponType) {
+  if ((skillName === '通常攻撃' || skillName === 'basic_attack' || skillName === 'normal_attack') && weaponType) {
     const basicAttack = jobMapping.basicAttack[weaponType];
     if (basicAttack) {
       return basicAttack.weights;
@@ -222,7 +222,7 @@ export function getFullSkillMappingFromCache(
   if (!jobMapping) return undefined;
 
   // 通常攻撃
-  if ((skillName === '通常攻撃' || skillName === 'basic_attack') && weaponType) {
+  if ((skillName === '通常攻撃' || skillName === 'basic_attack' || skillName === 'normal_attack') && weaponType) {
     return jobMapping.basicAttack[weaponType];
   }
 

@@ -604,7 +604,7 @@ export function getSkillWeights(
   if (!jobMapping) return [];
 
   // 通常攻撃
-  if ((skillName === '通常攻撃' || skillName === 'basic_attack') && weaponType) {
+  if ((skillName === '通常攻撃' || skillName === 'basic_attack' || skillName === 'normal_attack') && weaponType) {
     const basicAttack = jobMapping.basicAttack[weaponType];
     return basicAttack?.weights || [];
   }

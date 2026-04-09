@@ -59,6 +59,11 @@ const STAT_VAR_MAPPING: Record<string, InternalStatKey> = {
  * normalizeSkillId('通常攻撃') // => '通常攻撃'
  */
 export function normalizeSkillId(skillId: string): string {
+  // 通常攻撃のID正規化
+  if (skillId === 'normal_attack' || skillId === 'basic_attack') {
+    return '通常攻撃';
+  }
+
   const jobMatch = skillId.match(/^job_[A-Za-z]+_(.+)$/);
   if (jobMatch) return jobMatch[1];
 
@@ -250,7 +255,7 @@ export function analyzeSkillDependencies(
   }
 
   // 通常攻撃の特殊処理
-  if (skillId === 'basic_attack' || skillId === '通常攻撃') {
+  if (skillId === 'basic_attack' || skillId === 'normal_attack' || skillId === '通常攻撃') {
     // 通常攻撃は武器種に応じた基本ステータスのみ（デフォルトはSword）
     result.directStats.add('Power');
     result.directStats.add('CritDamage');
