@@ -625,39 +625,41 @@ export async function optimizeEquipment(
     const thAcc2 = pool.accessory2.find(c => c.name === '乾泥');
 
     if (thWeapon && thBody && thLeg) {
-      // configsの中からベストを試す
-      for (const bci of [0,1,2]) {
-        for (const lci of [0,1,2]) {
-          const combo = {
-            weapon: thWeapon, head: thHead || pool.head[0],
-            body: thBody, leg: thLeg,
-            accessory1: thAcc1 || pool.accessory1[0],
-            accessory2: thAcc2 || pool.accessory2[0],
-          } as Record<EquipSlot, CandidateEquipment | null>;
-          const idx = { weapon: 0, head: 0, body: Math.min(bci, thBody.configurations.length-1),
-            leg: Math.min(lci, thLeg.configurations.length-1), accessory1: 0, accessory2: 0 };
+      let bestTheoScore = 0;
+      let bestTheoLog = '';
+      // 全config組み合わせを試す（30×24=720パターン）
+      for (let bci = 0; bci < thBody.configurations.length; bci++) {
+        for (let lci = 0; lci < thLeg.configurations.length; lci++) {
+          // acc1/acc2のconfigも数個試す
+          for (const a1ci of [0, Math.min(1, (thAcc1||pool.accessory1[0]).configurations.length-1)]) {
+            const combo = {
+              weapon: thWeapon, head: thHead || pool.head[0],
+              body: thBody, leg: thLeg,
+              accessory1: thAcc1 || pool.accessory1[0],
+              accessory2: thAcc2 || pool.accessory2[0],
+            } as Record<EquipSlot, CandidateEquipment | null>;
+            const idx = { weapon: 0, head: 0, body: bci, leg: lci, accessory1: a1ci, accessory2: 0 };
 
-          // 装備ステ取得
-          const eqSt: Record<string, number> = {};
-          for (const sl of ['weapon','head','body','leg','accessory1','accessory2'] as EquipSlot[]) {
-            const c = combo[sl]; if (!c) continue;
-            const s = calculateEquipmentStatsFn(c, idx[sl], gameData.eqConst, relevantStats);
-            for (const [k,v] of Object.entries(s))
-              if (typeof v === 'number' && !k.startsWith('_') && !['WeaponAttackPower','CoolTime','DamageCorrection','CritRate'].includes(k))
-                eqSt[k] = (eqSt[k] || 0) + v;
-          }
-          // SP再最適化
-          const rSP = optimizeRemainingSP(options?.spAllocation || {}, jobSPData, (options?.jobMaxLevel||100)*2, relevantStats, options?.jobName, eqSt);
-          clearEvaluationCache();
-          const r = evaluateCombination(combo, idx, { ...context, spAllocation: rSP.allocation }, gameData.eqConst);
-          if (bci === 0 && lci === 0) {
-            console.log(`[理論構成テスト] body=乾泥金属 leg=乾泥金属 SP=${JSON.stringify(rSP.allocation)} score=${Math.round(r.originalScore)} 力=${eqSt['Power']||0} 魔=${eqSt['Magic']||0} 撃=${eqSt['CritDamage']||0}`);
-          }
-          if (r.originalScore > 22000) {
-            console.log(`[理論構成テスト] 高スコア発見! bci=${bci} lci=${lci} score=${Math.round(r.originalScore)}`);
+            const eqSt: Record<string, number> = {};
+            for (const sl of ['weapon','head','body','leg','accessory1','accessory2'] as EquipSlot[]) {
+              const c = combo[sl]; if (!c) continue;
+              const s = calculateEquipmentStatsFn(c, idx[sl], gameData.eqConst, relevantStats);
+              for (const [k,v] of Object.entries(s))
+                if (typeof v === 'number' && !k.startsWith('_') && !['WeaponAttackPower','CoolTime','DamageCorrection','CritRate'].includes(k))
+                  eqSt[k] = (eqSt[k] || 0) + v;
+            }
+            const rSP = optimizeRemainingSP(options?.spAllocation || {}, jobSPData, (options?.jobMaxLevel||100)*2, relevantStats, options?.jobName, eqSt);
+            const r = evaluateCombination(combo, idx, { ...context, spAllocation: rSP.allocation }, gameData.eqConst);
+            if (r.originalScore > bestTheoScore) {
+              bestTheoScore = r.originalScore;
+              const cfg = thBody.configurations[bci];
+              const lcfg = thLeg.configurations[lci];
+              bestTheoLog = `body_cfg=${JSON.stringify(cfg?.smithing)} leg_cfg=${JSON.stringify(lcfg?.smithing)} acc1_cfg=${a1ci} SP=${JSON.stringify(rSP.allocation)} 力=${eqSt['Power']||0} 魔=${eqSt['Magic']||0} 撃=${eqSt['CritDamage']||0}`;
+            }
           }
         }
       }
+      console.log(`[理論構成テスト] 最高スコア: ${Math.round(bestTheoScore)} ${bestTheoLog}`);
     } else {
       console.log('[理論構成テスト] 装備が見つからない:', {thWeapon:!!thWeapon, thHead:!!thHead, thBody:!!thBody, thLeg:!!thLeg});
     }
