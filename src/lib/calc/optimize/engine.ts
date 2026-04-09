@@ -611,6 +611,51 @@ export async function optimizeEquipment(
   combinedSolutions.sort((a, b) => b.score - a.score);
   const limitedSolutions = combinedSolutions.slice(0, MAX_SOLUTIONS_IN_MEMORY);
 
+  // === SP再最適化: 上位解に対して装備に最適なSP配分を見つけて再評価 ===
+  reportProgress('finalizing', 90, 100, 'SP再最適化中...');
+  const topForSPReopt = limitedSolutions.slice(0, 20);
+  for (const sol of topForSPReopt) {
+    // この装備セットのステータスを見てSPを再計算
+    const equipStats: Record<string, number> = {};
+    const slots: EquipSlot[] = ['weapon', 'head', 'body', 'leg', 'accessory1', 'accessory2'];
+    for (const slot of slots) {
+      const cand = sol.equipmentSet[slot];
+      if (!cand) continue;
+      const ci = sol.configIndices[slot] || 0;
+      const stats = calculateEquipmentStatsFn(cand, ci, gameData.eqConst, relevantStats);
+      for (const [k, v] of Object.entries(stats)) {
+        if (typeof v === 'number' && !k.startsWith('_') && !['WeaponAttackPower','CoolTime','DamageCorrection','CritRate'].includes(k)) {
+          equipStats[k] = (equipStats[k] || 0) + v;
+        }
+      }
+    }
+
+    // 装備ステを加味したrelevantStatsでSPを再最適化
+    const userSP = options?.spAllocation || {};
+    const maxSP = (options?.jobMaxLevel || 100) * 2;
+    const reoptSP = optimizeRemainingSP(userSP, jobSPData, maxSP, relevantStats, options?.jobName, equipStats);
+
+    // 元のSPと異なる場合のみ再評価
+    const origSP = context.spAllocation as Record<string, number>;
+    const newSP = reoptSP.allocation;
+    const spChanged = Object.keys(newSP).some(k => (newSP[k] || 0) !== (origSP[k] || 0));
+
+    if (spChanged) {
+      const reoptContext = { ...context, spAllocation: newSP };
+      const combination = sol.equipmentSet as Record<EquipSlot, CandidateEquipment | null>;
+      const result = evaluateCombination(combination, sol.configIndices, reoptContext, gameData.eqConst);
+      if (result.score > sol.score) {
+        sol.score = result.score;
+        sol.originalScore = result.originalScore;
+        sol.stats = result.stats;
+        sol.meetsMinimum = result.meetsMinimum;
+      }
+    }
+  }
+
+  // SP再最適化後に再ソート
+  limitedSolutions.sort((a, b) => b.score - a.score);
+
   const nonDominatedSolutions = filterDominatedBuilds(limitedSolutions);
 
   const seenKeys = new Set<string>();

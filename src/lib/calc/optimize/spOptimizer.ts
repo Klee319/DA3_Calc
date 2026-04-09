@@ -92,12 +92,14 @@ function scoreAllocation(
   stats: Record<string, number>,
   relevantStats: RelevantStats | undefined,
   jobName?: string,
+  equipmentStats?: Record<string, number>,
 ): number {
   // SpellRefactor: P=Mバランスが重要なのでダメージ近似式で直接スコアリング
   if (jobName === 'SpellRefactor' || jobName === 'スペルリファクター') {
-    const power = stats['Power'] || 0;
-    const magic = stats['Magic'] || 0;
-    const critDamage = stats['CritDamage'] || 0;
+    // 装備ステがあればそれも加算してP=Mバランスを正確に評価
+    const power = (stats['Power'] || 0) + (equipmentStats?.['Power'] || 0);
+    const magic = (stats['Magic'] || 0) + (equipmentStats?.['Magic'] || 0);
+    const critDamage = (stats['CritDamage'] || 0) + (equipmentStats?.['CritDamage'] || 0);
 
     // BaseDamage近似 (Sword): Power * 1.6 + CritDamage * 0.005 * WeaponAttack
     // 会心期待値: 撃力は会心ダメージ倍率にも寄与（100%会心率前提で撃力1あたり+1%ダメージ）
@@ -136,6 +138,7 @@ export function optimizeRemainingSP(
   maxSP: number,
   relevantStats: RelevantStats | undefined,
   jobName?: string,
+  equipmentStats?: Record<string, number>,
 ): SPOptimizeResult {
   const userUsed = Object.values(userAllocation).reduce((sum, v) => sum + (v || 0), 0);
   const available = Math.max(0, maxSP - userUsed);
@@ -191,7 +194,7 @@ export function optimizeRemainingSP(
           }
         }
 
-        const score = scoreAllocation(combinedStats, relevantStats, jobName);
+        const score = scoreAllocation(combinedStats, relevantStats, jobName, equipmentStats);
 
         if (score > bestScore) {
           bestScore = score;
