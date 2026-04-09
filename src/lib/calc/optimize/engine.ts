@@ -51,6 +51,7 @@ import { filterDominatedEmblems, buildRunestoneCombinations, RunestoneCombinatio
 import { filterDominatedBuilds } from './dominance';
 import { beamSearchOptimize } from './beamSearch';
 import { buildTarotCandidates } from './tarotSearch';
+import { optimizeRemainingSP } from './spOptimizer';
 import { DEFAULT_BEAM_SEARCH_CONFIG } from '@/types/optimize';
 
 /** 最適化用ゲームデータ（簡略版） */
@@ -263,7 +264,13 @@ export async function optimizeEquipment(
     weaponCalc: gameData.weaponCalc,
     skillCalc: gameData.skillCalc,
     relevantStats,
-    spAllocation: options?.spAllocation,
+    spAllocation: (() => {
+      // SP自動最適化: ユーザの手動配分を尊重し、余剰SPを自動配分
+      const userSP = options?.spAllocation || {};
+      const maxSP = options?.jobMaxLevel || 100;
+      const optimizedSP = optimizeRemainingSP(userSP, jobSPData, maxSP, relevantStats);
+      return optimizedSP.allocation;
+    })(),
     runestoneBonus: options?.runestoneBonus,
     userOption: options?.userOption,
     food: options?.food,

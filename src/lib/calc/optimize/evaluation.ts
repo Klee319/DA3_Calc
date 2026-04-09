@@ -409,15 +409,16 @@ function getJobStatsWithMemo(
       if (context.jobSPData && context.jobSPData.length > 0) {
         const spTree = convertToSPTree(context.jobSPData);
         if (spTree.jobCorrection) {
+          // ?? 0 で負値（-%補正）を正しく保持（|| 0 でも動くがnullish coalescingが意図明確）
           jobBonusPercent = {
-            Power: spTree.jobCorrection.Power || 0,
-            Magic: spTree.jobCorrection.Magic || 0,
-            HP: spTree.jobCorrection.HP || 0,
-            Mind: spTree.jobCorrection.Mind || 0,
-            Agility: spTree.jobCorrection.Agility || 0,
-            Dex: spTree.jobCorrection.Dex || 0,
-            CritDamage: spTree.jobCorrection.CritDamage || 0,
-            Defense: spTree.jobCorrection.Defense || 0,
+            Power: spTree.jobCorrection.Power ?? 0,
+            Magic: spTree.jobCorrection.Magic ?? 0,
+            HP: spTree.jobCorrection.HP ?? 0,
+            Mind: spTree.jobCorrection.Mind ?? 0,
+            Agility: spTree.jobCorrection.Agility ?? 0,
+            Dex: spTree.jobCorrection.Dex ?? 0,
+            CritDamage: spTree.jobCorrection.CritDamage ?? 0,
+            Defense: spTree.jobCorrection.Defense ?? 0,
           };
         }
 
@@ -687,6 +688,7 @@ export function evaluateCombination(
 
   let score = 0;
   let maxDamage = 0;  // 最大ダメージ（会心時）
+  let minDamage = 0;  // 最小ダメージ（非会心時）
 
   switch (context.mode) {
     case 'damage':
@@ -744,6 +746,20 @@ export function evaluateCombination(
         const maxDamageResult = calculateDamage(maxDamageInput, context.weaponCalc, context.skillCalc);
         if (maxDamageResult.success) {
           maxDamage = maxDamageResult.data.finalDamage;
+        }
+
+        // 最小ダメージ（非会心・ダメージ補正最小）を計算
+        const minDamageInput: DamageCalcInput = {
+          ...damageInput,
+          options: {
+            ...damageInput.options,
+            critMode: 'never',
+            damageCorrectionMode: 'min',
+          },
+        };
+        const minDamageResult = calculateDamage(minDamageInput, context.weaponCalc, context.skillCalc);
+        if (minDamageResult.success) {
+          minDamage = minDamageResult.data.finalDamage;
         }
 
         if (damageResult.success) {
@@ -863,6 +879,7 @@ export function evaluateCombination(
     CoolTime: weaponCoolTime,
     DamageCorrection: weaponDamageCorrection,
     MaxDamage: maxDamage,  // 最大ダメージ（会心時）
+    MinDamage: minDamage,  // 最小ダメージ（非会心時）
   };
 
   return { score: sortScore, originalScore, stats: resultStats, meetsMinimum };

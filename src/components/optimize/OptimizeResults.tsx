@@ -172,10 +172,25 @@ export function OptimizeResults({ results: propResults, onApplyResult, totalUsed
                     <div className="text-sm font-medium text-white">
                       期待ダメージ: {Math.round(result.evaluationScore).toLocaleString()}
                     </div>
+                    {(() => {
+                      const cs = result.calculatedStats as Record<string, number> | undefined;
+                      const minDmg = cs?.MinDamage;
+                      const maxDmg = cs?.MaxDamage;
+                      if (minDmg || maxDmg) {
+                        return (
+                          <div className="text-xs text-white/50">
+                            {minDmg ? `最小: ${Math.round(minDmg).toLocaleString()}` : ''}
+                            {minDmg && maxDmg ? ' / ' : ''}
+                            {maxDmg ? `最大: ${Math.round(maxDmg).toLocaleString()}` : ''}
+                          </div>
+                        );
+                      }
+                      return null;
+                    })()}
                     {result.breakdown.dps && (
-                      <span className="text-xs text-white/50 ml-2">
+                      <div className="text-xs text-white/50">
                         DPS: {Math.round(result.breakdown.dps).toLocaleString()}
-                      </span>
+                      </div>
                     )}
                   </div>
                 </div>
@@ -241,7 +256,7 @@ export function OptimizeResults({ results: propResults, onApplyResult, totalUsed
                                 )}
                                 {config.smithing.critDamage > 0 && (
                                   <span className="text-[10px] px-1.5 py-0.5 bg-purple-500/20 text-purple-300 rounded">
-                                    会心ダメ叩き×{config.smithing.critDamage}
+                                    撃力叩き×{config.smithing.critDamage}
                                   </span>
                                 )}
                                 {config.smithing.tatakiCount > 0 && stats?._smithingBreakdown?.details?.length > 0 && (
