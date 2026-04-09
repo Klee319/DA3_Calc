@@ -270,9 +270,8 @@ export async function optimizeEquipment(
     skillCalc: gameData.skillCalc,
     relevantStats,
     spAllocation: (() => {
-      // SP自動最適化: ユーザの手動配分を尊重し、余剰SPを自動配分
       const userSP = options?.spAllocation || {};
-      const maxSP = (options?.jobMaxLevel || 100) * 2;  // SP上限 = レベル × 2
+      const maxSP = (options?.jobMaxLevel || 100) * 2;
       const optimizedSP = optimizeRemainingSP(userSP, jobSPData, maxSP, relevantStats, options?.jobName);
       return optimizedSP.allocation;
     })(),
@@ -283,32 +282,36 @@ export async function optimizeEquipment(
   };
 
   // 職業基礎+SPベースステータスを計算（近似スコアのP=Mバランス用）
-  try {
-    const jobLevel = options?.jobMaxLevel || 100;
-    const baseJobStats = calculateAllJobStats(
-      options?.jobName || '', jobLevel, [], gameData.jobConst!, jobSPData
-    );
-    const spAlloc = context.spAllocation as Record<string, number>;
-    const branchBonus = calculateBranchBonus(
-      { A: spAlloc?.['A'] || 0, B: spAlloc?.['B'] || 0, C: spAlloc?.['C'] || 0 },
-      jobSPData
-    );
-    const jpToInternal: Record<string, string> = {
-      '体力': 'HP', '力': 'Power', '魔力': 'Magic', '精神': 'Mind',
-      '素早さ': 'Agility', '器用さ': 'Dex', '撃力': 'CritDamage', '守備力': 'Defense',
-    };
-    const baseStats: Record<string, number> = {};
-    for (const [key, value] of Object.entries(baseJobStats)) {
-      if (typeof value === 'number') baseStats[key] = value;
-    }
-    for (const branch of ['A', 'B', 'C'] as const) {
-      for (const [jpKey, value] of Object.entries(branchBonus[branch])) {
-        const internalKey = jpToInternal[jpKey];
-        if (internalKey && value) baseStats[internalKey] = (baseStats[internalKey] || 0) + value;
+  if (gameData.jobConst && options?.jobName) {
+    try {
+      const jobLevel = options?.jobMaxLevel || 100;
+      const baseJobStats = calculateAllJobStats(
+        options.jobName, jobLevel, [], gameData.jobConst, jobSPData
+      );
+      const spAlloc = context.spAllocation as Record<string, number>;
+      const branchBonus = calculateBranchBonus(
+        { A: spAlloc?.['A'] || 0, B: spAlloc?.['B'] || 0, C: spAlloc?.['C'] || 0 },
+        jobSPData
+      );
+      const jpToInternal: Record<string, string> = {
+        '体力': 'HP', '力': 'Power', '魔力': 'Magic', '精神': 'Mind',
+        '素早さ': 'Agility', '器用さ': 'Dex', '撃力': 'CritDamage', '守備力': 'Defense',
+      };
+      const baseStats: Record<string, number> = {};
+      for (const [key, value] of Object.entries(baseJobStats)) {
+        if (typeof value === 'number') baseStats[key] = value;
       }
+      for (const branch of ['A', 'B', 'C'] as const) {
+        for (const [jpKey, value] of Object.entries(branchBonus[branch])) {
+          const internalKey = jpToInternal[jpKey];
+          if (internalKey && value) baseStats[internalKey] = (baseStats[internalKey] || 0) + value;
+        }
+      }
+      context.jobSPBaseStats = baseStats;
+    } catch (e) {
+      console.warn('jobSPBaseStats計算失敗:', e instanceof Error ? e.message : e);
     }
-    context.jobSPBaseStats = baseStats;
-  } catch { /* ignore - approximate score will work without base stats */ }
+  }
 
   const combinationCount = calculateCombinationCount(pool);
   const hasEmblemSearch = emblems.length > 1;
