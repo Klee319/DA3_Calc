@@ -104,37 +104,15 @@ export function OptimizeResults({ results: propResults, onApplyResult, totalUsed
       {/* 入力設定サマリー */}
       <div className="p-3 bg-white/5 rounded-xl border border-white/10">
         <h4 className="text-xs font-medium text-white/50 mb-2">計算設定</h4>
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-2 text-xs">
-          {/* 職業 */}
+        <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs">
           {selectedJobName && (
-            <div className="flex items-center gap-1.5">
-              <span className="text-white/40">職業:</span>
-              <span className="text-white/70">{selectedJobName}</span>
-              {jobGrade && <span className="text-white/30">({jobGrade})</span>}
-            </div>
+            <span className="text-white/70">
+              {selectedJobName}
+              {jobGrade && <span className="text-white/30 ml-1">({jobGrade})</span>}
+            </span>
           )}
-          {/* SP振り分け */}
           {totalUsedSP !== undefined && totalUsedSP > 0 && (
-            <div className="flex items-center gap-1.5">
-              <span className="text-white/40">SP:</span>
-              <span className="text-blue-400/80">
-                {totalUsedSP}P使用
-              </span>
-            </div>
-          )}
-          {/* ルーンストーン */}
-          {runestoneBonus && Object.keys(runestoneBonus).length > 0 && (
-            <div className="flex items-center gap-1.5">
-              <span className="text-white/40">ルーン:</span>
-              <span className="text-purple-400/80">
-                {Object.entries(runestoneBonus)
-                  .filter(([_, v]) => v !== 0)
-                  .map(([k, v]) => `${k.slice(0, 2)}+${v}`)
-                  .slice(0, 3)
-                  .join(' ')}
-                {Object.entries(runestoneBonus).filter(([_, v]) => v !== 0).length > 3 && '...'}
-              </span>
-            </div>
+            <span className="text-blue-400/80">SP: {totalUsedSP}P</span>
           )}
         </div>
       </div>
@@ -212,11 +190,12 @@ export function OptimizeResults({ results: propResults, onApplyResult, totalUsed
                     const stats = equipDetail?.stats;
                     const rawEquipName = equipDetail?.equipment?.name || equipDetail?.name || '-';
                     const equipType = equipDetail?.equipment?.type || equipDetail?.type || '';
-                    const armorType = equipDetail?.sourceData?.['タイプを選択'];
+                    // sourceDataはequipmentにスプレッドされている
+                    const armorType = equipDetail?.equipment?.['タイプを選択'] || equipDetail?.sourceData?.['タイプを選択'];
 
                     let equipName = rawEquipName;
-                    if (equipType === 'armor' && armorType) {
-                      equipName = `${armorType}-${rawEquipName}`;
+                    if (['head', 'body', 'leg'].includes(slot) && armorType) {
+                      equipName = `[${armorType}] ${rawEquipName}`;
                     }
 
                     const slotNameMap: Record<string, string> = {
