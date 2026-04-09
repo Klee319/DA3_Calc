@@ -738,26 +738,20 @@ export function evaluateCombination(
 
         const damageResult = calculateDamage(damageInput, context.weaponCalc, context.skillCalc);
 
-        // 最大ダメージ（ダメージ補正最大、会心は期待値のまま）
+        // 最大ダメージ（会心あり・ダメージ補正最大）
         const maxDamageInput: DamageCalcInput = {
           ...damageInput,
-          options: {
-            ...damageInput.options,
-            damageCorrectionMode: 'max',
-          },
+          options: { ...damageInput.options, critMode: 'always', damageCorrectionMode: 'max' },
         };
         const maxDamageResult = calculateDamage(maxDamageInput, context.weaponCalc, context.skillCalc);
         if (maxDamageResult.success) {
           maxDamage = maxDamageResult.data.finalDamage;
         }
 
-        // 最小ダメージ（ダメージ補正最小、会心は期待値のまま）
+        // 最小ダメージ（会心なし・ダメージ補正最小）
         const minDamageInput: DamageCalcInput = {
           ...damageInput,
-          options: {
-            ...damageInput.options,
-            damageCorrectionMode: 'min',
-          },
+          options: { ...damageInput.options, critMode: 'never', damageCorrectionMode: 'min' },
         };
         const minDamageResult = calculateDamage(minDamageInput, context.weaponCalc, context.skillCalc);
         if (minDamageResult.success) {
