@@ -279,45 +279,29 @@ export function generateArmorSmithingPatterns(
     }
   }
 
-  const pattern1: ArmorSmithingDistribution = {};
-  pattern1[availableStats[0].key] = maxCount;
-  patterns.push(pattern1);
-
+  // 上位2ステの全配分パターン（0:12, 1:11, 2:10, ... 12:0）を網羅的に生成
+  // これにより{power:5, magic:7}等の細かい最適配分が候補に含まれる
   if (availableStats.length >= 2) {
-    const pattern2: ArmorSmithingDistribution = {};
-    const half = Math.floor(maxCount / 2);
-    pattern2[availableStats[0].key] = half;
-    pattern2[availableStats[1].key] = maxCount - half;
-    patterns.push(pattern2);
+    const stat1 = availableStats[0].key;
+    const stat2 = availableStats[1].key;
+    for (let i = 0; i <= maxCount; i++) {
+      const p: ArmorSmithingDistribution = {};
+      p[stat1] = i;
+      p[stat2] = maxCount - i;
+      patterns.push(p);
+    }
+  } else {
+    // 1ステのみ: 全振り
+    const pattern1: ArmorSmithingDistribution = {};
+    pattern1[availableStats[0].key] = maxCount;
+    patterns.push(pattern1);
   }
 
-  if (availableStats.length >= 2) {
-    const pattern3: ArmorSmithingDistribution = {};
-    pattern3[availableStats[0].key] = 8;
-    pattern3[availableStats[1].key] = 4;
-    patterns.push(pattern3);
-  }
-
+  // 上位3番目のステータスがあれば、そちらへの全振り+混合も追加
   if (availableStats.length >= 3) {
-    const pattern4: ArmorSmithingDistribution = {};
-    const each = Math.floor(maxCount / 3);
-    pattern4[availableStats[0].key] = each;
-    pattern4[availableStats[1].key] = each;
-    pattern4[availableStats[2].key] = maxCount - each * 2;
-    patterns.push(pattern4);
-  }
-
-  // P:Mバランス調整用: Power全振り、Magic全振りパターンを追加
-  // (SpellRefactor等でP=Mが必要な場合に有効)
-  const hasPower = availableStats.some(s => s.key === 'power');
-  const hasMagic = availableStats.some(s => s.key === 'magic');
-  if (hasPower && availableStats[0].key !== 'power') {
-    const powerPattern: ArmorSmithingDistribution = { power: maxCount };
-    patterns.push(powerPattern);
-  }
-  if (hasMagic && availableStats[0].key !== 'magic') {
-    const magicPattern: ArmorSmithingDistribution = { magic: maxCount };
-    patterns.push(magicPattern);
+    const stat3 = availableStats[2].key;
+    patterns.push({ [stat3]: maxCount });
+    patterns.push({ [availableStats[0].key]: Math.floor(maxCount / 2), [stat3]: maxCount - Math.floor(maxCount / 2) });
   }
 
   return patterns;
