@@ -209,7 +209,7 @@ export function calculateEquipmentStatsFn(
       if (totalTataki > 0) {
         const statNameMap: Record<string, string> = {
           power: '力', magic: '魔力', hp: '体力', mind: '精神',
-          speed: '素早さ', dexterity: '器用', critDamage: '会心ダメ', defense: '守備力'
+          speed: '素早さ', dexterity: '器用', critDamage: '撃力', defense: '守備力'
         };
         const details: Array<{ stat: string; count: number }> = [];
         for (const [key, count] of Object.entries(armorDistribution)) {
@@ -915,15 +915,34 @@ export function approximateScore(
   mode: OptimizeMode,
   targetStat?: InternalStatKey,
   minimumStats?: MinimumStatRequirements,
+  jobName?: string,
 ): number {
   if (mode === 'stat' && targetStat) {
     const base = dependentStatsSum[targetStat] || 0;
-    // 必須最低値ペナルティ
     if (minimumStats) {
       const progress = calculateMinimumStatsProgress(dependentStatsSum, minimumStats);
       if (progress < 1) return base * progress * 0.1;
     }
     return base;
+  }
+
+  // SpellRefactor: P=Mバランスを考慮した近似ダメージ
+  if (jobName === 'SpellRefactor' || jobName === 'スペルリファクター') {
+    const power = dependentStatsSum['Power'] || 0;
+    const magic = dependentStatsSum['Magic'] || 0;
+    const critDamage = dependentStatsSum['CritDamage'] || 0;
+    const baseDamage = power * 1.6 + critDamage * 2.1;
+    let bonus = 1.75;
+    if (power > 0 && magic > 0) {
+      const ratio = Math.max(power, magic) / Math.min(power, magic);
+      bonus = Math.max(0.1, 1.75 - 0.475 * Math.log(ratio) * 2);
+    }
+    let score = baseDamage * bonus;
+    if (minimumStats) {
+      const progress = calculateMinimumStatsProgress(dependentStatsSum, minimumStats);
+      if (progress < 1) score *= progress * CONSTRAINT_PENALTY_FACTOR;
+    }
+    return score;
   }
 
   // damage/dps: 依存ステの重み付き線形合計

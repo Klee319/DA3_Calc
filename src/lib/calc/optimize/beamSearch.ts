@@ -270,7 +270,7 @@ export async function beamSearchOptimize(
 
           // 近似スコア
           const score = approximateScore(
-            newSum, relevantStats, context.mode, context.targetStat, context.minimumStats
+            newSum, relevantStats, context.mode, context.targetStat, context.minimumStats, context.jobName
           );
 
           nextStates.push({
