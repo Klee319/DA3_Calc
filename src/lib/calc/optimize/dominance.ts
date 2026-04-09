@@ -45,10 +45,10 @@ export function weaponDominates(a: WeaponData, b: WeaponData): boolean {
  * 防具Aが防具Bを支配（完全上位互換）しているかチェック
  */
 export function armorDominates(a: ArmorData, b: ArmorData): boolean {
-  if (a.使用可能Lv > b.使用可能Lv) {
-    return false;
-  }
+  // Lv制約を緩和: 高LvはEX値が高いので、Lv差だけで支配排除しない
+  // 代わりにLvも比較対象に含める
 
+  // 初期値 + 使用可能Lv(EX値に影響)で支配判定
   const statKeys = [
     '力（初期値）', '魔力（初期値）', '体力（初期値）', '精神（初期値）',
     '素早さ（初期値）', '器用（初期値）', '撃力（初期値）', '守備力（初期値）'
@@ -57,16 +57,22 @@ export function armorDominates(a: ArmorData, b: ArmorData): boolean {
   let allGE = true;
   let anyGT = false;
 
-  for (const key of statKeys) {
-    const valA = (a[key] as number) || 0;
-    const valB = (b[key] as number) || 0;
+  // Lvも比較（高Lv = EX値が高い）
+  if (a.使用可能Lv < b.使用可能Lv) allGE = false;
+  if (a.使用可能Lv > b.使用可能Lv) anyGT = true;
 
-    if (valA < valB) {
-      allGE = false;
-      break;
-    }
-    if (valA > valB) {
-      anyGT = true;
+  if (allGE) {
+    for (const key of statKeys) {
+      const valA = (a[key] as number) || 0;
+      const valB = (b[key] as number) || 0;
+
+      if (valA < valB) {
+        allGE = false;
+        break;
+      }
+      if (valA > valB) {
+        anyGT = true;
+      }
     }
   }
 
