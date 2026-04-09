@@ -884,6 +884,20 @@ export function evaluateCombination(
     _SP_A: (context.spAllocation as Record<string, number>)?.['A'] ?? 0,
     _SP_B: (context.spAllocation as Record<string, number>)?.['B'] ?? 0,
     _SP_C: (context.spAllocation as Record<string, number>)?.['C'] ?? 0,
+    // デバッグ: SPボーナスと職業基礎値
+    _debug_spBonus_Power: spStats.Power ?? 0,
+    _debug_spBonus_Magic: spStats.Magic ?? 0,
+    _debug_spBonus_CritDamage: spStats.CritDamage ?? 0,
+    _debug_job_Power: jobStats.Power ?? 0,
+    _debug_job_Magic: jobStats.Magic ?? 0,
+    _debug_equip_Power: equipmentStats.Power ?? 0,
+    _debug_equip_Magic: equipmentStats.Magic ?? 0,
+    _debug_equip_CritDamage: equipmentStats.CritDamage ?? 0,
+    _debug_weapon_attackPower: adjustedWeaponAttackPower,
+    _debug_weapon_critRate: adjustedWeaponCritRate,
+    _debug_weapon_critDamage: adjustedWeaponCritDamage,
+    _debug_weapon_damageCorrection: adjustedWeaponDamageCorrection,
+    _debug_jobLevel: jobLevel,
   };
 
   return { score: sortScore, originalScore, stats: resultStats, meetsMinimum };

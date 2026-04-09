@@ -382,6 +382,24 @@ export function OptimizeResults({ results: propResults, onApplyResult, totalUsed
                           );
                         })}
                       </div>
+                      {/* デバッグ情報 */}
+                      <details className="mt-2">
+                        <summary className="text-[10px] text-yellow-400/60 cursor-pointer">内訳</summary>
+                        <div className="text-[10px] text-white/50 mt-1 space-y-0.5">
+                          {(() => {
+                            const cs = result.calculatedStats as Record<string, number> | undefined;
+                            if (!cs) return null;
+                            return (
+                              <>
+                                <div>Lv: {cs._debug_jobLevel} | 武器攻: {cs._debug_weapon_attackPower} 会心率: {Math.round((cs._debug_weapon_critRate ?? 0) * 10) / 10}% 会心ダメ: {cs._debug_weapon_critDamage} 補正: {cs._debug_weapon_damageCorrection}</div>
+                                <div>職業基礎 力: {cs._debug_job_Power} 魔: {cs._debug_job_Magic}</div>
+                                <div>SP(A:{cs._SP_A} B:{cs._SP_B} C:{cs._SP_C}) → 力+{cs._debug_spBonus_Power} 魔+{cs._debug_spBonus_Magic} 撃+{cs._debug_spBonus_CritDamage}</div>
+                                <div>装備合計 力: {cs._debug_equip_Power} 魔: {cs._debug_equip_Magic} 撃: {cs._debug_equip_CritDamage}</div>
+                              </>
+                            );
+                          })()}
+                        </div>
+                      </details>
                     </div>
                   )}
                 </div>
