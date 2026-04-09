@@ -422,6 +422,8 @@ export const useOptimizeStore = create<OptimizeStoreState & OptimizeStoreActions
           spAllocation: state.spAllocation,
           // ルーンストーンボーナス
           runestoneBonus: state.runestoneBonus,
+          // オプション値（ユーザ手動入力ステータス加算）
+          userOption: Object.keys(state.userOption).length > 0 ? state.userOption : undefined,
           // ルーンストーン探索オプション
           enableRunestoneSearch: state.enableRunestoneSearch,
           // タロット探索オプション
