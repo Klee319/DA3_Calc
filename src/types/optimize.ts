@@ -339,6 +339,63 @@ export interface OptimizeOutput {
   warnings?: string[];
 }
 
+// ===== Beam Search 型定義 =====
+
+/** 拡張スロット（装備6スロット + 紋章 + タロット） */
+export type ExtendedSlot = EquipSlot | 'emblem' | 'tarot';
+
+/** Beam Search設定 */
+export interface BeamSearchConfig {
+  beamWidth: number;
+  enableTwoStage: boolean;
+  refinementCount: number;
+}
+
+/** デフォルトBeam Search設定 */
+export const DEFAULT_BEAM_SEARCH_CONFIG: BeamSearchConfig = {
+  beamWidth: 200,
+  enableTwoStage: true,
+  refinementCount: 50,
+};
+
+/** Beam Search状態 */
+export interface BeamState {
+  equipmentSet: Partial<Record<ExtendedSlot, CandidateEquipment | null>>;
+  configIndices: Partial<Record<ExtendedSlot, number>>;
+  dependentStatsSum: Record<string, number>;
+  residualVector: Record<string, number>;
+  approximateScore: number;
+  completedSlots: ExtendedSlot[];
+  tarotCandidate?: TarotCandidate | null;
+  emblemData?: unknown;
+  runestoneData?: unknown;
+}
+
+// ===== タロット型定義 =====
+
+/** タロット候補（最適化用） */
+export interface TarotCandidate {
+  id: string;
+  cardName: string;
+  subOptions: Array<{
+    optionId: string;
+    name: string;
+    type: string;
+    level: number;
+    value: number;
+  }>;
+  totalBonus: StatBlock;
+  weaponBonus: Record<string, number>;
+  damageBuffs: Record<string, number>;
+  approximateScore?: number;
+}
+
+/** 拡張装備プール（紋章・タロット含む） */
+export interface ExtendedEquipmentPool extends EquipmentPool {
+  emblems: CandidateEquipment[];
+  tarot: TarotCandidate[];
+}
+
 // ===== プログレス =====
 
 /** 探索フェーズ */
@@ -348,6 +405,7 @@ export type OptimizePhase =
   | 'greedy'
   | 'local_search'
   | 'beam_search'
+  | 'beam_refine'
   | 'two_stage'
   | 'finalizing'
   | 'completed'
@@ -369,9 +427,10 @@ export interface OptimizeProgress {
   intermediateStats?: Record<string, number>;
 
   // Beam Search用
-  currentSlot?: EquipSlot;
+  currentSlot?: ExtendedSlot;
   beamSize?: number;
   prunedCount?: number;
+  slotPhase?: 'coarse' | 'fine';
 }
 
 // ===== 旧互換用（非推奨） =====

@@ -14,6 +14,8 @@ const PHASE_LABELS: Record<string, string> = {
   building_pool: '候補プール構築中',
   greedy: '初期解構築中',
   local_search: 'ルーン×紋章 探索中',
+  beam_search: 'Beam Search 探索中',
+  beam_refine: '詳細化中',
   finalizing: '多様解生成中',
   completed: '完了',
   cancelled: 'キャンセル',
@@ -29,6 +31,7 @@ const SLOT_LABELS: Record<string, string> = {
   accessory1: 'ネック',
   accessory2: 'ブレス',
   emblem: '紋章',
+  tarot: 'タロット',
 };
 
 export function OptimizeProgress({ progress, onCancel }: OptimizeProgressProps) {
@@ -70,6 +73,41 @@ export function OptimizeProgress({ progress, onCancel }: OptimizeProgressProps) 
           style={{ width: `${progress.percentage}%` }}
         />
       </div>
+
+      {/* Beam Search スロット進捗 */}
+      {(progress.phase === 'beam_search' || progress.phase === 'beam_refine') && (
+        <div className="flex flex-wrap gap-1 text-[10px]">
+          {['weapon', 'head', 'body', 'leg', 'accessory1', 'accessory2', 'emblem', 'tarot'].map((slot) => {
+            const isCurrent = progress.currentSlot === slot;
+            const isCompleted = progress.current > ['weapon', 'head', 'body', 'leg', 'accessory1', 'accessory2', 'emblem', 'tarot'].indexOf(slot);
+            return (
+              <span
+                key={slot}
+                className={`px-1.5 py-0.5 rounded ${
+                  isCurrent ? 'bg-rpg-accent/30 text-rpg-accent font-bold' :
+                  isCompleted ? 'bg-emerald-500/20 text-emerald-400' :
+                  'bg-white/5 text-white/30'
+                }`}
+              >
+                {SLOT_LABELS[slot] || slot}
+              </span>
+            );
+          })}
+        </div>
+      )}
+
+      {/* Beam統計 */}
+      {progress.beamSize !== undefined && progress.phase === 'beam_search' && (
+        <div className="flex gap-3 text-[10px] text-white/50">
+          <span>Beam幅: <span className="text-white/70">{progress.beamSize}</span></span>
+          {progress.prunedCount !== undefined && (
+            <span>枝刈り: <span className="text-white/70">{progress.prunedCount}</span></span>
+          )}
+          {progress.slotPhase && (
+            <span>段階: <span className="text-white/70">{progress.slotPhase === 'coarse' ? '粗い探索' : '詳細化'}</span></span>
+          )}
+        </div>
+      )}
 
       {/* メッセージ */}
       <div className="flex justify-between items-center">

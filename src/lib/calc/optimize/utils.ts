@@ -323,6 +323,126 @@ export function generateArmorSmithingPatterns(
   return patterns;
 }
 
+// ===== 二段階生成: 粗い候補・詳細化 =====
+
+/**
+ * 粗い武器叩きパターンを生成（Beam Search初期段階用）
+ * 全パターンの代表3-5個のみを返す
+ */
+export function generateCoarseWeaponSmithingPatterns(
+  maxCount: number
+): { attackPower: number; critRate: number; critDamage: number }[] {
+  return [
+    { attackPower: maxCount, critRate: 0, critDamage: 0 },          // 攻撃全振り
+    { attackPower: 0, critRate: 0, critDamage: maxCount },          // 会心ダメ全振り
+    { attackPower: Math.floor(maxCount / 3), critRate: Math.floor(maxCount / 3), critDamage: maxCount - Math.floor(maxCount / 3) * 2 }, // 均等
+    { attackPower: Math.floor(maxCount / 2), critRate: 0, critDamage: maxCount - Math.floor(maxCount / 2) }, // 攻撃+会心ダメ半々
+    { attackPower: 0, critRate: maxCount, critDamage: 0 },          // 会心率全振り
+  ];
+}
+
+/**
+ * 粗い防具叩きパターンを生成（Beam Search初期段階用）
+ */
+export function generateCoarseArmorSmithingPatterns(
+  armor: ArmorData,
+  relevantStats: RelevantStats | undefined,
+  maxCount: number = 12
+): ArmorSmithingDistribution[] {
+  const statMapping = [
+    { key: 'power' as const, internalKey: 'Power', csvKey: '力（初期値）' },
+    { key: 'magic' as const, internalKey: 'Magic', csvKey: '魔力（初期値）' },
+    { key: 'critDamage' as const, internalKey: 'CritDamage', csvKey: '撃力（初期値）' },
+    { key: 'hp' as const, internalKey: 'HP', csvKey: '体力（初期値）' },
+    { key: 'mind' as const, internalKey: 'Mind', csvKey: '精神（初期値）' },
+    { key: 'speed' as const, internalKey: 'Agility', csvKey: '素早さ（初期値）' },
+    { key: 'defense' as const, internalKey: 'Defense', csvKey: '守備力（初期値）' },
+  ];
+
+  // 利用可能なステータスを重み順でソート
+  const available = statMapping
+    .filter(s => (armor[s.csvKey as keyof ArmorData] as number || 0) > 0)
+    .map(s => ({
+      ...s,
+      weight: relevantStats?.statCoefficients?.[s.internalKey] ??
+        (relevantStats?.directStats?.has(s.internalKey as any) ? 1 : 0),
+    }))
+    .sort((a, b) => b.weight - a.weight);
+
+  if (available.length === 0) return [{}];
+
+  const patterns: ArmorSmithingDistribution[] = [];
+
+  // パターン1: 最重要ステ全振り
+  patterns.push({ [available[0].key]: maxCount });
+
+  // パターン2: 上位2ステ半々
+  if (available.length >= 2) {
+    const half = Math.floor(maxCount / 2);
+    patterns.push({
+      [available[0].key]: half,
+      [available[1].key]: maxCount - half,
+    });
+  }
+
+  // パターン3: 最重要ステ + 撃力（撃力が最重要でない場合）
+  const critDamageStat = available.find(s => s.key === 'critDamage');
+  if (critDamageStat && available[0].key !== 'critDamage') {
+    patterns.push({
+      [available[0].key]: Math.floor(maxCount * 2 / 3),
+      critDamage: maxCount - Math.floor(maxCount * 2 / 3),
+    });
+  }
+
+  return patterns;
+}
+
+/**
+ * 叩き配分を局所探索で詳細化（Hill Climbing）
+ * 近傍: ステータス間で1回ずつ移動
+ */
+export function refineSmithingPattern(
+  currentPattern: Record<string, number>,
+  evaluateFn: (pattern: Record<string, number>) => number,
+  maxCount: number,
+  maxIterations: number = 20,
+): Record<string, number> {
+  let best = { ...currentPattern };
+  let bestScore = evaluateFn(best);
+  const stats = Object.keys(best).filter(k => best[k] > 0 || k === 'power' || k === 'magic' || k === 'critDamage');
+
+  for (let iter = 0; iter < maxIterations; iter++) {
+    let improved = false;
+
+    for (let i = 0; i < stats.length; i++) {
+      for (let j = 0; j < stats.length; j++) {
+        if (i === j) continue;
+        if ((best[stats[i]] || 0) <= 0) continue;
+
+        // stats[i] から stats[j] に1回移動
+        const candidate = { ...best };
+        candidate[stats[i]] = (candidate[stats[i]] || 0) - 1;
+        candidate[stats[j]] = (candidate[stats[j]] || 0) + 1;
+
+        // 合計がmaxCountを超えていないか確認
+        const total = Object.values(candidate).reduce((sum, v) => sum + v, 0);
+        if (total !== maxCount) continue;
+
+        const score = evaluateFn(candidate);
+        if (score > bestScore) {
+          best = candidate;
+          bestScore = score;
+          improved = true;
+        }
+      }
+    }
+
+    if (!improved) break;
+  }
+
+  return best;
+}
+
 /**
  * 最低必須ステータスを考慮したEXパターンを生成
  */

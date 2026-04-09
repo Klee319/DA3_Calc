@@ -125,6 +125,40 @@ export type EXType = typeof AVAILABLE_EX_TYPES[number];
 /** 全数探索を実行する組み合わせ数の閾値 */
 export const EXHAUSTIVE_SEARCH_THRESHOLD = 10000;
 
+// ===== Beam Search 定数 =====
+
+/** Beam Search デフォルト設定 */
+export const BEAM_SEARCH_DEFAULTS = {
+  beamWidth: 200,
+  refinementTopN: 50,
+  coarseSmithingPatterns: 5,
+  coarseEXPatterns: 3,
+  tarotTopK: 50,
+  maxTarotSubOptions: 5,
+  tarotSubOptionMaxLevel: 5,
+  yieldInterval: 200,
+};
+
+/** Beam Searchスロット順序 */
+export const BEAM_SLOT_ORDER = [
+  'weapon', 'head', 'body', 'leg', 'accessory1', 'accessory2', 'emblem', 'tarot',
+] as const;
+
+/** スロット日本語名 */
+export const SLOT_LABELS_JP: Record<string, string> = {
+  weapon: '武器',
+  head: '頭',
+  body: '胴',
+  leg: '脚',
+  accessory1: 'ネックレス',
+  accessory2: 'ブレスレット',
+  emblem: '紋章',
+  tarot: 'タロット',
+};
+
+/** 火力無関係のタロットサブオプション（除外対象） */
+export const TAROT_EXCLUDED_TYPES = ['DropGoldBonus', 'DropExpBonus'];
+
 /** メモリ内に保持する最大解数 */
 export const MAX_SOLUTIONS_IN_MEMORY = 200;
 

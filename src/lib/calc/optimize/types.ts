@@ -40,6 +40,8 @@ export interface EvaluationContext {
   runestoneBonus?: StatBlock;
   userOption?: StatBlock;
   food?: StatBlock;
+  tarotBonusPercent?: StatBlock;
+  tarotWeaponBonus?: Record<string, number>;
 }
 
 /** スコア付き組み合わせ */

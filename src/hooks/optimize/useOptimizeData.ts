@@ -96,6 +96,8 @@ export function useOptimizeData(): UseOptimizeDataReturn {
             weaponCalc: data.yaml.weaponCalc,
             skillCalc: convertedSkillCalc,
             runestones: data.csv.runestones,
+            tarots: data.csv.tarots,
+            tarotCalcData: data.yaml.tarotCalc,
           });
 
           // 職業データを変換

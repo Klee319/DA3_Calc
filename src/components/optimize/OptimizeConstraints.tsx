@@ -36,6 +36,12 @@ export function OptimizeConstraints() {
     setConstraints,
     setMinimumStat,
     resetConstraints,
+    enableTarotSearch,
+    setEnableTarotSearch,
+    enableRunestoneSearch,
+    setEnableRunestoneSearch,
+    beamWidth,
+    setBeamWidth,
   } = useOptimizeStore();
 
   const handleSlotToggle = (slot: EquipSlot) => {
@@ -114,6 +120,59 @@ export function OptimizeConstraints() {
             </div>
           ))}
         </div>
+      </div>
+
+      {/* 探索オプション */}
+      <div className="space-y-3">
+        <label className="block text-sm font-medium text-white/80">
+          探索オプション
+        </label>
+        <div className="space-y-2">
+          <label className="flex items-center gap-2 cursor-pointer group">
+            <input
+              type="checkbox"
+              checked={enableRunestoneSearch}
+              onChange={(e) => setEnableRunestoneSearch(e.target.checked)}
+              className="checkbox-primary"
+            />
+            <span className="text-sm text-white/70 group-hover:text-white transition-colors">
+              ルーンストーン探索
+            </span>
+          </label>
+          <label className="flex items-center gap-2 cursor-pointer group">
+            <input
+              type="checkbox"
+              checked={enableTarotSearch}
+              onChange={(e) => setEnableTarotSearch(e.target.checked)}
+              className="checkbox-primary"
+            />
+            <span className="text-sm text-white/70 group-hover:text-white transition-colors">
+              タロット探索
+            </span>
+          </label>
+        </div>
+      </div>
+
+      {/* Beam幅 */}
+      <div className="space-y-2">
+        <label className="block text-sm font-medium text-white/80">
+          探索幅 (Beam Width)
+        </label>
+        <div className="flex items-center gap-3">
+          <input
+            type="range"
+            min={50}
+            max={500}
+            step={50}
+            value={beamWidth}
+            onChange={(e) => setBeamWidth(Number(e.target.value))}
+            className="flex-1 accent-rpg-accent"
+          />
+          <span className="text-sm text-white/60 w-10 text-right">{beamWidth}</span>
+        </div>
+        <p className="text-xs text-white/40">
+          大きいほど精度が上がりますが時間がかかります
+        </p>
       </div>
 
       {/* 結果数 */}

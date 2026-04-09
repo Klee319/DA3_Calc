@@ -3,14 +3,14 @@
  */
 
 import { EquipSlot } from '@/types';
-import { CandidateEquipment, RANK_VALUES } from '@/types/optimize';
+import { CandidateEquipment, RANK_VALUES, OptimizeMode, MinimumStatRequirements } from '@/types/optimize';
 import {
   WeaponData,
   ArmorData,
   AccessoryData,
   EqConstData,
 } from '@/types/data';
-import { StatBlock, StatusCalcInput, CalculatedStats, DamageCalcInput, WeaponType } from '@/types/calc';
+import { StatBlock, StatusCalcInput, CalculatedStats, DamageCalcInput, WeaponType, InternalStatKey } from '@/types/calc';
 import {
   calculateWeaponStats,
   calculateAccessoryStats,
@@ -634,6 +634,30 @@ export function evaluateCombination(
   // メモ化されたジョブステータス計算
   const { jobStats, jobBonusPercent, spStats } = getJobStatsWithMemo(context, jobLevel, spAllocationArray);
 
+  // タロット%ボーナスを紋章%にマージ（同じ乗算枠: (1 + job%/100 + emblem%/100 + tarot%/100)）
+  let mergedEmblemBonusPercent = emblemBonusPercent;
+  if (context.tarotBonusPercent) {
+    mergedEmblemBonusPercent = { ...emblemBonusPercent };
+    for (const [key, value] of Object.entries(context.tarotBonusPercent)) {
+      if (typeof value === 'number' && value !== 0) {
+        (mergedEmblemBonusPercent as Record<string, number>)[key] =
+          ((mergedEmblemBonusPercent as Record<string, number>)[key] || 0) + value;
+      }
+    }
+  }
+
+  // タロット武器ボーナス（CritR, CritD, AttackP, DamageC）を武器パラメータに加算
+  let adjustedWeaponCritRate = weaponCritRate;
+  let adjustedWeaponCritDamage = weaponCritDamage;
+  let adjustedWeaponAttackPower = weaponAttackPower;
+  let adjustedWeaponDamageCorrection = weaponDamageCorrection;
+  if (context.tarotWeaponBonus) {
+    adjustedWeaponCritRate += context.tarotWeaponBonus['CritR'] || 0;
+    adjustedWeaponCritDamage += context.tarotWeaponBonus['CritD'] || 0;
+    adjustedWeaponAttackPower += context.tarotWeaponBonus['AttackP'] || 0;
+    adjustedWeaponDamageCorrection += context.tarotWeaponBonus['DamageC'] || 0;
+  }
+
   const statusInput: StatusCalcInput = {
     jobStats: {
       initial: jobStats,
@@ -642,8 +666,8 @@ export function evaluateCombination(
     },
     jobLevel,
     equipmentTotal: equipmentStats,
-    emblemBonusPercent,
-    weaponCritRate,
+    emblemBonusPercent: mergedEmblemBonusPercent,
+    weaponCritRate: adjustedWeaponCritRate,
     runestoneBonus: context.runestoneBonus,
     userOption: context.userOption,
     food: context.food,
@@ -652,11 +676,11 @@ export function evaluateCombination(
   const calcResult = calculateStatus(statusInput);
 
   let finalStats: StatBlock = {};
-  let actualCritRate = weaponCritRate;  // 器用さ込みの会心率
+  let actualCritRate = adjustedWeaponCritRate;  // 器用さ込みの会心率（タロット補正含む）
   if (calcResult.success) {
     finalStats = calcResult.data.final || {};
     const dexCritRate = (finalStats.Dex || 0) * DEX_TO_CRIT_RATE;
-    actualCritRate = Math.min(MAX_CRIT_RATE, weaponCritRate + dexCritRate);
+    actualCritRate = Math.min(MAX_CRIT_RATE, adjustedWeaponCritRate + dexCritRate);
   }
 
   const meetsMinimum = checkMinimumStats(finalStats, context.minimumStats);
@@ -688,10 +712,10 @@ export function evaluateCombination(
 
         const damageInput: DamageCalcInput = {
           weaponType,
-          weaponAttackPower,
+          weaponAttackPower: adjustedWeaponAttackPower,
           weaponCritRate: actualCritRate,  // 器用さ込みの会心率を使用
-          weaponCritDamage,
-          damageCorrection: weaponDamageCorrection,
+          weaponCritDamage: adjustedWeaponCritDamage,
+          damageCorrection: adjustedWeaponDamageCorrection,
           userStats: calculatedStats,
           jobName: context.jobName,
           enemy: {
@@ -730,11 +754,11 @@ export function evaluateCombination(
             score = damageResult.data.finalDamage / Math.max(ct, 1);
           }
         } else {
-          // calculateDamageが失敗した場合のフォールバック
+          // calculateDamageが失敗した場合のフォールバック（タロット武器補正含む）
           const mainStat = Math.max(finalStats.Power || 0, finalStats.Magic || 0);
-          const baseDamage = (weaponAttackPower + mainStat) * weaponDamageCorrection * context.skillMultiplier;
-          const totalCritDamageForFallback = weaponCritDamage + (finalStats.CritDamage || 0);
-          const critMultiplier = 1 + (weaponCritRate / 100) * (totalCritDamageForFallback / 100);
+          const baseDamage = (adjustedWeaponAttackPower + mainStat) * adjustedWeaponDamageCorrection * context.skillMultiplier;
+          const totalCritDamageForFallback = adjustedWeaponCritDamage + (finalStats.CritDamage || 0);
+          const critMultiplier = 1 + (adjustedWeaponCritRate / 100) * (totalCritDamageForFallback / 100);
           score = baseDamage * critMultiplier * context.hits;
 
           if (context.mode === 'dps') {
@@ -743,11 +767,11 @@ export function evaluateCombination(
           }
         }
       } else {
-        // weaponCalcまたはskillCalcがない場合のフォールバック
+        // weaponCalcまたはskillCalcがない場合のフォールバック（タロット武器補正含む）
         const mainStat = Math.max(finalStats.Power || 0, finalStats.Magic || 0);
-        const baseDamage = (weaponAttackPower + mainStat) * weaponDamageCorrection * context.skillMultiplier;
-        const totalCritDamageForFallback = weaponCritDamage + (finalStats.CritDamage || 0);
-        const critMultiplier = 1 + (weaponCritRate / 100) * (totalCritDamageForFallback / 100);
+        const baseDamage = (adjustedWeaponAttackPower + mainStat) * adjustedWeaponDamageCorrection * context.skillMultiplier;
+        const totalCritDamageForFallback = adjustedWeaponCritDamage + (finalStats.CritDamage || 0);
+        const critMultiplier = 1 + (adjustedWeaponCritRate / 100) * (totalCritDamageForFallback / 100);
         score = baseDamage * critMultiplier * context.hits;
 
         if (context.mode === 'dps') {
@@ -833,6 +857,64 @@ export function evaluateCombination(
   };
 
   return { score: sortScore, originalScore, stats: resultStats, meetsMinimum };
+}
+
+/**
+ * 近似スコア関数（Beam Search中間評価用）
+ *
+ * ブラックボックス評価（evaluateCombination）は重いため、
+ * Beam Search の中間段階では依存ステの重み付き線形合計で近似する。
+ */
+export function approximateScore(
+  dependentStatsSum: Record<string, number>,
+  relevantStats: RelevantStats | undefined,
+  mode: OptimizeMode,
+  targetStat?: InternalStatKey,
+  minimumStats?: MinimumStatRequirements,
+): number {
+  if (mode === 'stat' && targetStat) {
+    const base = dependentStatsSum[targetStat] || 0;
+    // 必須最低値ペナルティ
+    if (minimumStats) {
+      const progress = calculateMinimumStatsProgress(dependentStatsSum, minimumStats);
+      if (progress < 1) return base * progress * 0.1;
+    }
+    return base;
+  }
+
+  // damage/dps: 依存ステの重み付き線形合計
+  let score = 0;
+  const directStats = relevantStats?.directStats
+    ? Array.from(relevantStats.directStats)
+    : ['Power', 'Magic', 'CritDamage'];
+
+  for (const stat of directStats) {
+    const value = dependentStatsSum[stat] || 0;
+    const coeff = relevantStats?.statCoefficients?.[stat] ?? 1;
+    const weight = coeff > 0 ? coeff : 1;
+
+    // Dex→会心率のキャップ処理
+    if (stat === 'Dex') {
+      const critFromDex = value * DEX_TO_CRIT_RATE;
+      if (critFromDex >= MAX_CRIT_RATE) {
+        // 会心率100%以上なら追加Dexの価値は0
+        score += MAX_CRIT_RATE / DEX_TO_CRIT_RATE * weight;
+        continue;
+      }
+    }
+
+    score += value * weight;
+  }
+
+  // 必須最低値ペナルティ
+  if (minimumStats) {
+    const progress = calculateMinimumStatsProgress(dependentStatsSum, minimumStats);
+    if (progress < 1) {
+      score *= progress * CONSTRAINT_PENALTY_FACTOR;
+    }
+  }
+
+  return score;
 }
 
 /** キャッシュ付き評価関数 */

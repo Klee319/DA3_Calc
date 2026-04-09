@@ -67,6 +67,8 @@ interface OptimizeStoreState {
   };
   runestoneBonus: StatBlock;  // ルーンストーンボーナス（合計値）
   enableRunestoneSearch: boolean;  // ルーンストーン探索を有効化
+  enableTarotSearch: boolean;      // タロット探索を有効化
+  beamWidth: number;               // Beam Search のビーム幅
 
   // === 実行状態 ===
   isOptimizing: boolean;
@@ -105,6 +107,8 @@ interface OptimizeStoreActions {
   setRingOption: (option: { enabled: boolean; ringType: 'power' | 'magic' | 'speed' }) => void;
   setRunestoneBonus: (bonus: StatBlock) => void;
   setEnableRunestoneSearch: (enabled: boolean) => void;
+  setEnableTarotSearch: (enabled: boolean) => void;
+  setBeamWidth: (width: number) => void;
 
   // 新しい制約条件アクション
   setMinimumStats: (stats: Partial<MinimumStatRequirements>) => void;
@@ -162,6 +166,8 @@ const initialState: OptimizeStoreState = {
   ringOption: { enabled: false, ringType: 'power' },
   runestoneBonus: {},
   enableRunestoneSearch: true,  // ルーンストーン探索をデフォルトで有効
+  enableTarotSearch: true,      // タロット探索をデフォルトで有効
+  beamWidth: 200,               // Beam Search デフォルトビーム幅
 
   // 実行状態
   isOptimizing: false,
@@ -260,6 +266,14 @@ export const useOptimizeStore = create<OptimizeStoreState & OptimizeStoreActions
 
   setEnableRunestoneSearch: (enabled) => {
     set({ enableRunestoneSearch: enabled });
+  },
+
+  setEnableTarotSearch: (enabled) => {
+    set({ enableTarotSearch: enabled });
+  },
+
+  setBeamWidth: (width) => {
+    set({ beamWidth: Math.max(50, Math.min(500, width)) });
   },
 
   // === 新しい制約条件アクション ===
@@ -410,6 +424,10 @@ export const useOptimizeStore = create<OptimizeStoreState & OptimizeStoreActions
           runestoneBonus: state.runestoneBonus,
           // ルーンストーン探索オプション
           enableRunestoneSearch: state.enableRunestoneSearch,
+          // タロット探索オプション
+          enableTarotSearch: state.enableTarotSearch,
+          // Beam Search設定
+          beamWidth: state.beamWidth,
         }
       );
 
@@ -454,6 +472,8 @@ export const useOptimizeStore = create<OptimizeStoreState & OptimizeStoreActions
             spPattern: (r as any).spPattern || null,
             // ルーンストーン情報を追加
             selectedRunestones: (r as any).selectedRunestones || null,
+            // タロット情報を追加
+            selectedTarot: (r as any).selectedTarot || null,
           };
         }),
         searchStats: returnedSearchStats,

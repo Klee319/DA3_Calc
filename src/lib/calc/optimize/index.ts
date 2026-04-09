@@ -97,6 +97,18 @@ export {
   type RunestoneCombination,
 } from './emblemRunestone';
 
+// Beam Search エクスポート
+export { beamSearchOptimize } from './beamSearch';
+
+// タロット探索エクスポート
+export {
+  buildTarotCandidates,
+  filterDominatedTarot,
+} from './tarotSearch';
+
+// SP最適化エクスポート
+export { optimizeRemainingSP } from './spOptimizer';
+
 // メインエンジンのエクスポート
 export type { OptimizeGameData } from './engine';
 export {

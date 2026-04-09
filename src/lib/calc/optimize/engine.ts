@@ -49,6 +49,9 @@ import {
 import { localSearchAsync, generateDiverseSolutionsAsync } from './localSearch';
 import { filterDominatedEmblems, buildRunestoneCombinations, RunestoneCombination } from './emblemRunestone';
 import { filterDominatedBuilds } from './dominance';
+import { beamSearchOptimize } from './beamSearch';
+import { buildTarotCandidates } from './tarotSearch';
+import { DEFAULT_BEAM_SEARCH_CONFIG } from '@/types/optimize';
 
 /** 最適化用ゲームデータ（簡略版） */
 export interface OptimizeGameData {
@@ -62,6 +65,8 @@ export interface OptimizeGameData {
   weaponCalc?: WeaponCalcData;
   skillCalc?: SkillCalcData;
   runestones?: RunestoneData[];
+  tarots?: import('@/types/data').TarotCardDefinition[];
+  tarotCalcData?: import('@/types/data').TarotCalcData;
 }
 
 /** 最適化オプション */
@@ -87,6 +92,8 @@ export interface OptimizeOptions {
   };
   unlockedSkills?: string[];
   enableRunestoneSearch?: boolean;
+  enableTarotSearch?: boolean;
+  beamWidth?: number;
   userOption?: StatBlock;
   food?: StatBlock;
 }
@@ -288,6 +295,67 @@ export async function optimizeEquipment(
     runestoneCombs = buildRunestoneCombinations(gameData.runestones, relevantStats, options?.minimumStats);
   } else {
     runestoneCombs = [{ runestones: [], totalBonus: options?.runestoneBonus || {} }];
+  }
+
+  // === Beam Search を実行（メインアルゴリズム） ===
+  const useBeamSearch = !useExhaustiveSearch;
+
+  if (useBeamSearch) {
+    try {
+      const tarotCandidates = (options?.enableTarotSearch !== false && gameData.tarots && gameData.tarotCalcData)
+        ? buildTarotCandidates(gameData.tarots, gameData.tarotCalcData, relevantStats, options?.mode || 'damage')
+        : [];
+
+      const beamConfig = {
+        ...DEFAULT_BEAM_SEARCH_CONFIG,
+        beamWidth: options?.beamWidth || DEFAULT_BEAM_SEARCH_CONFIG.beamWidth,
+      };
+
+      const extendedPool = {
+        ...pool,
+        emblems: emblemsForSearch.map((e: EmblemData) => ({
+          id: e.アイテム名 || 'emblem',
+          name: e.アイテム名 || 'emblem',
+          slot: 'emblem' as any,
+          type: 'emblem',
+          configurations: [{}],
+          sourceData: e,
+        })),
+        tarot: tarotCandidates,
+      };
+
+      const beamResults = await beamSearchOptimize(
+        extendedPool as any,
+        context,
+        gameData.eqConst,
+        beamConfig,
+        relevantStats,
+        emblemsForSearch,
+        runestoneCombs,
+        (progress) => { reportProgress(progress.phase, progress.percentage, 100, progress.message, progress.currentBest); },
+      );
+
+      for (const beamResult of beamResults) {
+        const br = beamResult as any;
+        const solutionWithMeta = {
+          ...beamResult,
+          usedEmblem: br._emblemData || null,
+          usedRunestones: br._runestoneData || runestoneCombs[0],
+          usedTarot: br._tarotCandidate || null,
+        };
+        allSolutions.push(solutionWithMeta);
+
+        // Beam結果で暫定ベストを更新
+        if (beamResult.score > globalBestScore) {
+          globalBestScore = beamResult.score;
+          globalBestOriginalScore = beamResult.originalScore;
+          currentBestSolution = solutionWithMeta;
+        }
+      }
+    } catch (beamError) {
+      const errorMsg = beamError instanceof Error ? beamError.message : String(beamError);
+      console.warn(`Beam Search failed, falling back to greedy: ${errorMsg}`);
+    }
   }
 
   let prunedEmblems = 0;
@@ -499,7 +567,8 @@ export async function optimizeEquipment(
     }).join('|');
     const emblemKey = sol.usedEmblem?.アイテム名 || 'noEmblem';
     const runeKey = sol.usedRunestones?.runestones?.map((r: any) => r.name).join(',') || 'noRunes';
-    const key = `${equipmentKey}||${emblemKey}||${runeKey}`;
+    const tarotKey = (sol as any).usedTarot?.id || 'noTarot';
+    const key = `${equipmentKey}||${emblemKey}||${runeKey}||${tarotKey}`;
     if (!seenKeys.has(key) && sol.score > 0) {
       seenKeys.add(key);
       solutions.push(sol);
@@ -560,6 +629,7 @@ export async function optimizeEquipment(
         })),
         totalBonus: solution.usedRunestones.totalBonus,
       } : null,
+      selectedTarot: (solution as any).usedTarot || null,
     };
   });
 
