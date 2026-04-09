@@ -1,9 +1,8 @@
 /**
  * 最適化モジュール - SP自動最適化
  *
- * ユーザの手動SP配分を尊重しつつ、余剰SPを
- * 依存ステータスの重みに基づいて自動配分する。
- * ブランチ→ステータスのマッピングはjobSPDataから動的に取得。
+ * 各ティアのSP効率（SPあたりの依存ステ寄与）を計算し、
+ * 効率の高いティアから貪欲に取得する。
  */
 
 import type { JobSPData } from '@/types/data';
@@ -28,75 +27,83 @@ const JP_TO_INTERNAL: Record<string, string> = {
   '守備力': 'Defense',
 };
 
+/** ティアの情報 */
+interface TierInfo {
+  branch: string;
+  tier: number;
+  requiredSP: number;    // このティアまでの累積必要SP
+  incrementalSP: number; // 前ティアからの追加必要SP
+  statGain: Record<string, number>; // このティアで得られるステータス
+  efficiency: number;    // SP効率（依存ステ重み付き合計 / 追加SP）
+}
+
 /**
- * jobSPDataからブランチ→ステータスのマッピングを動的に構築
- * 各ブランチ(A,B,C)の行を調べ、非0のステータスカラムを特定する
+ * 全ティアの情報を解析し、SP効率を計算
  */
-function buildBranchStatMapping(
+function analyzeTiers(
   jobSPData: JobSPData[],
-): Record<string, string[]> {
-  const mapping: Record<string, Set<string>> = {};
+  relevantStats: RelevantStats | undefined,
+): TierInfo[] {
+  const tiers: TierInfo[] = [];
   const statKeys = Object.keys(JP_TO_INTERNAL) as (keyof JobSPData)[];
+  const prevSP: Record<string, number> = {};
 
   for (const row of jobSPData) {
     const phase = row.解法段階;
-    if (!phase) continue;
+    if (!phase || phase === '初期値' || phase.startsWith('職業補正')) continue;
 
-    const branch = phase.split('-')[0]; // 'A', 'B', or 'C'
-    if (!branch || !['A', 'B', 'C'].includes(branch)) continue;
+    const match = phase.match(/^([A-C])-(\d+)$/);
+    if (!match) continue;
 
-    if (!mapping[branch]) mapping[branch] = new Set();
+    const branch = match[1];
+    const tier = parseInt(match[2]);
+    const requiredSP = typeof row.必要SP === 'string' ? parseFloat(row.必要SP) || 0 : row.必要SP || 0;
+    const incrementalSP = requiredSP - (prevSP[branch] || 0);
+    prevSP[branch] = requiredSP;
+
+    if (incrementalSP <= 0) continue;
+
+    // このティアで得られるステータス
+    const statGain: Record<string, number> = {};
+    let weightedGain = 0;
 
     for (const jpKey of statKeys) {
       const value = row[jpKey];
-      const numValue = typeof value === 'string' ? parseFloat(value) || 0 : value || 0;
+      const numValue = typeof value === 'string' ? parseFloat(value) || 0 : (value as number) || 0;
       if (numValue > 0) {
         const internalKey = JP_TO_INTERNAL[jpKey as string];
-        if (internalKey) mapping[branch].add(internalKey);
+        if (internalKey) {
+          statGain[internalKey] = numValue;
+
+          // 依存ステの重みで効率を計算
+          const coeff = relevantStats?.statCoefficients?.[internalKey] ?? 0;
+          const isDirect = relevantStats?.directStats?.has(internalKey as any) ?? false;
+          const weight = coeff > 0 ? coeff : (isDirect ? 1 : 0);
+          weightedGain += numValue * weight;
+        }
       }
     }
+
+    tiers.push({
+      branch,
+      tier,
+      requiredSP,
+      incrementalSP,
+      statGain,
+      efficiency: weightedGain / incrementalSP,
+    });
   }
 
-  const result: Record<string, string[]> = {};
-  for (const [branch, stats] of Object.entries(mapping)) {
-    result[branch] = Array.from(stats);
-  }
-
-  // マッピングが空の場合のフォールバック
-  if (Object.keys(result).length === 0) {
-    return { 'A': ['Power'], 'B': ['Magic'], 'C': ['HP', 'Defense'] };
-  }
-
-  return result;
+  return tiers;
 }
 
 /**
- * jobSPDataからブランチの最大SP上限を取得
- */
-function getBranchMaxSP(
-  jobSPData: JobSPData[],
-): Record<string, number> {
-  const maxSP: Record<string, number> = {};
-
-  for (const row of jobSPData) {
-    const phase = row.解法段階;
-    if (!phase) continue;
-
-    const branch = phase.split('-')[0];
-    if (!branch || !['A', 'B', 'C'].includes(branch)) continue;
-
-    const requiredSP = typeof row.必要SP === 'string'
-      ? parseFloat(row.必要SP) || 0
-      : row.必要SP || 0;
-
-    maxSP[branch] = Math.max(maxSP[branch] || 0, requiredSP);
-  }
-
-  return maxSP;
-}
-
-/**
- * 余剰SPを依存ステータス重みで自動配分
+ * 余剰SPを貪欲法で最適配分
+ *
+ * 各ティアのSP効率（依存ステ重み付き合計 / 追加SP）を計算し、
+ * 効率の高いティアから順に取得する。
+ * ティアは順序依存（A-3を取るにはA-1,A-2が必要）なので、
+ * 各ブランチの現在到達ティアを追跡して次に取れるティアのみを候補にする。
  */
 export function optimizeRemainingSP(
   userAllocation: Record<string, number>,
@@ -105,7 +112,7 @@ export function optimizeRemainingSP(
   relevantStats: RelevantStats | undefined,
 ): SPOptimizeResult {
   const userUsed = Object.values(userAllocation).reduce((sum, v) => sum + (v || 0), 0);
-  const remaining = Math.max(0, maxSP - userUsed);
+  let remaining = Math.max(0, maxSP - userUsed);
 
   if (remaining === 0 || !jobSPData || jobSPData.length === 0) {
     return {
@@ -115,78 +122,65 @@ export function optimizeRemainingSP(
     };
   }
 
-  const directStats = relevantStats?.directStats
-    ? Array.from(relevantStats.directStats)
-    : ['Power', 'Magic', 'CritDamage'];
+  // 全ティアを解析
+  const allTiers = analyzeTiers(jobSPData, relevantStats);
 
-  // jobSPDataからブランチ→ステータスを動的取得
-  const branchStatMapping = buildBranchStatMapping(jobSPData);
-  const branchMaxSP = getBranchMaxSP(jobSPData);
+  // ブランチ別にティアをソート（ティア番号順）
+  const branchTiers: Record<string, TierInfo[]> = {};
+  for (const tier of allTiers) {
+    if (!branchTiers[tier.branch]) branchTiers[tier.branch] = [];
+    branchTiers[tier.branch].push(tier);
+  }
+  for (const branch of Object.keys(branchTiers)) {
+    branchTiers[branch].sort((a, b) => a.tier - b.tier);
+  }
 
-  // 各ブランチへの重みを計算
-  const branchWeights: Record<string, number> = {};
-  let totalWeight = 0;
+  // 現在の到達ティアを初期化（ユーザ配分から）
+  const currentSP: Record<string, number> = { ...userAllocation };
+  const allocation: Record<string, number> = { ...userAllocation };
 
-  for (const [branch, stats] of Object.entries(branchStatMapping)) {
-    let weight = 0;
-    for (const stat of stats) {
-      if (directStats.includes(stat)) {
-        const coeff = relevantStats?.statCoefficients?.[stat] ?? 1;
-        weight += coeff > 0 ? coeff : 1;
+  // 貪欲法: 次に取得可能なティアの中で最も効率の良いものを選ぶ
+  let improved = true;
+  while (remaining > 0 && improved) {
+    improved = false;
+    let bestTier: TierInfo | null = null;
+    let bestBranch: string | null = null;
+
+    for (const [branch, tiers] of Object.entries(branchTiers)) {
+      const currentBranchSP = currentSP[branch] || 0;
+
+      // このブランチで次に取得可能なティアを見つける
+      const nextTier = tiers.find(t => t.requiredSP > currentBranchSP);
+      if (!nextTier) continue;
+
+      // 取得に必要な追加SP
+      const additionalSP = nextTier.requiredSP - currentBranchSP;
+      if (additionalSP > remaining) continue;
+
+      // 効率比較
+      if (!bestTier || nextTier.efficiency > bestTier.efficiency) {
+        bestTier = nextTier;
+        bestBranch = branch;
       }
     }
-    branchWeights[branch] = weight;
-    totalWeight += weight;
-  }
 
-  // 重みがない場合は均等配分
-  if (totalWeight === 0) {
-    const branchCount = Object.keys(branchWeights).length;
-    for (const branch of Object.keys(branchWeights)) {
-      branchWeights[branch] = 1 / branchCount;
-    }
-    totalWeight = 1;
-  }
-
-  // 余剰SPをブランチ上限を考慮しつつ重みに基づいて配分
-  const optimizedAllocation = { ...userAllocation };
-  let allocated = 0;
-  let remainingToAllocate = remaining;
-
-  const sortedBranches = Object.entries(branchWeights)
-    .sort(([, a], [, b]) => b - a);
-
-  // 1パス目: 重みに基づいて配分（上限チェック付き）
-  for (const [branch, weight] of sortedBranches) {
-    const currentValue = optimizedAllocation[branch] || 0;
-    const maxForBranch = branchMaxSP[branch] || Infinity;
-    const headroom = Math.max(0, maxForBranch - currentValue);
-
-    const idealShare = Math.floor((remaining * weight) / totalWeight);
-    const actualShare = Math.min(idealShare, headroom);
-
-    optimizedAllocation[branch] = currentValue + actualShare;
-    allocated += actualShare;
-  }
-
-  // 2パス目: 端数・上限超過分を空きのあるブランチに配分
-  remainingToAllocate = remaining - allocated;
-  if (remainingToAllocate > 0) {
-    for (const [branch] of sortedBranches) {
-      if (remainingToAllocate <= 0) break;
-      const currentValue = optimizedAllocation[branch] || 0;
-      const maxForBranch = branchMaxSP[branch] || Infinity;
-      const headroom = Math.max(0, maxForBranch - currentValue);
-
-      const extra = Math.min(remainingToAllocate, headroom);
-      optimizedAllocation[branch] = currentValue + extra;
-      remainingToAllocate -= extra;
+    if (bestTier && bestBranch) {
+      const additionalSP = bestTier.requiredSP - (currentSP[bestBranch] || 0);
+      currentSP[bestBranch] = bestTier.requiredSP;
+      allocation[bestBranch] = bestTier.requiredSP;
+      remaining -= additionalSP;
+      improved = true;
     }
   }
+
+  // 残りSPがあれば、次に効率の良いティアに端数を振る
+  // （ティアの途中まで振ることはできないので、残りは未使用）
+
+  const totalUsed = Object.values(allocation).reduce((sum, v) => sum + (v || 0), 0);
 
   return {
-    allocation: optimizedAllocation,
-    totalUsed: userUsed + remaining - remainingToAllocate,
-    remainingSP: remainingToAllocate,
+    allocation,
+    totalUsed,
+    remainingSP: maxSP - totalUsed,
   };
 }
