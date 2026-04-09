@@ -47,6 +47,8 @@ export interface EvaluationContext {
     enabled: boolean;
     ringType: 'power' | 'magic' | 'speed';
   };
+  /** 職業基礎+SPのベースステータス（近似スコア用） */
+  jobSPBaseStats?: Record<string, number>;
 }
 
 /** スコア付き組み合わせ */

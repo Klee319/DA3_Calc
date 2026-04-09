@@ -916,6 +916,7 @@ export function approximateScore(
   targetStat?: InternalStatKey,
   minimumStats?: MinimumStatRequirements,
   jobName?: string,
+  baseStats?: Record<string, number>,
 ): number {
   if (mode === 'stat' && targetStat) {
     const base = dependentStatsSum[targetStat] || 0;
@@ -927,9 +928,10 @@ export function approximateScore(
   }
 
   // SpellRefactor: P=Mバランスを考慮した近似ダメージ
+  // 装備ステのみでなく職業基礎+SPを加算してバランスを正確に評価
   if (jobName === 'SpellRefactor' || jobName === 'スペルリファクター') {
-    const power = dependentStatsSum['Power'] || 0;
-    const magic = dependentStatsSum['Magic'] || 0;
+    const power = (baseStats?.['Power'] || 0) + (dependentStatsSum['Power'] || 0);
+    const magic = (baseStats?.['Magic'] || 0) + (dependentStatsSum['Magic'] || 0);
     const critDamage = dependentStatsSum['CritDamage'] || 0;
     const baseDamage = power * 1.6 + critDamage * 2.1;
     let bonus = 1.75;

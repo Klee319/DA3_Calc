@@ -30,6 +30,7 @@ import {
   normalizeSkillId,
   RelevantStats,
 } from '../skillAnalyzer';
+import { calculateAllJobStats, calculateBranchBonus } from '../jobCalculator';
 import {
   DEFAULT_STATS,
   DEFAULT_WEAPON_PARAMS,
@@ -280,6 +281,34 @@ export async function optimizeEquipment(
     food: options?.food,
     ringOption: options?.ringOption,
   };
+
+  // 職業基礎+SPベースステータスを計算（近似スコアのP=Mバランス用）
+  try {
+    const jobLevel = options?.jobMaxLevel || 100;
+    const baseJobStats = calculateAllJobStats(
+      options?.jobName || '', jobLevel, [], gameData.jobConst!, jobSPData
+    );
+    const spAlloc = context.spAllocation as Record<string, number>;
+    const branchBonus = calculateBranchBonus(
+      { A: spAlloc?.['A'] || 0, B: spAlloc?.['B'] || 0, C: spAlloc?.['C'] || 0 },
+      jobSPData
+    );
+    const jpToInternal: Record<string, string> = {
+      '体力': 'HP', '力': 'Power', '魔力': 'Magic', '精神': 'Mind',
+      '素早さ': 'Agility', '器用さ': 'Dex', '撃力': 'CritDamage', '守備力': 'Defense',
+    };
+    const baseStats: Record<string, number> = {};
+    for (const [key, value] of Object.entries(baseJobStats)) {
+      if (typeof value === 'number') baseStats[key] = value;
+    }
+    for (const branch of ['A', 'B', 'C'] as const) {
+      for (const [jpKey, value] of Object.entries(branchBonus[branch])) {
+        const internalKey = jpToInternal[jpKey];
+        if (internalKey && value) baseStats[internalKey] = (baseStats[internalKey] || 0) + value;
+      }
+    }
+    context.jobSPBaseStats = baseStats;
+  } catch { /* ignore - approximate score will work without base stats */ }
 
   const combinationCount = calculateCombinationCount(pool);
   const hasEmblemSearch = emblems.length > 1;
