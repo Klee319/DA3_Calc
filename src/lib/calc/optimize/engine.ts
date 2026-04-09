@@ -272,7 +272,7 @@ export async function optimizeEquipment(
       // SP自動最適化: ユーザの手動配分を尊重し、余剰SPを自動配分
       const userSP = options?.spAllocation || {};
       const maxSP = (options?.jobMaxLevel || 100) * 2;  // SP上限 = レベル × 2
-      const optimizedSP = optimizeRemainingSP(userSP, jobSPData, maxSP, relevantStats);
+      const optimizedSP = optimizeRemainingSP(userSP, jobSPData, maxSP, relevantStats, options?.jobName);
       return optimizedSP.allocation;
     })(),
     runestoneBonus: options?.runestoneBonus,

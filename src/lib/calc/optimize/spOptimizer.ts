@@ -83,11 +83,36 @@ function buildBranchOptions(
   return result;
 }
 
-/** 配分のスコアを計算 */
+/**
+ * 配分のスコアを計算
+ * SpellRefactorの場合、P=Mバランスボーナスを考慮した
+ * 実効ダメージ近似を使用
+ */
 function scoreAllocation(
   stats: Record<string, number>,
   relevantStats: RelevantStats | undefined,
+  jobName?: string,
 ): number {
+  // SpellRefactor: P=Mバランスが重要なのでダメージ近似式で直接スコアリング
+  if (jobName === 'SpellRefactor' || jobName === 'スペルリファクター') {
+    const power = stats['Power'] || 0;
+    const magic = stats['Magic'] || 0;
+    const critDamage = stats['CritDamage'] || 0;
+
+    // BaseDamage近似 (Sword): Power * 1.6 + CritDamage * 0.005 * 420(武器攻撃力概算)
+    const baseDamage = power * 1.6 + critDamage * 0.005 * 420;
+
+    // SpellRefactorボーナス: 1.75 - 0.475 * ln(max(P,M)/min(P,M)) * 2
+    let bonus = 1.75;
+    if (power > 0 && magic > 0) {
+      const ratio = Math.max(power, magic) / Math.min(power, magic);
+      bonus = Math.max(0.1, 1.75 - 0.475 * Math.log(ratio) * 2);
+    }
+
+    return baseDamage * bonus;
+  }
+
+  // 通常の線形重みスコア
   let score = 0;
   for (const [stat, value] of Object.entries(stats)) {
     const coeff = relevantStats?.statCoefficients?.[stat] ?? 0;
@@ -106,6 +131,7 @@ export function optimizeRemainingSP(
   jobSPData: JobSPData[] | undefined,
   maxSP: number,
   relevantStats: RelevantStats | undefined,
+  jobName?: string,
 ): SPOptimizeResult {
   const userUsed = Object.values(userAllocation).reduce((sum, v) => sum + (v || 0), 0);
   const available = Math.max(0, maxSP - userUsed);
@@ -161,7 +187,7 @@ export function optimizeRemainingSP(
           }
         }
 
-        const score = scoreAllocation(combinedStats, relevantStats);
+        const score = scoreAllocation(combinedStats, relevantStats, jobName);
 
         if (score > bestScore) {
           bestScore = score;
