@@ -316,7 +316,7 @@ export async function beamSearchOptimize(
 
     // UIスレッドに制御を返す
     await new Promise(resolve => setTimeout(resolve, 0));
-    if (abortSignal?.aborted) throw new DOMException('Aborted', 'AbortError');
+    if (abortSignal?.aborted) throw Object.assign(new Error('Aborted'), { name: 'AbortError' });
   }
 
   // === 紋章スロット展開（上位K個のルーンストーン組み合わせも展開） ===
@@ -372,7 +372,7 @@ export async function beamSearchOptimize(
     );
 
     await new Promise(resolve => setTimeout(resolve, 0));
-    if (abortSignal?.aborted) throw new DOMException('Aborted', 'AbortError');
+    if (abortSignal?.aborted) throw Object.assign(new Error('Aborted'), { name: 'AbortError' });
   } else {
     // 紋章候補がなくてもルーンストーンボーナスは適用
     const defaultRunestone = runestoneCombs.length > 0
@@ -418,7 +418,7 @@ export async function beamSearchOptimize(
     );
 
     await new Promise(resolve => setTimeout(resolve, 0));
-    if (abortSignal?.aborted) throw new DOMException('Aborted', 'AbortError');
+    if (abortSignal?.aborted) throw Object.assign(new Error('Aborted'), { name: 'AbortError' });
   }
 
   // === 詳細化段階: 上位N状態をブラックボックス評価 ===
@@ -504,7 +504,7 @@ export async function beamSearchOptimize(
         slotPhase: 'fine',
       });
       await new Promise(resolve => setTimeout(resolve, 0));
-    if (abortSignal?.aborted) throw new DOMException('Aborted', 'AbortError');
+    if (abortSignal?.aborted) throw Object.assign(new Error('Aborted'), { name: 'AbortError' });
     }
   }
 

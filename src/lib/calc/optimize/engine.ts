@@ -392,13 +392,16 @@ export async function optimizeEquipment(
 
       // Beam結果の上位にLocal Searchを適用（ローカル最適からの脱出）
       reportProgress('local_search', 85, 100, 'Beam結果をLocal Searchで改善中...', globalBestOriginalScore);
-      for (let i = 0; i < Math.min(beamResults.length, 5); i++) {
-        const improved = await localSearchAsync(
-          beamResults[i], pool, context, gameData.eqConst, 100, `beam_ls_${i}`
-        );
-        if (improved.score > beamResults[i].score) {
-          beamResults[i] = improved;
-        }
+      for (let i = 0; i < Math.min(beamResults.length, 3); i++) {
+        if (abortSignal?.aborted) break;
+        try {
+          const improved = await localSearchAsync(
+            beamResults[i], pool, context, gameData.eqConst, 30, `beam_ls_${i}`
+          );
+          if (improved.score > beamResults[i].score) {
+            beamResults[i] = improved;
+          }
+        } catch { break; }
       }
 
       for (const beamResult of beamResults) {
@@ -465,7 +468,7 @@ export async function optimizeEquipment(
 
         if (emblemIdx % 5 === 0) {
           await new Promise(resolve => setTimeout(resolve, 0));
-          if (abortSignal?.aborted) throw new DOMException('Aborted', 'AbortError');
+          if (abortSignal?.aborted) throw Object.assign(new Error('Aborted'), { name: 'AbortError' });
         }
 
         const emblemContext = { ...runeContext, emblem };
@@ -580,7 +583,7 @@ export async function optimizeEquipment(
 
     trimSolutions();
     await new Promise(resolve => setTimeout(resolve, 0));
-    if (abortSignal?.aborted) throw new DOMException('Aborted', 'AbortError');
+    if (abortSignal?.aborted) throw Object.assign(new Error('Aborted'), { name: 'AbortError' });
   }
 
   allSolutions.sort((a, b) => b.score - a.score);
