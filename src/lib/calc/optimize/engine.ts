@@ -422,13 +422,26 @@ export async function optimizeEquipment(
       );
 
       // Beam結果の上位にLocal Searchを適用（1番目のSPのみ）
+      // 重要: Beam結果の紋章・ルーン・タロットをcontextに反映して公平に比較する
       if (isFirstSP) {
       reportProgress('local_search', 85, 100, 'Beam結果をLocal Searchで改善中...', globalBestOriginalScore);
       for (let i = 0; i < Math.min(beamResults.length, 3); i++) {
         if (abortSignal?.aborted) break;
         try {
+          // Beam結果の紋章・ルーン・タロットをLocal Search用contextに反映
+          const br = beamResults[i] as any;
+          const lsContext: EvaluationContext = {
+            ...spContext,
+            emblem: br._emblemData || spContext.emblem,
+            runestoneBonus: br._runestoneData?.totalBonus || spContext.runestoneBonus,
+          };
+          if (br._tarotCandidate) {
+            lsContext.tarotBonusPercent = br._tarotCandidate.totalBonus;
+            lsContext.tarotWeaponBonus = br._tarotCandidate.weaponBonus;
+            lsContext.tarotDamageBuffs = br._tarotCandidate.damageBuffs;
+          }
           const improved = await localSearchAsync(
-            beamResults[i], pool, spContext, gameData.eqConst, 30, `beam_ls_${i}`
+            beamResults[i], pool, lsContext, gameData.eqConst, 30, `beam_ls_${i}`
           );
           if (improved.score > beamResults[i].score) {
             beamResults[i] = improved;
