@@ -41,7 +41,8 @@ import {
 import { EvaluationContext, ScoredCombination, SearchStats as SearchStatsType, OptimizeResultWithStats as OptimizeResultWithStatsType } from './types';
 import { EXHAUSTIVE_SEARCH_THRESHOLD, MAX_SOLUTIONS_IN_MEMORY } from './constants';
 import { buildEquipmentPool } from './equipmentPool';
-import { clearEvaluationCache, calculateEquipmentStatsFn } from './evaluation';
+import { clearEvaluationCache, calculateEquipmentStatsFn, evaluateCombination } from './evaluation';
+import { CandidateEquipment } from '@/types/optimize';
 import {
   calculateCombinationCount,
   exhaustiveSearchAsync,
