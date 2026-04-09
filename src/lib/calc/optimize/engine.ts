@@ -240,14 +240,6 @@ export async function optimizeEquipment(
     pool.accessory1.length +
     pool.accessory2.length;
 
-  // デバッグ: 候補プールの内容を出力
-  console.log('[OptPool]', {
-    weapon: pool.weapon.map(c => c.name),
-    body: pool.body.map(c => `${c.name}(${(c.sourceData as any)?.['タイプを選択'] || '?'})`),
-    leg: pool.leg.map(c => `${c.name}(${(c.sourceData as any)?.['タイプを選択'] || '?'})`),
-    configs_body: pool.body.map(c => c.configurations.length),
-    configs_leg: pool.leg.map(c => c.configurations.length),
-  });
 
   reportProgress('building_pool', 30, 100, `装備候補: ${totalCandidates}件`);
 
@@ -356,7 +348,6 @@ export async function optimizeEquipment(
   const userSP = options?.spAllocation || {};
   const maxSP = (options?.jobMaxLevel || 100) * 2;
   const topSPAllocations = getTopSPAllocations(userSP, jobSPData, maxSP, relevantStats, options?.jobName, 3);
-  console.log('[OptSP] 上位SP配分:', topSPAllocations.map(sp => JSON.stringify(sp)));
 
   const useBeamSearch = !useExhaustiveSearch;
 
@@ -654,164 +645,6 @@ export async function optimizeEquipment(
   combinedSolutions.sort((a, b) => b.score - a.score);
   const limitedSolutions = combinedSolutions.slice(0, MAX_SOLUTIONS_IN_MEMORY);
 
-  // === 診断: 理論構成を直接評価 ===
-  if (options?.jobName === 'SpellRefactor') {
-    const findEquip = (arr: typeof pool.weapon, name: string, type?: string) =>
-      arr.find(c => c.name === name && (!type || (c.sourceData as any)?.['タイプを選択'] === type));
-
-    const thWeapon = findEquip(pool.weapon, '夜明けの光剣');
-    const thHead = findEquip(pool.head, '炎牙', '金属');
-    const thBody = findEquip(pool.body, '乾泥', '金属');
-    const thLeg = findEquip(pool.leg, '乾泥', '金属');
-    const thAcc1 = pool.accessory1.find(c => c.name === '炎牙');
-    const thAcc2 = pool.accessory2.find(c => c.name === '乾泥');
-
-    if (thWeapon && thBody && thLeg) {
-      let bestTheoScore = 0;
-      let bestTheoLog = '';
-      // 全config組み合わせを試す（30×24=720パターン）
-      for (let bci = 0; bci < thBody.configurations.length; bci++) {
-        for (let lci = 0; lci < thLeg.configurations.length; lci++) {
-          // acc1/acc2のconfigも数個試す
-          for (const a1ci of [0, Math.min(1, (thAcc1||pool.accessory1[0]).configurations.length-1)]) {
-            const combo = {
-              weapon: thWeapon, head: thHead || pool.head[0],
-              body: thBody, leg: thLeg,
-              accessory1: thAcc1 || pool.accessory1[0],
-              accessory2: thAcc2 || pool.accessory2[0],
-            } as Record<EquipSlot, CandidateEquipment | null>;
-            const idx = { weapon: 0, head: 0, body: bci, leg: lci, accessory1: a1ci, accessory2: 0 };
-
-            const eqSt: Record<string, number> = {};
-            for (const sl of ['weapon','head','body','leg','accessory1','accessory2'] as EquipSlot[]) {
-              const c = combo[sl]; if (!c) continue;
-              const s = calculateEquipmentStatsFn(c, idx[sl], gameData.eqConst, relevantStats);
-              for (const [k,v] of Object.entries(s))
-                if (typeof v === 'number' && !k.startsWith('_') && !['WeaponAttackPower','CoolTime','DamageCorrection','CritRate'].includes(k))
-                  eqSt[k] = (eqSt[k] || 0) + v;
-            }
-            const rSP = optimizeRemainingSP(options?.spAllocation || {}, jobSPData, (options?.jobMaxLevel||100)*2, relevantStats, options?.jobName, eqSt);
-            const r = evaluateCombination(combo, idx, { ...context, spAllocation: rSP.allocation }, gameData.eqConst);
-            if (r.originalScore > bestTheoScore) {
-              bestTheoScore = r.originalScore;
-              const cfg = thBody.configurations[bci];
-              const lcfg = thLeg.configurations[lci];
-              bestTheoLog = `body_cfg=${JSON.stringify(cfg?.smithing)} body_ex=${JSON.stringify(cfg?.exStats)} leg_cfg=${JSON.stringify(lcfg?.smithing)} leg_ex=${JSON.stringify(lcfg?.exStats)} acc1_cfg=${a1ci} SP=${JSON.stringify(rSP.allocation)} equip力=${eqSt['Power']||0} 魔=${eqSt['Magic']||0} 撃=${eqSt['CritDamage']||0} FINAL力=${r.stats['Power']||0} 魔=${r.stats['Magic']||0} 撃=${r.stats['CritDamage']||0} 会心率=${r.stats['CritRate']||0}`;
-            }
-          }
-        }
-      }
-      console.log(`[理論構成テスト] 最高スコア: ${Math.round(bestTheoScore)} ${bestTheoLog}`);
-    } else {
-      console.log('[理論構成テスト] 装備が見つからない:', {thWeapon:!!thWeapon, thHead:!!thHead, thBody:!!thBody, thLeg:!!thLeg});
-    }
-  }
-
-  // === 強制探索: body×legの候補組み合わせ（各ベストconfig1つ）を試行 ===
-  reportProgress('finalizing', 88, 100, '防具組み合わせ最適化中...');
-  if (pool.body.length > 0 && pool.leg.length > 0 && allSolutions.length > 0) {
-    const bestSoFar = allSolutions[0];
-    let forcedCount = 0;
-
-    for (const bodyCandidate of pool.body) {
-      // body候補のベストconfig（中央config≒バランス型）
-      const bci = Math.min(1, bodyCandidate.configurations.length - 1);
-      for (const legCandidate of pool.leg) {
-        const lci = Math.min(1, legCandidate.configurations.length - 1);
-
-        const testCombination = {
-          ...bestSoFar.equipmentSet,
-          body: bodyCandidate,
-          leg: legCandidate,
-        } as Record<EquipSlot, CandidateEquipment | null>;
-        const testIndices = { ...bestSoFar.configIndices, body: bci, leg: lci };
-
-        // 装備ステでSPを再最適化
-        const testEquipStats: Record<string, number> = {};
-        for (const slot of ['weapon','head','body','leg','accessory1','accessory2'] as EquipSlot[]) {
-          const c = testCombination[slot];
-          if (!c) continue;
-          const ci = testIndices[slot] || 0;
-          const s = calculateEquipmentStatsFn(c, ci, gameData.eqConst, relevantStats);
-          for (const [k,v] of Object.entries(s)) {
-            if (typeof v === 'number' && !k.startsWith('_') && !['WeaponAttackPower','CoolTime','DamageCorrection','CritRate'].includes(k))
-              testEquipStats[k] = (testEquipStats[k] || 0) + v;
-          }
-        }
-        const userSP = options?.spAllocation || {};
-        const maxSP = (options?.jobMaxLevel || 100) * 2;
-        const reoptSP = optimizeRemainingSP(userSP, jobSPData, maxSP, relevantStats, options?.jobName, testEquipStats);
-        const testContext = { ...context, spAllocation: reoptSP.allocation };
-
-        // キャッシュをクリアして正確に再評価
-        clearEvaluationCache();
-        const result = evaluateCombination(testCombination, testIndices, testContext, gameData.eqConst);
-        if (forcedCount < 4) {
-          console.log(`[OptDebug] body=${bodyCandidate.name} leg=${legCandidate.name} SP=${JSON.stringify(reoptSP.allocation)} score=${Math.round(result.originalScore)} equip力=${testEquipStats['Power']||0} 魔=${testEquipStats['Magic']||0} 撃=${testEquipStats['CritDamage']||0}`);
-        }
-        if (result.score > 0) {
-          allSolutions.push({
-            equipmentSet: testCombination,
-            configIndices: testIndices,
-            score: result.score,
-            originalScore: result.originalScore,
-            stats: result.stats,
-            meetsMinimum: result.meetsMinimum,
-            usedEmblem: (bestSoFar as any).usedEmblem || null,
-            usedRunestones: (bestSoFar as any).usedRunestones,
-          } as any);
-          forcedCount++;
-        }
-      }
-    }
-    allSolutions.sort((a, b) => b.score - a.score);
-    console.log(`[OptDebug] 強制探索 ${forcedCount}件, 上位3件:`, allSolutions.slice(0, 3).map(s => Math.round(s.originalScore)));
-  }
-
-  // === SP再最適化: 上位解に対して装備に最適なSP配分を見つけて再評価 ===
-  reportProgress('finalizing', 90, 100, 'SP再最適化中...');
-  const topForSPReopt = limitedSolutions.slice(0, 20);
-  for (const sol of topForSPReopt) {
-    // この装備セットのステータスを見てSPを再計算
-    const equipStats: Record<string, number> = {};
-    const slots: EquipSlot[] = ['weapon', 'head', 'body', 'leg', 'accessory1', 'accessory2'];
-    for (const slot of slots) {
-      const cand = sol.equipmentSet[slot];
-      if (!cand) continue;
-      const ci = sol.configIndices[slot] || 0;
-      const stats = calculateEquipmentStatsFn(cand, ci, gameData.eqConst, relevantStats);
-      for (const [k, v] of Object.entries(stats)) {
-        if (typeof v === 'number' && !k.startsWith('_') && !['WeaponAttackPower','CoolTime','DamageCorrection','CritRate'].includes(k)) {
-          equipStats[k] = (equipStats[k] || 0) + v;
-        }
-      }
-    }
-
-    // 装備ステを加味したrelevantStatsでSPを再最適化
-    const userSP = options?.spAllocation || {};
-    const maxSP = (options?.jobMaxLevel || 100) * 2;
-    const reoptSP = optimizeRemainingSP(userSP, jobSPData, maxSP, relevantStats, options?.jobName, equipStats);
-
-    // 元のSPと異なる場合のみ再評価
-    const origSP = context.spAllocation as Record<string, number>;
-    const newSP = reoptSP.allocation;
-    const spChanged = Object.keys(newSP).some(k => (newSP[k] || 0) !== (origSP[k] || 0));
-
-    if (spChanged) {
-      const reoptContext = { ...context, spAllocation: newSP };
-      const combination = sol.equipmentSet as Record<EquipSlot, CandidateEquipment | null>;
-      const result = evaluateCombination(combination, sol.configIndices, reoptContext, gameData.eqConst);
-      if (result.score > sol.score) {
-        sol.score = result.score;
-        sol.originalScore = result.originalScore;
-        sol.stats = result.stats;
-        sol.meetsMinimum = result.meetsMinimum;
-      }
-    }
-  }
-
-  // SP再最適化後に再ソート
-  limitedSolutions.sort((a, b) => b.score - a.score);
 
   const nonDominatedSolutions = filterDominatedBuilds(limitedSolutions);
 
