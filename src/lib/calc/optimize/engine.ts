@@ -53,7 +53,7 @@ import { filterDominatedEmblems, buildRunestoneCombinations, RunestoneCombinatio
 import { filterDominatedBuilds } from './dominance';
 import { beamSearchOptimize } from './beamSearch';
 import { buildTarotCandidates } from './tarotSearch';
-import { optimizeRemainingSP } from './spOptimizer';
+import { optimizeRemainingSP, getTopSPAllocations } from './spOptimizer';
 import { DEFAULT_BEAM_SEARCH_CONFIG } from '@/types/optimize';
 
 /** 最適化用ゲームデータ（簡略版） */
@@ -352,8 +352,44 @@ export async function optimizeEquipment(
     runestoneCombs = [{ runestones: [], totalBonus: options?.runestoneBonus || {} }];
   }
 
-  // === Beam Search を実行（メインアルゴリズム） ===
+  // === 複数SP配分で並行探索（SP⇔装備の相互依存を解決） ===
+  const userSP = options?.spAllocation || {};
+  const maxSP = (options?.jobMaxLevel || 100) * 2;
+  const topSPAllocations = getTopSPAllocations(userSP, jobSPData, maxSP, relevantStats, options?.jobName, 3);
+  console.log('[OptSP] 上位SP配分:', topSPAllocations.map(sp => JSON.stringify(sp)));
+
   const useBeamSearch = !useExhaustiveSearch;
+
+  // 各SP配分に対してBeam Searchを実行
+  for (const spAlloc of topSPAllocations) {
+    // SP配分を更新したcontextを作成
+    const spContext = { ...context, spAllocation: spAlloc };
+
+    // jobSPBaseStatsも再計算
+    if (gameData.jobConst && options?.jobName) {
+      try {
+        const jobLevel = options?.jobMaxLevel || 100;
+        const baseJobStats = calculateAllJobStats(options.jobName, jobLevel, [], gameData.jobConst, jobSPData);
+        const branchBonus = calculateBranchBonus(
+          { A: spAlloc['A'] || 0, B: spAlloc['B'] || 0, C: spAlloc['C'] || 0 }, jobSPData
+        );
+        const jpToInternal: Record<string, string> = {
+          '体力': 'HP', '力': 'Power', '魔力': 'Magic', '精神': 'Mind',
+          '素早さ': 'Agility', '器用さ': 'Dex', '撃力': 'CritDamage', '守備力': 'Defense',
+        };
+        const baseStats: Record<string, number> = {};
+        for (const [key, value] of Object.entries(baseJobStats)) {
+          if (typeof value === 'number') baseStats[key] = value;
+        }
+        for (const branch of ['A', 'B', 'C'] as const) {
+          for (const [jpKey, value] of Object.entries(branchBonus[branch])) {
+            const internalKey = jpToInternal[jpKey];
+            if (internalKey && value) baseStats[internalKey] = (baseStats[internalKey] || 0) + value;
+          }
+        }
+        spContext.jobSPBaseStats = baseStats;
+      } catch {}
+    }
 
   if (useBeamSearch) {
     try {
@@ -381,7 +417,7 @@ export async function optimizeEquipment(
 
       const beamResults = await beamSearchOptimize(
         extendedPool as any,
-        context,
+        spContext,
         gameData.eqConst,
         beamConfig,
         relevantStats,
@@ -397,7 +433,7 @@ export async function optimizeEquipment(
         if (abortSignal?.aborted) break;
         try {
           const improved = await localSearchAsync(
-            beamResults[i], pool, context, gameData.eqConst, 30, `beam_ls_${i}`
+            beamResults[i], pool, spContext, gameData.eqConst, 30, `beam_ls_${i}`
           );
           if (improved.score > beamResults[i].score) {
             beamResults[i] = improved;
@@ -427,6 +463,7 @@ export async function optimizeEquipment(
       console.warn(`Beam Search failed, falling back to greedy: ${errorMsg}`);
     }
   }
+  } // === 複数SP配分ループ終了 ===
 
   let prunedEmblems = 0;
   let prunedRunestones = 0;
