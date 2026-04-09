@@ -612,62 +612,60 @@ export async function optimizeEquipment(
   combinedSolutions.sort((a, b) => b.score - a.score);
   const limitedSolutions = combinedSolutions.slice(0, MAX_SOLUTIONS_IN_MEMORY);
 
-  // === 強制探索: 全body×legの組み合わせを試行（局所最適脱出） ===
-  reportProgress('finalizing', 88, 100, '全防具組み合わせ試行中...');
+  // === 強制探索: body×legの候補組み合わせ（各ベストconfig1つ）を試行 ===
+  reportProgress('finalizing', 88, 100, '防具組み合わせ最適化中...');
   if (pool.body.length > 0 && pool.leg.length > 0 && allSolutions.length > 0) {
     const bestSoFar = allSolutions[0];
+    let forcedCount = 0;
+
     for (const bodyCandidate of pool.body) {
-      for (let bci = 0; bci < bodyCandidate.configurations.length; bci++) {
-        for (const legCandidate of pool.leg) {
-          for (let lci = 0; lci < legCandidate.configurations.length; lci++) {
-            // 最良解のweapon/head/acc1/acc2はそのまま、body/legだけ差し替え
-            const testCombination = {
-              ...bestSoFar.equipmentSet,
-              body: bodyCandidate,
-              leg: legCandidate,
-            } as Record<EquipSlot, CandidateEquipment | null>;
-            const testIndices = {
-              ...bestSoFar.configIndices,
-              body: bci,
-              leg: lci,
-            };
+      // body候補のベストconfig（中央config≒バランス型）
+      const bci = Math.min(1, bodyCandidate.configurations.length - 1);
+      for (const legCandidate of pool.leg) {
+        const lci = Math.min(1, legCandidate.configurations.length - 1);
 
-            // この装備でSPを再最適化
-            const testEquipStats: Record<string, number> = {};
-            for (const slot of ['weapon','head','body','leg','accessory1','accessory2'] as EquipSlot[]) {
-              const c = testCombination[slot];
-              if (!c) continue;
-              const ci = testIndices[slot] || 0;
-              const s = calculateEquipmentStatsFn(c, ci, gameData.eqConst, relevantStats);
-              for (const [k,v] of Object.entries(s)) {
-                if (typeof v === 'number' && !k.startsWith('_') && !['WeaponAttackPower','CoolTime','DamageCorrection','CritRate'].includes(k))
-                  testEquipStats[k] = (testEquipStats[k] || 0) + v;
-              }
-            }
-            const userSP = options?.spAllocation || {};
-            const maxSP = (options?.jobMaxLevel || 100) * 2;
-            const reoptSP = optimizeRemainingSP(userSP, jobSPData, maxSP, relevantStats, options?.jobName, testEquipStats);
-            const testContext = { ...context, spAllocation: reoptSP.allocation };
+        const testCombination = {
+          ...bestSoFar.equipmentSet,
+          body: bodyCandidate,
+          leg: legCandidate,
+        } as Record<EquipSlot, CandidateEquipment | null>;
+        const testIndices = { ...bestSoFar.configIndices, body: bci, leg: lci };
 
-            const result = evaluateCombination(testCombination, testIndices, testContext, gameData.eqConst);
-            if (result.score > 0) {
-              allSolutions.push({
-                equipmentSet: testCombination,
-                configIndices: testIndices,
-                score: result.score,
-                originalScore: result.originalScore,
-                stats: result.stats,
-                meetsMinimum: result.meetsMinimum,
-                usedEmblem: (bestSoFar as any).usedEmblem || null,
-                usedRunestones: (bestSoFar as any).usedRunestones,
-              } as any);
-            }
+        // 装備ステでSPを再最適化
+        const testEquipStats: Record<string, number> = {};
+        for (const slot of ['weapon','head','body','leg','accessory1','accessory2'] as EquipSlot[]) {
+          const c = testCombination[slot];
+          if (!c) continue;
+          const ci = testIndices[slot] || 0;
+          const s = calculateEquipmentStatsFn(c, ci, gameData.eqConst, relevantStats);
+          for (const [k,v] of Object.entries(s)) {
+            if (typeof v === 'number' && !k.startsWith('_') && !['WeaponAttackPower','CoolTime','DamageCorrection','CritRate'].includes(k))
+              testEquipStats[k] = (testEquipStats[k] || 0) + v;
           }
+        }
+        const userSP = options?.spAllocation || {};
+        const maxSP = (options?.jobMaxLevel || 100) * 2;
+        const reoptSP = optimizeRemainingSP(userSP, jobSPData, maxSP, relevantStats, options?.jobName, testEquipStats);
+        const testContext = { ...context, spAllocation: reoptSP.allocation };
+
+        const result = evaluateCombination(testCombination, testIndices, testContext, gameData.eqConst);
+        if (result.score > 0) {
+          allSolutions.push({
+            equipmentSet: testCombination,
+            configIndices: testIndices,
+            score: result.score,
+            originalScore: result.originalScore,
+            stats: result.stats,
+            meetsMinimum: result.meetsMinimum,
+            usedEmblem: (bestSoFar as any).usedEmblem || null,
+            usedRunestones: (bestSoFar as any).usedRunestones,
+          } as any);
+          forcedCount++;
         }
       }
     }
     allSolutions.sort((a, b) => b.score - a.score);
-    console.log('[OptDebug] 強制探索後の上位3件:', allSolutions.slice(0, 3).map(s => s.originalScore));
+    console.log(`[OptDebug] 強制探索 ${forcedCount}件, 上位3件:`, allSolutions.slice(0, 3).map(s => Math.round(s.originalScore)));
   }
 
   // === SP再最適化: 上位解に対して装備に最適なSP配分を見つけて再評価 ===
