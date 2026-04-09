@@ -612,6 +612,57 @@ export async function optimizeEquipment(
   combinedSolutions.sort((a, b) => b.score - a.score);
   const limitedSolutions = combinedSolutions.slice(0, MAX_SOLUTIONS_IN_MEMORY);
 
+  // === 診断: 理論構成を直接評価 ===
+  if (options?.jobName === 'SpellRefactor') {
+    const findEquip = (arr: typeof pool.weapon, name: string, type?: string) =>
+      arr.find(c => c.name === name && (!type || (c.sourceData as any)?.['タイプを選択'] === type));
+
+    const thWeapon = findEquip(pool.weapon, '夜明けの光剣');
+    const thHead = findEquip(pool.head, '炎牙', '金属');
+    const thBody = findEquip(pool.body, '乾泥', '金属');
+    const thLeg = findEquip(pool.leg, '乾泥', '金属');
+    const thAcc1 = pool.accessory1.find(c => c.name === '炎牙');
+    const thAcc2 = pool.accessory2.find(c => c.name === '乾泥');
+
+    if (thWeapon && thBody && thLeg) {
+      // configsの中からベストを試す
+      for (const bci of [0,1,2]) {
+        for (const lci of [0,1,2]) {
+          const combo = {
+            weapon: thWeapon, head: thHead || pool.head[0],
+            body: thBody, leg: thLeg,
+            accessory1: thAcc1 || pool.accessory1[0],
+            accessory2: thAcc2 || pool.accessory2[0],
+          } as Record<EquipSlot, CandidateEquipment | null>;
+          const idx = { weapon: 0, head: 0, body: Math.min(bci, thBody.configurations.length-1),
+            leg: Math.min(lci, thLeg.configurations.length-1), accessory1: 0, accessory2: 0 };
+
+          // 装備ステ取得
+          const eqSt: Record<string, number> = {};
+          for (const sl of ['weapon','head','body','leg','accessory1','accessory2'] as EquipSlot[]) {
+            const c = combo[sl]; if (!c) continue;
+            const s = calculateEquipmentStatsFn(c, idx[sl], gameData.eqConst, relevantStats);
+            for (const [k,v] of Object.entries(s))
+              if (typeof v === 'number' && !k.startsWith('_') && !['WeaponAttackPower','CoolTime','DamageCorrection','CritRate'].includes(k))
+                eqSt[k] = (eqSt[k] || 0) + v;
+          }
+          // SP再最適化
+          const rSP = optimizeRemainingSP(options?.spAllocation || {}, jobSPData, (options?.jobMaxLevel||100)*2, relevantStats, options?.jobName, eqSt);
+          clearEvaluationCache();
+          const r = evaluateCombination(combo, idx, { ...context, spAllocation: rSP.allocation }, gameData.eqConst);
+          if (bci === 0 && lci === 0) {
+            console.log(`[理論構成テスト] body=乾泥金属 leg=乾泥金属 SP=${JSON.stringify(rSP.allocation)} score=${Math.round(r.originalScore)} 力=${eqSt['Power']||0} 魔=${eqSt['Magic']||0} 撃=${eqSt['CritDamage']||0}`);
+          }
+          if (r.originalScore > 22000) {
+            console.log(`[理論構成テスト] 高スコア発見! bci=${bci} lci=${lci} score=${Math.round(r.originalScore)}`);
+          }
+        }
+      }
+    } else {
+      console.log('[理論構成テスト] 装備が見つからない:', {thWeapon:!!thWeapon, thHead:!!thHead, thBody:!!thBody, thLeg:!!thLeg});
+    }
+  }
+
   // === 強制探索: body×legの候補組み合わせ（各ベストconfig1つ）を試行 ===
   reportProgress('finalizing', 88, 100, '防具組み合わせ最適化中...');
   if (pool.body.length > 0 && pool.leg.length > 0 && allSolutions.length > 0) {
