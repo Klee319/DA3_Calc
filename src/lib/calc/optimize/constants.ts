@@ -98,8 +98,8 @@ export const EQUIPMENT_FILTER_CONFIG = {
   minArmorLevel: 60,
   minAccessoryLevel: 60,
   maxWeaponCandidates: 30,
-  maxArmorCandidates: 25,
-  maxAccessoryCandidates: 20,
+  maxArmorCandidates: 40,
+  maxAccessoryCandidates: 30,
 };
 
 /** EXタイプ → ステータスキーのマッピング */
@@ -129,8 +129,8 @@ export const EXHAUSTIVE_SEARCH_THRESHOLD = 10000;
 
 /** Beam Search デフォルト設定 */
 export const BEAM_SEARCH_DEFAULTS = {
-  beamWidth: 200,
-  refinementTopN: 50,
+  beamWidth: 500,
+  refinementTopN: 100,
   coarseSmithingPatterns: 5,
   coarseEXPatterns: 3,
   tarotTopK: 50,

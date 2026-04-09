@@ -99,8 +99,12 @@ function scoreAllocation(
     const magic = stats['Magic'] || 0;
     const critDamage = stats['CritDamage'] || 0;
 
-    // BaseDamage近似 (Sword): Power * 1.6 + CritDamage * 0.005 * 420(武器攻撃力概算)
-    const baseDamage = power * 1.6 + critDamage * 0.005 * 420;
+    // BaseDamage近似 (Sword): Power * 1.6 + CritDamage * 0.005 * WeaponAttack
+    // 会心期待値: 撃力は会心ダメージ倍率にも寄与（100%会心率前提で撃力1あたり+1%ダメージ）
+    // 実効重み: 0.005*420 + baseDamage*0.01 ≈ 2.1 + ~15 = ~17
+    const rawBaseDamage = power * 1.6;
+    const critDamageContrib = critDamage * (0.005 * 420 + rawBaseDamage * 0.01);
+    const baseDamage = rawBaseDamage + critDamageContrib;
 
     // SpellRefactorボーナス: 1.75 - 0.475 * ln(max(P,M)/min(P,M)) * 2
     let bonus = 1.75;
