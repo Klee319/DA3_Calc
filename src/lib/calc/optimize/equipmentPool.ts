@@ -194,7 +194,7 @@ export function buildArmorPool(
     }
 
     pool.push({
-      id: `${slot}_${armor.アイテム名}`,
+      id: `${slot}_${armor.アイテム名}_${armor.タイプを選択}`,
       name: armor.アイテム名,
       type: 'armor',
       slot,
