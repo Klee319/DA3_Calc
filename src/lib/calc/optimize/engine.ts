@@ -654,7 +654,7 @@ export async function optimizeEquipment(
               bestTheoScore = r.originalScore;
               const cfg = thBody.configurations[bci];
               const lcfg = thLeg.configurations[lci];
-              bestTheoLog = `body_cfg=${JSON.stringify(cfg?.smithing)} leg_cfg=${JSON.stringify(lcfg?.smithing)} acc1_cfg=${a1ci} SP=${JSON.stringify(rSP.allocation)} 力=${eqSt['Power']||0} 魔=${eqSt['Magic']||0} 撃=${eqSt['CritDamage']||0}`;
+              bestTheoLog = `body_cfg=${JSON.stringify(cfg?.smithing)} body_ex=${JSON.stringify(cfg?.exStats)} leg_cfg=${JSON.stringify(lcfg?.smithing)} leg_ex=${JSON.stringify(lcfg?.exStats)} acc1_cfg=${a1ci} SP=${JSON.stringify(rSP.allocation)} equip力=${eqSt['Power']||0} 魔=${eqSt['Magic']||0} 撃=${eqSt['CritDamage']||0} FINAL力=${r.stats['Power']||0} 魔=${r.stats['Magic']||0} 撃=${r.stats['CritDamage']||0} 会心率=${r.stats['CritRate']||0}`;
             }
           }
         }
