@@ -402,7 +402,7 @@ export async function optimizeEquipment(
       const beamConfig = {
         ...DEFAULT_BEAM_SEARCH_CONFIG,
         beamWidth: isFirstSP ? baseBeamWidth : Math.floor(baseBeamWidth / 3),
-        refinementCount: isFirstSP ? DEFAULT_BEAM_SEARCH_CONFIG.refinementTopN : 20,
+        refinementCount: isFirstSP ? DEFAULT_BEAM_SEARCH_CONFIG.refinementCount : 20,
       };
 
       const extendedPool = {
