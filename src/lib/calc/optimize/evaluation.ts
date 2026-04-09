@@ -670,6 +670,12 @@ export function evaluateCombination(
     userOption: context.userOption,
     food: context.food,
     userPercentBonus: Object.keys(userPercentBonus).length > 0 ? userPercentBonus : undefined,
+    // リング収束計算
+    ring: context.ringOption?.enabled ? {
+      enabled: true,
+      ringType: context.ringOption.ringType,
+      equipmentTotal: equipmentStats,
+    } : undefined,
   };
 
   const calcResult = calculateStatus(statusInput);

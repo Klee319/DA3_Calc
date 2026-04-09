@@ -43,6 +43,10 @@ export interface EvaluationContext {
   tarotBonusPercent?: StatBlock;
   tarotWeaponBonus?: Record<string, number>;
   tarotDamageBuffs?: Record<string, number>;
+  ringOption?: {
+    enabled: boolean;
+    ringType: 'power' | 'magic' | 'speed';
+  };
 }
 
 /** スコア付き組み合わせ */

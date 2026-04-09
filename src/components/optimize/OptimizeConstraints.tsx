@@ -42,6 +42,8 @@ export function OptimizeConstraints() {
     setEnableRunestoneSearch,
     beamWidth,
     setBeamWidth,
+    ringOption,
+    setRingOption,
   } = useOptimizeStore();
 
   const handleSlotToggle = (slot: EquipSlot) => {
@@ -151,6 +153,46 @@ export function OptimizeConstraints() {
             </span>
           </label>
         </div>
+      </div>
+
+      {/* 指輪設定 */}
+      <div className="space-y-3">
+        <label className="block text-sm font-medium text-white/80">
+          指輪
+        </label>
+        <label className="flex items-center gap-2 cursor-pointer group">
+          <input
+            type="checkbox"
+            checked={ringOption.enabled}
+            onChange={(e) => setRingOption({ ...ringOption, enabled: e.target.checked })}
+            className="checkbox-primary"
+          />
+          <span className="text-sm text-white/70 group-hover:text-white transition-colors">
+            指輪バフを適用
+          </span>
+        </label>
+        {ringOption.enabled && (
+          <div className="grid grid-cols-3 gap-2 animate-fadeIn">
+            {([
+              { value: 'power' as const, label: '力' },
+              { value: 'magic' as const, label: '魔力' },
+              { value: 'speed' as const, label: '素早さ' },
+            ]).map((type) => (
+              <button
+                key={type.value}
+                type="button"
+                onClick={() => setRingOption({ ...ringOption, ringType: type.value })}
+                className={`px-3 py-2 rounded-lg text-xs font-medium transition-all
+                  ${ringOption.ringType === type.value
+                    ? 'bg-gradient-to-r from-rpg-accent to-indigo-600 text-white'
+                    : 'bg-white/5 border border-white/20 text-white/60 hover:border-white/40'
+                  }`}
+              >
+                {type.label}
+              </button>
+            ))}
+          </div>
+        )}
       </div>
 
       {/* Beam幅 */}

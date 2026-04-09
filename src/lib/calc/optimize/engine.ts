@@ -97,6 +97,10 @@ export interface OptimizeOptions {
   beamWidth?: number;
   userOption?: StatBlock;
   food?: StatBlock;
+  ringOption?: {
+    enabled: boolean;
+    ringType: 'power' | 'magic' | 'speed';
+  };
 }
 
 /** 探索統計 */
@@ -274,6 +278,7 @@ export async function optimizeEquipment(
     runestoneBonus: options?.runestoneBonus,
     userOption: options?.userOption,
     food: options?.food,
+    ringOption: options?.ringOption,
   };
 
   const combinationCount = calculateCombinationCount(pool);
