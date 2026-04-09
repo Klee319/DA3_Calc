@@ -239,6 +239,15 @@ export async function optimizeEquipment(
     pool.accessory1.length +
     pool.accessory2.length;
 
+  // デバッグ: 候補プールの内容を出力
+  console.log('[OptPool]', {
+    weapon: pool.weapon.map(c => c.name),
+    body: pool.body.map(c => `${c.name}(${(c.sourceData as any)?.['タイプを選択'] || '?'})`),
+    leg: pool.leg.map(c => `${c.name}(${(c.sourceData as any)?.['タイプを選択'] || '?'})`),
+    configs_body: pool.body.map(c => c.configurations.length),
+    configs_leg: pool.leg.map(c => c.configurations.length),
+  });
+
   reportProgress('building_pool', 30, 100, `装備候補: ${totalCandidates}件`);
 
   const emblems = gameData.emblems || [];
