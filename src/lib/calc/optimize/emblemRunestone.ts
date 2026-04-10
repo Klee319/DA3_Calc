@@ -312,7 +312,39 @@ export function buildRunestoneCombinations(
       }
     }
 
+    // 依存ステの重み付きスコアで降順ソート（Beam Searchが上位N件を使うため重要）
+    if (relevantStats?.statCoefficients) {
+      const coeffs = relevantStats.statCoefficients;
+      nonDominated.sort((a, b) => {
+        const scoreA = Object.entries(a.totalBonus).reduce((sum, [key, val]) => {
+          const c = coeffs[key] ?? 0;
+          return sum + (val as number) * (c > 0 ? c : 0);
+        }, 0);
+        const scoreB = Object.entries(b.totalBonus).reduce((sum, [key, val]) => {
+          const c = coeffs[key] ?? 0;
+          return sum + (val as number) * (c > 0 ? c : 0);
+        }, 0);
+        return scoreB - scoreA;
+      });
+    }
+
     return nonDominated;
+  }
+
+  // ソートなしPareto枝刈りなしの場合も重み付きソート
+  if (relevantStats?.statCoefficients) {
+    const coeffs = relevantStats.statCoefficients;
+    combinations.sort((a, b) => {
+      const scoreA = Object.entries(a.totalBonus).reduce((sum, [key, val]) => {
+        const c = coeffs[key] ?? 0;
+        return sum + (val as number) * (c > 0 ? c : 0);
+      }, 0);
+      const scoreB = Object.entries(b.totalBonus).reduce((sum, [key, val]) => {
+        const c = coeffs[key] ?? 0;
+        return sum + (val as number) * (c > 0 ? c : 0);
+      }, 0);
+      return scoreB - scoreA;
+    });
   }
 
   return combinations;

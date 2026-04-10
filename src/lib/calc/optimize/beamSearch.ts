@@ -322,9 +322,9 @@ export async function beamSearchOptimize(
   // === 紋章スロット展開（上位K個のルーンストーン組み合わせも展開） ===
   if (emblemCandidates.length > 0) {
     const nextStates: InternalBeamState[] = [];
-    // 上位3個のルーンストーン組み合わせを展開（性能とカバレッジのバランス）
+    // 上位K個のルーンストーン組み合わせを展開（ソート済み前提）
     const topRunestones = runestoneCombs.length > 0
-      ? runestoneCombs.slice(0, Math.min(3, runestoneCombs.length))
+      ? runestoneCombs.slice(0, Math.min(5, runestoneCombs.length))
       : [{ runestones: [] as any[], totalBonus: {} as Record<string, number> }];
 
     for (const state of beamStates) {
