@@ -554,61 +554,92 @@ export async function beamSearchOptimize(
 
   const rebalancedResults: ScoredCombination[] = [];
 
+  // 代替ルーンストーン候補（上位N件、ソート済み前提）
+  const altRunestones = runestoneCombs.slice(0, Math.min(8, runestoneCombs.length));
+
   for (const result of deduplicated) {
     const br = result as any;
-
-    // この結果固有の紋章・ルーン・タロットでevalContextを構築
-    const rebalanceCtx: EvaluationContext = {
-      ...context,
-      emblem: br._emblemData || context.emblem,
-      runestoneBonus: br._runestoneData?.totalBonus || context.runestoneBonus,
-    };
-    if (br._tarotCandidate) {
-      rebalanceCtx.tarotBonusPercent = br._tarotCandidate.totalBonus;
-      rebalanceCtx.tarotWeaponBonus = br._tarotCandidate.weaponBonus;
-      rebalanceCtx.tarotDamageBuffs = br._tarotCandidate.damageBuffs;
-    }
-
     let best = result;
+    let bestRuneData = br._runestoneData;
 
-    // 最大3反復の局所探索（各反復で全スロットの構成を再検討）
-    for (let iter = 0; iter < 3; iter++) {
-      let foundImprovement = false;
+    // 複数ルーンストーン候補 × 構成最適化を同時探索
+    // Beam Searchはequipment→runestone順のため、equipment確定後に
+    // 別ルーンストーンで構成を再最適化することで相互依存を解決
+    const runesToTry = [
+      br._runestoneData,  // 元のルーンストーン
+      ...altRunestones.filter((r: RunestoneCombination) =>
+        r !== br._runestoneData &&
+        JSON.stringify(r.totalBonus) !== JSON.stringify(br._runestoneData?.totalBonus || {})
+      ),
+    ];
 
-      for (const slot of equipSlots) {
-        const candidate = best.equipmentSet[slot];
-        if (!candidate || candidate.configurations.length <= 1) continue;
+    for (const runeCand of runesToTry) {
+      if (!runeCand) continue;
 
-        const currentCI = best.configIndices[slot] || 0;
-        let bestScore = best.score;
-        let bestCI = currentCI;
+      const rebalanceCtx: EvaluationContext = {
+        ...context,
+        emblem: br._emblemData || context.emblem,
+        runestoneBonus: runeCand.totalBonus || context.runestoneBonus,
+      };
+      if (br._tarotCandidate) {
+        rebalanceCtx.tarotBonusPercent = br._tarotCandidate.totalBonus;
+        rebalanceCtx.tarotWeaponBonus = br._tarotCandidate.weaponBonus;
+        rebalanceCtx.tarotDamageBuffs = br._tarotCandidate.damageBuffs;
+      }
 
-        for (let ci = 0; ci < candidate.configurations.length; ci++) {
-          if (ci === currentCI) continue;
-          const newIndices = { ...best.configIndices, [slot]: ci } as Record<EquipSlot, number>;
-          const ev = evaluateCombination(best.equipmentSet, newIndices, rebalanceCtx, eqConst);
-          if (ev.score > bestScore) {
-            bestScore = ev.score;
-            bestCI = ci;
+      // まず現在のconfigで評価（ルーンストーンだけ変更）
+      let current = result;
+      const baseEv = evaluateCombination(
+        current.equipmentSet, current.configIndices, rebalanceCtx, eqConst
+      );
+      current = { ...current, score: baseEv.score, originalScore: baseEv.originalScore,
+        stats: baseEv.stats, meetsMinimum: baseEv.meetsMinimum };
+
+      // 最大3反復の局所探索（各反復で全スロットの構成を再検討）
+      for (let iter = 0; iter < 3; iter++) {
+        let foundImprovement = false;
+
+        for (const slot of equipSlots) {
+          const candidate = current.equipmentSet[slot];
+          if (!candidate || candidate.configurations.length <= 1) continue;
+
+          const currentCI = current.configIndices[slot] || 0;
+          let bestScore = current.score;
+          let bestCI = currentCI;
+
+          for (let ci = 0; ci < candidate.configurations.length; ci++) {
+            if (ci === currentCI) continue;
+            const newIndices = { ...current.configIndices, [slot]: ci } as Record<EquipSlot, number>;
+            const ev = evaluateCombination(current.equipmentSet, newIndices, rebalanceCtx, eqConst);
+            if (ev.score > bestScore) {
+              bestScore = ev.score;
+              bestCI = ci;
+            }
+          }
+
+          if (bestCI !== currentCI) {
+            const newIndices = { ...current.configIndices, [slot]: bestCI } as Record<EquipSlot, number>;
+            const ev = evaluateCombination(current.equipmentSet, newIndices, rebalanceCtx, eqConst);
+            current = {
+              ...current,
+              configIndices: newIndices,
+              score: ev.score,
+              originalScore: ev.originalScore,
+              stats: ev.stats,
+              meetsMinimum: ev.meetsMinimum,
+            };
+            foundImprovement = true;
           }
         }
 
-        if (bestCI !== currentCI) {
-          const newIndices = { ...best.configIndices, [slot]: bestCI } as Record<EquipSlot, number>;
-          const ev = evaluateCombination(best.equipmentSet, newIndices, rebalanceCtx, eqConst);
-          best = {
-            ...best,
-            configIndices: newIndices,
-            score: ev.score,
-            originalScore: ev.originalScore,
-            stats: ev.stats,
-            meetsMinimum: ev.meetsMinimum,
-          };
-          foundImprovement = true;
-        }
+        if (!foundImprovement) break;
       }
 
-      if (!foundImprovement) break;
+      // このルーンストーンでの最善が全体ベストを上回るか
+      if (current.score > best.score) {
+        best = { ...current, _runestoneData: runeCand } as any;
+        bestRuneData = runeCand;
+      }
     }
 
     rebalancedResults.push(best);
