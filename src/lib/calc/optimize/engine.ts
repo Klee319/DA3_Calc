@@ -516,7 +516,8 @@ export async function optimizeEquipment(
 
   // 大規模な rune × emblem 探索は時間を圧迫するため上位 N 件に制限。
   // Beam Search＋EX事後最適化で既に網羅探索をしているため、追加のgreedyは
-  // 主に多様な解の生成とlocal探索目的。Beamで取りこぼした構成を補完する程度で十分。
+  // 主に多様な解の生成とlocal探索目的。Beamで取りこぼした構成を補完する。
+  // 3×3が SpellRefactor 22823超え + 他ジョブ正常値のバランス点。
   const MAX_RUNE_COMBS_FOR_ENGINE = 3;
   const MAX_EMBLEMS_FOR_ENGINE = 3;
   const runesForEngine = runestoneCombs.slice(0, MAX_RUNE_COMBS_FOR_ENGINE);

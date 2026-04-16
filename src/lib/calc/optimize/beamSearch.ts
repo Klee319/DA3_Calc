@@ -348,24 +348,39 @@ export async function beamSearchOptimize(
       ? runestoneCombs.slice(0, Math.min(5, runestoneCombs.length))
       : [{ runestones: [] as any[], totalBonus: {} as Record<string, number> }];
 
+    // SpellRefactorは P=M バランスを厳密評価するため percentBonus として乗算投影。
+    // それ以外の職業は 旧動作（%を raw 加算）で Beam ランキングを維持する。
+    const isSR = context.jobName === 'SpellRefactor' || context.jobName === 'スペルリファクター';
+
     for (const state of beamStates) {
       for (const emblem of emblemCandidates) {
         const emblemBonus = extractEmblemBonusPercent(emblem);
 
         for (const runeComb of topRunestones) {
-          // 紋章は%ボーナス。近似スコアには乗算枠として渡す（SpellRefactor用）。
-          // ルーンストーンは絶対値なのでsumに加算する。
           const runeBonus = runeComb.totalBonus || {};
-          const withRune = addStats(state.dependentStatsSum, runeBonus);
-          const newPercent = mergePercent(state.percentBonus, emblemBonus as Record<string, number>);
+          let withRune: Record<string, number>;
+          let newPercent: Record<string, number> | undefined;
+
+          if (isSR) {
+            // SpellRefactor: 紋章%は乗算枠。dependentStatsSumにはルーンのみ加算。
+            withRune = addStats(state.dependentStatsSum, runeBonus);
+            newPercent = mergePercent(state.percentBonus, emblemBonus as Record<string, number>);
+          } else {
+            // 他ジョブ: 紋章%を概算として raw で加算（旧来の挙動）
+            const withEmblem = addStats(state.dependentStatsSum, emblemBonus as Record<string, number>);
+            withRune = addStats(withEmblem, runeBonus);
+            newPercent = state.percentBonus;
+          }
 
           const score = approximateScore(
             withRune, relevantStats, context.mode, context.targetStat, context.minimumStats,
             context.jobName, context.jobSPBaseStats,
-            {
-              jobBonusPercent: context.jobBonusPercent as Record<string, number> | undefined,
-              percentBonus: newPercent,
-            },
+            isSR
+              ? {
+                  jobBonusPercent: context.jobBonusPercent as Record<string, number> | undefined,
+                  percentBonus: newPercent,
+                }
+              : undefined,
           );
 
           nextStates.push({
@@ -414,24 +429,38 @@ export async function beamSearchOptimize(
   // === タロットスロット展開 ===
   if (pool.tarot.length > 0) {
     const nextStates: InternalBeamState[] = [];
+    const isSR = context.jobName === 'SpellRefactor' || context.jobName === 'スペルリファクター';
 
     for (const state of beamStates) {
       for (const tarot of pool.tarot) {
         const tarotBonus = tarot.totalBonus as Record<string, number>;
-        // タロットtotalBonusは%ボーナス（紋章と同じ乗算枠）
-        const newPercent = mergePercent(state.percentBonus, tarotBonus);
+        let sumForScore: Record<string, number>;
+        let newPercent: Record<string, number> | undefined;
+
+        if (isSR) {
+          // SpellRefactor: タロットtotalBonusも乗算枠
+          newPercent = mergePercent(state.percentBonus, tarotBonus);
+          sumForScore = state.dependentStatsSum;
+        } else {
+          // 他ジョブ: タロットの %ボーナスは raw として加算する旧挙動
+          sumForScore = addStats(state.dependentStatsSum, tarotBonus);
+          newPercent = state.percentBonus;
+        }
 
         const score = approximateScore(
-          state.dependentStatsSum, relevantStats, context.mode, context.targetStat, context.minimumStats,
+          sumForScore, relevantStats, context.mode, context.targetStat, context.minimumStats,
           context.jobName, context.jobSPBaseStats,
-          {
-            jobBonusPercent: context.jobBonusPercent as Record<string, number> | undefined,
-            percentBonus: newPercent,
-          },
+          isSR
+            ? {
+                jobBonusPercent: context.jobBonusPercent as Record<string, number> | undefined,
+                percentBonus: newPercent,
+              }
+            : undefined,
         );
 
         nextStates.push({
           ...state,
+          dependentStatsSum: sumForScore,
           approximateScore: score,
           completedSlots: [...state.completedSlots, 'tarot'],
           tarotCandidate: tarot,

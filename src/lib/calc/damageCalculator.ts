@@ -14,7 +14,7 @@ import {
   SkillCalcData
 } from '@/types/data';
 import { loadWeaponCalc, loadSkillCalc } from '@/lib/data/yamlLoader';
-import { mapUserStatsToVariables } from './placeholderMapping';
+import { mapUserStatsToVariables, getWeaponCalcKey } from './placeholderMapping';
 import { round, roundUp, roundDown, roundByType, roundMultiHitDamage } from '../calc/utils/mathUtils';
 
 /**
@@ -178,9 +178,8 @@ export function calculateBaseDamage(
   damageCorrectionMode: 'min' | 'max' | 'avg',
   jobName?: string
 ): number {
-  // 武器種別を正規化（小文字に変換、最初を大文字に）
-  const normalizedType = weaponType.toLowerCase();
-  const formulaKey = normalizedType.charAt(0).toUpperCase() + normalizedType.slice(1);
+  // 武器種別をYAMLキーへ正規化（'greatsword'→'GreatSword'等の複合語を正しく扱う）
+  const formulaKey = getWeaponCalcKey(weaponType);
 
   // 職業補正（武器種指定）がある場合はそちらの計算式を使用
   // JobCorrection.職業名.武器種 が存在する場合、BasedDamageの計算式の代わりに使用
@@ -245,8 +244,7 @@ export function applyJobCorrection(
   // 武器種指定の職業補正は calculateBaseDamage で既に処理済み
   // ここではBonusパターンのみを処理する
   // 注: 武器種指定の職業補正がある場合、Bonusは適用しない
-  const normalizedType = weaponType.toLowerCase();
-  const formulaKey = normalizedType.charAt(0).toUpperCase() + normalizedType.slice(1);
+  const formulaKey = getWeaponCalcKey(weaponType);
   const hasWeaponTypeCorrection = weaponCalc.JobCorrection?.[jobName]?.[formulaKey];
 
   if (hasWeaponTypeCorrection) {
