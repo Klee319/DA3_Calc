@@ -11,7 +11,8 @@ module.exports = {
   ],
   testPathIgnorePatterns: [
     '/node_modules/',
-    '/backup/'
+    '/backup/',
+    '/tests/'
   ],
   transform: {
     '^.+\\.tsx?$': ['ts-jest', {

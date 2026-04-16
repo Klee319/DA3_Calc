@@ -903,6 +903,14 @@ export function evaluateCombination(
   return { score: sortScore, originalScore, stats: resultStats, meetsMinimum };
 }
 
+/** 近似スコアの追加コンテキスト（%ボーナス投影用） */
+export interface ApproximateScoreExtras {
+  /** 職業補正%（{Power: 4, Magic: 4, ...}） */
+  jobBonusPercent?: Record<string, number>;
+  /** 紋章/タロットの%ボーナス（加算合計） */
+  percentBonus?: Record<string, number>;
+}
+
 /**
  * 近似スコア関数（Beam Search中間評価用）
  *
@@ -917,6 +925,7 @@ export function approximateScore(
   minimumStats?: MinimumStatRequirements,
   jobName?: string,
   baseStats?: Record<string, number>,
+  extras?: ApproximateScoreExtras,
 ): number {
   if (mode === 'stat' && targetStat) {
     const base = dependentStatsSum[targetStat] || 0;
@@ -928,11 +937,23 @@ export function approximateScore(
   }
 
   // SpellRefactor: P=Mバランスを考慮した近似ダメージ
-  // 装備ステのみでなく職業基礎+SPを加算してバランスを正確に評価
+  // 職業補正%と紋章%/タロット%を乗算して最終P/Mを正確に投影し、
+  // そのP/M比からSpellRefactorボーナスを算定する。
   if (jobName === 'SpellRefactor' || jobName === 'スペルリファクター') {
-    const power = (baseStats?.['Power'] || 0) + (dependentStatsSum['Power'] || 0);
-    const magic = (baseStats?.['Magic'] || 0) + (dependentStatsSum['Magic'] || 0);
-    const critDamage = dependentStatsSum['CritDamage'] || 0;
+    const rawPower = (baseStats?.['Power'] || 0) + (dependentStatsSum['Power'] || 0);
+    const rawMagic = (baseStats?.['Magic'] || 0) + (dependentStatsSum['Magic'] || 0);
+    const rawCritDamage = (baseStats?.['CritDamage'] || 0) + (dependentStatsSum['CritDamage'] || 0);
+
+    const jobPct = extras?.jobBonusPercent || {};
+    const pctBonus = extras?.percentBonus || {};
+    const pctPower = (jobPct.Power || 0) + (pctBonus.Power || 0);
+    const pctMagic = (jobPct.Magic || 0) + (pctBonus.Magic || 0);
+    const pctCD = (jobPct.CritDamage || 0) + (pctBonus.CritDamage || 0);
+
+    const power = rawPower * (1 + pctPower / 100);
+    const magic = rawMagic * (1 + pctMagic / 100);
+    const critDamage = rawCritDamage * (1 + pctCD / 100);
+
     const baseDamage = power * 1.6 + critDamage * 2.1;
     let bonus = 1.75;
     if (power > 0 && magic > 0) {

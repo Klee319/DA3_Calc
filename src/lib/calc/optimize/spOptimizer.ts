@@ -226,6 +226,7 @@ export function getTopSPAllocations(
   relevantStats: RelevantStats | undefined,
   jobName?: string,
   topN: number = 3,
+  equipmentStats?: Record<string, number>,
 ): Record<string, number>[] {
   if (!jobSPData || jobSPData.length === 0) return [{ ...userAllocation }];
 
@@ -248,7 +249,7 @@ export function getTopSPAllocations(
         for (const s of [a.stats, b.stats, c.stats])
           for (const [k, v] of Object.entries(s))
             combinedStats[k] = (combinedStats[k] || 0) + v;
-        const score = scoreAllocation(combinedStats, relevantStats, jobName);
+        const score = scoreAllocation(combinedStats, relevantStats, jobName, equipmentStats);
         allResults.push({
           alloc: {
             ...(branchNames[0] ? { [branchNames[0]]: a.sp } : {}),

@@ -23,6 +23,7 @@ import { EqConstData, EmblemData } from '@/types/data';
 import { StatBlock } from '@/types/calc';
 import { EvaluationContext, ScoredCombination, SimpleStatBlock } from './types';
 import { approximateScore, evaluateCombination, calculateEquipmentStatsFn } from './evaluation';
+import type { ApproximateScoreExtras } from './evaluation';
 import { BEAM_SLOT_ORDER, BEAM_SEARCH_DEFAULTS, SLOT_LABELS_JP } from './constants';
 import { checkMinimumStats, extractEmblemBonusPercent } from './utils';
 import { RelevantStats } from '../skillAnalyzer';
@@ -39,6 +40,21 @@ interface InternalBeamState {
   emblemData?: EmblemData | null;
   runestoneData?: RunestoneCombination;
   tarotCandidate?: TarotCandidate | null;
+  /** 適用済みの%ボーナス（紋章・タロット） */
+  percentBonus?: Record<string, number>;
+}
+
+function mergePercent(
+  a: Record<string, number> | undefined,
+  b: Record<string, number> | undefined,
+): Record<string, number> {
+  const out: Record<string, number> = { ...(a || {}) };
+  if (b) {
+    for (const [k, v] of Object.entries(b)) {
+      if (typeof v === 'number') out[k] = (out[k] || 0) + v;
+    }
+  }
+  return out;
 }
 
 /**
@@ -268,9 +284,13 @@ export async function beamSearchOptimize(
             continue;
           }
 
-          // 近似スコア
+          // 近似スコア（職業補正%を投影）
           const score = approximateScore(
-            newSum, relevantStats, context.mode, context.targetStat, context.minimumStats, context.jobName, context.jobSPBaseStats
+            newSum, relevantStats, context.mode, context.targetStat, context.minimumStats, context.jobName, context.jobSPBaseStats,
+            {
+              jobBonusPercent: context.jobBonusPercent as Record<string, number> | undefined,
+              percentBonus: state.percentBonus,
+            },
           );
 
           nextStates.push({
@@ -282,6 +302,7 @@ export async function beamSearchOptimize(
             emblemData: state.emblemData,
             runestoneData: state.runestoneData,
             tarotCandidate: state.tarotCandidate,
+            percentBonus: state.percentBonus,
           });
         }
       }
@@ -332,15 +353,19 @@ export async function beamSearchOptimize(
         const emblemBonus = extractEmblemBonusPercent(emblem);
 
         for (const runeComb of topRunestones) {
-          // 紋章は%ボーナスなので近似的にボーナス値をそのまま加算
-          const newSum = addStats(state.dependentStatsSum, emblemBonus as Record<string, number>);
-
-          // ルーンストーンボーナスも加算
+          // 紋章は%ボーナス。近似スコアには乗算枠として渡す（SpellRefactor用）。
+          // ルーンストーンは絶対値なのでsumに加算する。
           const runeBonus = runeComb.totalBonus || {};
-          const withRune = addStats(newSum, runeBonus);
+          const withRune = addStats(state.dependentStatsSum, runeBonus);
+          const newPercent = mergePercent(state.percentBonus, emblemBonus as Record<string, number>);
 
           const score = approximateScore(
-            withRune, relevantStats, context.mode, context.targetStat, context.minimumStats
+            withRune, relevantStats, context.mode, context.targetStat, context.minimumStats,
+            context.jobName, context.jobSPBaseStats,
+            {
+              jobBonusPercent: context.jobBonusPercent as Record<string, number> | undefined,
+              percentBonus: newPercent,
+            },
           );
 
           nextStates.push({
@@ -350,6 +375,7 @@ export async function beamSearchOptimize(
             completedSlots: [...state.completedSlots, 'emblem'],
             emblemData: emblem,
             runestoneData: runeComb,
+            percentBonus: newPercent,
           });
         }
       }
@@ -392,18 +418,24 @@ export async function beamSearchOptimize(
     for (const state of beamStates) {
       for (const tarot of pool.tarot) {
         const tarotBonus = tarot.totalBonus as Record<string, number>;
-        const newSum = addStats(state.dependentStatsSum, tarotBonus);
+        // タロットtotalBonusは%ボーナス（紋章と同じ乗算枠）
+        const newPercent = mergePercent(state.percentBonus, tarotBonus);
 
         const score = approximateScore(
-          newSum, relevantStats, context.mode, context.targetStat, context.minimumStats
+          state.dependentStatsSum, relevantStats, context.mode, context.targetStat, context.minimumStats,
+          context.jobName, context.jobSPBaseStats,
+          {
+            jobBonusPercent: context.jobBonusPercent as Record<string, number> | undefined,
+            percentBonus: newPercent,
+          },
         );
 
         nextStates.push({
           ...state,
-          dependentStatsSum: newSum,
           approximateScore: score,
           completedSlots: [...state.completedSlots, 'tarot'],
           tarotCandidate: tarot,
+          percentBonus: newPercent,
         });
       }
     }
@@ -554,13 +586,26 @@ export async function beamSearchOptimize(
 
   const rebalancedResults: ScoredCombination[] = [];
 
-  // 代替ルーンストーン候補（上位N件、ソート済み前提）
-  const altRunestones = runestoneCombs.slice(0, Math.min(8, runestoneCombs.length));
+  // refinementCount<25 は非primary SPの短縮版→ EX post-optも短縮する
+  const isPrimarySP = refinementCount >= 25;
 
-  for (const result of deduplicated) {
+  // 代替ルーンストーン候補（上位N件、ソート済み前提）
+  // 上位3件のdedup結果にはより多くの代替ルーンを試し、残りは少数に絞って高速化。
+  // 非primary SPでは全体を2件に絞る。
+  const topAltCount = isPrimarySP ? 6 : 2;
+  const lowAltCount = isPrimarySP ? 2 : 1;
+  const topAltRunestones = runestoneCombs.slice(0, Math.min(topAltCount, runestoneCombs.length));
+  const lowAltRunestones = runestoneCombs.slice(0, Math.min(lowAltCount, runestoneCombs.length));
+
+  for (let dedupIdx = 0; dedupIdx < deduplicated.length; dedupIdx++) {
+    const result = deduplicated[dedupIdx];
     const br = result as any;
     let best = result;
     let bestRuneData = br._runestoneData;
+
+    // 上位3件は多くの代替ルーンを試行し、残りは最小限に
+    const altRunestones = dedupIdx < 3 ? topAltRunestones : lowAltRunestones;
+    const maxIter = isPrimarySP ? (dedupIdx < 3 ? 3 : 2) : (dedupIdx < 2 ? 2 : 1);
 
     // 複数ルーンストーン候補 × 構成最適化を同時探索
     // Beam Searchはequipment→runestone順のため、equipment確定後に
@@ -595,8 +640,8 @@ export async function beamSearchOptimize(
       current = { ...current, score: baseEv.score, originalScore: baseEv.originalScore,
         stats: baseEv.stats, meetsMinimum: baseEv.meetsMinimum };
 
-      // 最大3反復の局所探索（各反復で全スロットの構成を再検討）
-      for (let iter = 0; iter < 3; iter++) {
+      // 局所探索（各反復で全スロットの構成を再検討）
+      for (let iter = 0; iter < maxIter; iter++) {
         let foundImprovement = false;
 
         for (const slot of equipSlots) {

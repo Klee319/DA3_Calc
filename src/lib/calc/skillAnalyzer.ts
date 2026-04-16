@@ -1006,6 +1006,22 @@ export function analyzeSkillDependenciesV2(
     }
   }
 
+  // SpellRefactor特殊処理: P=Mが最適のためMagicもPowerも常に依存ステに含める。
+  // 感度計算でP=M plateau時にMagic感度が0になると、紋章/ルーン/EX選択が片寄る。
+  const jobNameLc = (fullParams.jobName || '').toLowerCase();
+  if (fullParams.jobName === 'SpellRefactor' || fullParams.jobName === 'スペルリファクター' ||
+      jobNameLc === 'spellrefactor') {
+    result.directStats.add('Power');
+    result.directStats.add('Magic');
+    // 係数が未設定なら Power と同等の重みを付与（EX等の優先度決定に使用）
+    if ((result.statCoefficients!['Magic'] ?? 0) === 0) {
+      result.statCoefficients!['Magic'] = result.statCoefficients!['Power'] ?? 1.6;
+    }
+    if ((result.statCoefficients!['Power'] ?? 0) === 0) {
+      result.statCoefficients!['Power'] = 1.6;
+    }
+  }
+
   // 間接依存ステータスを設定（紋章%ボーナス対象）
   const percentBonusStats: InternalStatKey[] = ['Power', 'Magic', 'HP', 'Mind', 'Agility', 'Dex', 'CritDamage', 'Defense'];
   for (const stat of percentBonusStats) {

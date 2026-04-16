@@ -30,7 +30,7 @@ import {
   normalizeSkillId,
   RelevantStats,
 } from '../skillAnalyzer';
-import { calculateAllJobStats, calculateBranchBonus } from '../jobCalculator';
+import { calculateAllJobStats, calculateBranchBonus, convertToSPTree } from '../jobCalculator';
 import {
   DEFAULT_STATS,
   DEFAULT_WEAPON_PARAMS,
@@ -310,6 +310,24 @@ export async function optimizeEquipment(
         }
       }
       context.jobSPBaseStats = baseStats;
+
+      // 職業補正%（例: SpellRefactor の Power+4%, Magic+4%）を近似スコアに投影するため
+      // contextに設定する。Beam Searchで装備選択時のP/M比率計算に効く。
+      try {
+        const spTree = convertToSPTree(jobSPData);
+        if (spTree.jobCorrection) {
+          context.jobBonusPercent = {
+            Power: spTree.jobCorrection.Power ?? 0,
+            Magic: spTree.jobCorrection.Magic ?? 0,
+            HP: spTree.jobCorrection.HP ?? 0,
+            Mind: spTree.jobCorrection.Mind ?? 0,
+            Agility: spTree.jobCorrection.Agility ?? 0,
+            Dex: spTree.jobCorrection.Dex ?? 0,
+            CritDamage: spTree.jobCorrection.CritDamage ?? 0,
+            Defense: spTree.jobCorrection.Defense ?? 0,
+          };
+        }
+      } catch { /* non-fatal */ }
     } catch (e) {
       console.warn('jobSPBaseStats計算失敗:', e instanceof Error ? e.message : e);
     }
@@ -347,7 +365,26 @@ export async function optimizeEquipment(
   // === 複数SP配分で並行探索（SP⇔装備の相互依存を解決） ===
   const userSP = options?.spAllocation || {};
   const maxSP = (options?.jobMaxLevel || 100) * 2;
-  const topSPAllocations = getTopSPAllocations(userSP, jobSPData, maxSP, relevantStats, options?.jobName, 3);
+
+  // 装備プールから平均ステータス推定を算出（SpellRefactorのP=Mバランス判定用）
+  const avgEquipmentStats: Record<string, number> = {};
+  try {
+    const slotPools = [pool.weapon, pool.head, pool.body, pool.leg, pool.accessory1, pool.accessory2];
+    const statKeys = ['Power', 'Magic', 'CritDamage', 'Dex', 'HP', 'Mind', 'Agility', 'Defense'];
+    for (const slotPool of slotPools) {
+      if (slotPool.length === 0) continue;
+      const topCandidate = slotPool[0];
+      if (!topCandidate.configurations.length) continue;
+      const stats = calculateEquipmentStatsFn(topCandidate, 0, gameData.eqConst, relevantStats);
+      for (const key of statKeys) {
+        if (typeof stats[key] === 'number') {
+          avgEquipmentStats[key] = (avgEquipmentStats[key] || 0) + stats[key];
+        }
+      }
+    }
+  } catch { /* estimate failure is non-fatal */ }
+
+  const topSPAllocations = getTopSPAllocations(userSP, jobSPData, maxSP, relevantStats, options?.jobName, 3, avgEquipmentStats);
 
   const useBeamSearch = !useExhaustiveSearch;
 
@@ -477,7 +514,15 @@ export async function optimizeEquipment(
   let prunedEmblems = 0;
   let prunedRunestones = 0;
 
-  const totalIterations = runestoneCombs.length * Math.max(emblemsForSearch.length, 1);
+  // 大規模な rune × emblem 探索は時間を圧迫するため上位 N 件に制限。
+  // Beam Search＋EX事後最適化で既に網羅探索をしているため、追加のgreedyは
+  // 主に多様な解の生成とlocal探索目的。Beamで取りこぼした構成を補完する程度で十分。
+  const MAX_RUNE_COMBS_FOR_ENGINE = 3;
+  const MAX_EMBLEMS_FOR_ENGINE = 3;
+  const runesForEngine = runestoneCombs.slice(0, MAX_RUNE_COMBS_FOR_ENGINE);
+  const emblemsForEngine = emblemsForSearch.slice(0, MAX_EMBLEMS_FOR_ENGINE);
+
+  const totalIterations = runesForEngine.length * Math.max(emblemsForEngine.length, 1);
   let completedIterations = 0;
 
   // 探索開始の進捗を表示
@@ -485,32 +530,32 @@ export async function optimizeEquipment(
     'greedy',
     30,
     100,
-    `ルーン${runestoneCombs.length}個 × 紋章${emblemsForSearch.length}個 の探索を開始...`
+    `ルーン${runesForEngine.length}個 × 紋章${emblemsForEngine.length}個 の探索を開始...`
   );
 
-  for (let runeIndex = 0; runeIndex < runestoneCombs.length; runeIndex++) {
-    const runeComb = runestoneCombs[runeIndex];
+  for (let runeIndex = 0; runeIndex < runesForEngine.length; runeIndex++) {
+    const runeComb = runesForEngine[runeIndex];
     const runeContext = { ...context, runestoneBonus: runeComb.totalBonus };
 
     if (enableRunestoneSearch && globalBestScore > 0 && runeIndex > 5) {
       const runeContribution = Object.values(runeComb.totalBonus).reduce((sum: number, v) => sum + (v as number || 0), 0);
-      const bestRuneContribution = Object.values(runestoneCombs[0].totalBonus).reduce((sum: number, v) => sum + (v as number || 0), 0);
+      const bestRuneContribution = Object.values(runesForEngine[0].totalBonus).reduce((sum: number, v) => sum + (v as number || 0), 0);
       if (runeContribution < bestRuneContribution * 0.5) {
         prunedRunestones++;
-        completedIterations += Math.max(emblemsForSearch.length, 1);
+        completedIterations += Math.max(emblemsForEngine.length, 1);
         continue;
       }
     }
 
-    if (emblemsForSearch.length > 0) {
+    if (emblemsForEngine.length > 0) {
       let emblemIdx = 0;
-      for (const emblem of emblemsForSearch) {
+      for (const emblem of emblemsForEngine) {
         emblemIdx++;
         completedIterations++;
 
         const progressPercent = Math.floor((completedIterations / totalIterations) * 50) + 30;
         if (completedIterations % Math.max(1, Math.floor(totalIterations / 20)) === 0) {
-          reportProgress('local_search', progressPercent, 100, `ルーン${runeIndex + 1}/${runestoneCombs.length} × 紋章${emblemIdx}/${emblemsForSearch.length}`, globalBestOriginalScore, currentBestSolution);
+          reportProgress('local_search', progressPercent, 100, `ルーン${runeIndex + 1}/${runesForEngine.length} × 紋章${emblemIdx}/${emblemsForEngine.length}`, globalBestOriginalScore, currentBestSolution);
         }
 
         if (emblemIdx % 5 === 0) {
@@ -552,10 +597,10 @@ export async function optimizeEquipment(
             continue;
           }
 
-          const solutionsToImprove = multiStartSolutions.slice(0, 2);
+          const solutionsToImprove = multiStartSolutions.slice(0, 1);
           for (const initialSolution of solutionsToImprove) {
             const improvedSolution = await localSearchAsync(
-              initialSolution, pool, emblemContext, gameData.eqConst, 50, contextKey
+              initialSolution, pool, emblemContext, gameData.eqConst, 20, contextKey
             );
 
             if (improvedSolution.score > 0) {
