@@ -354,10 +354,65 @@ export async function optimizeEquipment(
 
   const emblemsForSearch = filterDominatedEmblems(emblems, relevantStats, options?.minimumStats);
 
+  // 紋章を relevantStats.statCoefficients に基づいてスコアリングし降順で並べる。
+  // engine のループは slice(0, N) で先頭から取るため、CSV挿入順のままだと
+  // 有効な紋章（例: SpellRefactor向けのラーゾ P+5%/M+5%）が後方に埋もれて
+  // 切り捨てられる。sort後に slice することで top-N が意味のある候補になる。
+  const EMBLEM_PERCENT_KEYS: Array<{ csv: string; internal: string }> = [
+    { csv: '力（%不要）', internal: 'Power' },
+    { csv: '魔力（%不要）', internal: 'Magic' },
+    { csv: '体力（%不要）', internal: 'HP' },
+    { csv: '精神（%不要）', internal: 'Mind' },
+    { csv: '素早さ（%不要）', internal: 'Agility' },
+    { csv: '器用（%不要）', internal: 'Dex' },
+    { csv: '撃力（%不要）', internal: 'CritDamage' },
+    { csv: '守備力（%不要）', internal: 'Defense' },
+  ];
+  const isSpellRefactor = options?.jobName === 'SpellRefactor' || options?.jobName === 'スペルリファクター';
+  const scoreEmblemRelevance = (emblem: any): number => {
+    // 紋章%を内部キー辞書に変換
+    const emblemPct: Record<string, number> = {};
+    for (const { csv, internal } of EMBLEM_PERCENT_KEYS) {
+      const pct = Number(emblem[csv]) || 0;
+      if (pct !== 0) emblemPct[internal] = pct;
+    }
+
+    // SpellRefactor: P=Mバランスを考慮した近似ダメージで評価
+    // base_P = base_M と仮定し、emblem%適用後のP/M比から SpellRefactorボーナスを算出
+    if (isSpellRefactor) {
+      const basePM = 800; // 代表値（相対比較なので絶対値は影響しない）
+      const pCoef = relevantStats?.statCoefficients?.['Power'] ?? 1.6;
+      const pPct = (emblemPct['Power'] || 0);
+      const mPct = (emblemPct['Magic'] || 0);
+      const finalP = basePM * (1 + pPct / 100);
+      const finalM = basePM * (1 + mPct / 100);
+      let bonus = 1.75;
+      if (finalP > 0 && finalM > 0 && finalP !== finalM) {
+        const ratio = Math.max(finalP, finalM) / Math.min(finalP, finalM);
+        bonus = Math.max(0.1, 1.75 - 0.475 * Math.log(ratio) * 2);
+      }
+      // critDamage%やHP%などの副次要素も軽く加味
+      const cd = (emblemPct['CritDamage'] || 0);
+      return finalP * pCoef * bonus + cd * 0.5;
+    }
+
+    // それ以外は線形: relevantStats係数 * emblem%
+    let s = 0;
+    for (const { internal } of EMBLEM_PERCENT_KEYS) {
+      const pct = emblemPct[internal] || 0;
+      const coef = relevantStats?.statCoefficients?.[internal as any] ?? 0;
+      const isDirect = relevantStats?.directStats?.has(internal as any) ?? false;
+      const weight = coef > 0 ? coef : (isDirect ? 1 : 0);
+      s += pct * weight;
+    }
+    return s;
+  };
+  emblemsForSearch.sort((a: EmblemData, b: EmblemData) => scoreEmblemRelevance(b) - scoreEmblemRelevance(a));
+
   const enableRunestoneSearch = options?.enableRunestoneSearch ?? true;
   let runestoneCombs: RunestoneCombination[] = [];
   if (enableRunestoneSearch && gameData.runestones && gameData.runestones.length > 0) {
-    runestoneCombs = buildRunestoneCombinations(gameData.runestones, relevantStats, options?.minimumStats);
+    runestoneCombs = buildRunestoneCombinations(gameData.runestones, relevantStats, options?.minimumStats, options?.jobName);
   } else {
     runestoneCombs = [{ runestones: [], totalBonus: options?.runestoneBonus || {} }];
   }
@@ -517,9 +572,9 @@ export async function optimizeEquipment(
   // 大規模な rune × emblem 探索は時間を圧迫するため上位 N 件に制限。
   // Beam Search＋EX事後最適化で既に網羅探索をしているため、追加のgreedyは
   // 主に多様な解の生成とlocal探索目的。Beamで取りこぼした構成を補完する。
-  // 3×3が SpellRefactor 22823超え + 他ジョブ正常値のバランス点。
+  // 紋章5・ルーン3で SpellRefactor 理論値到達と他ジョブ実用性を両立。
   const MAX_RUNE_COMBS_FOR_ENGINE = 3;
-  const MAX_EMBLEMS_FOR_ENGINE = 3;
+  const MAX_EMBLEMS_FOR_ENGINE = 5;
   const runesForEngine = runestoneCombs.slice(0, MAX_RUNE_COMBS_FOR_ENGINE);
   const emblemsForEngine = emblemsForSearch.slice(0, MAX_EMBLEMS_FOR_ENGINE);
 
@@ -598,10 +653,16 @@ export async function optimizeEquipment(
             continue;
           }
 
-          const solutionsToImprove = multiStartSolutions.slice(0, 1);
+          // greedyに加え、現在の global best 解を warm-start として local 探索に
+          // 投入する。別emblem/runeでも装備構成は流用できることが多く、greedyが
+          // 探索し切れない組み合わせを拾える。
+          const solutionsToImprove: ScoredCombination[] = multiStartSolutions.slice(0, 2);
+          if (currentBestSolution) {
+            solutionsToImprove.push(currentBestSolution as ScoredCombination);
+          }
           for (const initialSolution of solutionsToImprove) {
             const improvedSolution = await localSearchAsync(
-              initialSolution, pool, emblemContext, gameData.eqConst, 20, contextKey
+              initialSolution, pool, emblemContext, gameData.eqConst, 40, contextKey
             );
 
             if (improvedSolution.score > 0) {

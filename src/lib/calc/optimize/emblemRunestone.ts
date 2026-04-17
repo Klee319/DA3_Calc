@@ -140,7 +140,8 @@ export function calculateRunestoneBonus(runestones: RunestoneData[]): Record<str
 export function buildRunestoneCombinations(
   runestones: RunestoneData[],
   relevantStats?: RelevantStats,
-  minimumStats?: MinimumStatRequirements
+  minimumStats?: MinimumStatRequirements,
+  jobName?: string,
 ): RunestoneCombination[] {
   if (!runestones || runestones.length === 0) {
     return [{ runestones: [], totalBonus: {} }];
@@ -313,19 +314,30 @@ export function buildRunestoneCombinations(
     }
 
     // 依存ステの重み付きスコアで降順ソート（Beam Searchが上位N件を使うため重要）
+    // SpellRefactor: P=Mバランスを加味したスコア（単軸大増し > 均等割り を防ぐ）
     if (relevantStats?.statCoefficients) {
       const coeffs = relevantStats.statCoefficients;
-      nonDominated.sort((a, b) => {
-        const scoreA = Object.entries(a.totalBonus).reduce((sum, [key, val]) => {
-          const c = coeffs[key] ?? 0;
-          return sum + (val as number) * (c > 0 ? c : 0);
+      const isSR = jobName === 'SpellRefactor' || jobName === 'スペルリファクター';
+      const scoreComb = (c: RunestoneCombination): number => {
+        const t = c.totalBonus as Record<string, number>;
+        if (isSR) {
+          const basePM = 800;
+          const pFinal = basePM + (t['Power'] || 0);
+          const mFinal = basePM + (t['Magic'] || 0);
+          let bonus = 1.75;
+          if (pFinal > 0 && mFinal > 0 && pFinal !== mFinal) {
+            const r = Math.max(pFinal, mFinal) / Math.min(pFinal, mFinal);
+            bonus = Math.max(0.1, 1.75 - 0.475 * Math.log(r) * 2);
+          }
+          const cd = (t['CritDamage'] || 0);
+          return (pFinal * 1.6 + cd * 2.1) * bonus;
+        }
+        return Object.entries(t).reduce((sum, [key, val]) => {
+          const coef = coeffs[key] ?? 0;
+          return sum + (val as number) * (coef > 0 ? coef : 0);
         }, 0);
-        const scoreB = Object.entries(b.totalBonus).reduce((sum, [key, val]) => {
-          const c = coeffs[key] ?? 0;
-          return sum + (val as number) * (c > 0 ? c : 0);
-        }, 0);
-        return scoreB - scoreA;
-      });
+      };
+      nonDominated.sort((a, b) => scoreComb(b) - scoreComb(a));
     }
 
     return nonDominated;
@@ -334,17 +346,27 @@ export function buildRunestoneCombinations(
   // ソートなしPareto枝刈りなしの場合も重み付きソート
   if (relevantStats?.statCoefficients) {
     const coeffs = relevantStats.statCoefficients;
-    combinations.sort((a, b) => {
-      const scoreA = Object.entries(a.totalBonus).reduce((sum, [key, val]) => {
-        const c = coeffs[key] ?? 0;
-        return sum + (val as number) * (c > 0 ? c : 0);
+    const isSR = jobName === 'SpellRefactor' || jobName === 'スペルリファクター';
+    const scoreComb = (c: RunestoneCombination): number => {
+      const t = c.totalBonus as Record<string, number>;
+      if (isSR) {
+        const basePM = 800;
+        const pFinal = basePM + (t['Power'] || 0);
+        const mFinal = basePM + (t['Magic'] || 0);
+        let bonus = 1.75;
+        if (pFinal > 0 && mFinal > 0 && pFinal !== mFinal) {
+          const r = Math.max(pFinal, mFinal) / Math.min(pFinal, mFinal);
+          bonus = Math.max(0.1, 1.75 - 0.475 * Math.log(r) * 2);
+        }
+        const cd = (t['CritDamage'] || 0);
+        return (pFinal * 1.6 + cd * 2.1) * bonus;
+      }
+      return Object.entries(t).reduce((sum, [key, val]) => {
+        const coef = coeffs[key] ?? 0;
+        return sum + (val as number) * (coef > 0 ? coef : 0);
       }, 0);
-      const scoreB = Object.entries(b.totalBonus).reduce((sum, [key, val]) => {
-        const c = coeffs[key] ?? 0;
-        return sum + (val as number) * (c > 0 ? c : 0);
-      }, 0);
-      return scoreB - scoreA;
-    });
+    };
+    combinations.sort((a, b) => scoreComb(b) - scoreComb(a));
   }
 
   return combinations;
